@@ -204,6 +204,7 @@ function renderDay() {
   sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet()">Abbrechen</button><button class="pill sm green" onclick="saveDay()">Speichern</button></div>
   <h2>${WD[parseYmd(edit.d).getDay()]}, ${dmy(edit.d)}</h2>
   ${note(x) ? `<p class="badge">${esc(note(x))}</p>` : ''}
+  ${edit.d < data.settings.since ? `<p class="badge">Vor deinem Startdatum (${dmy(data.settings.since)}): keine Sollstunden. Änderbar unter Setup → Aufzeichnung seit.</p>` : ''}
   <div class="label">Arbeitszeiten (von – bis)</div>
   <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${r.s}"><span class="muted">bis</span><input type="time" class="ee" value="${r.e}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>`).join('')}</div>
   <p class="hint">Endzeit leer lassen heißt: läuft noch (nur für heute).</p>
@@ -240,6 +241,8 @@ function saveDay() {
   const others = data.sessions.filter(x => ymd(new Date(x.s)) !== edit.d);
   if (out.filter(x => x.e == null).length + others.filter(x => x.e == null).length > 1) return alert('Es kann nur eine laufende Zeit geben.');
   data.sessions = others.concat(out);
+  const since = data.settings.since;
+  if (out.length && edit.d < since && confirm(`Der ${dmy(edit.d)} liegt vor deinem Startdatum (${dmy(since)}), dafür zählen noch keine Sollstunden.\n\nSoll die Aufzeichnung schon am ${dmy(edit.d)} beginnen?`)) data.settings.since = edit.d;
   save(); closeSheet(); render();
 }
 
