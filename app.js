@@ -1,0 +1,405 @@
+// UI of the Stempeluhr web app. Calculations live in logic.js, data lives in localStorage.
+const KEY = 'stempeluhr-v1';
+const WD = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const TYPES = { urlaub: 'Urlaub', krank: 'Krank', feiertag: 'Feiertag', reduzierung: 'Stundenreduzierung' };
+const ICON = {
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4M12 12H3"/></svg>',
+  cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 14h.01M12 14h.01M16 14h.01" stroke-width="2.6" stroke-linecap="round"/></svg>',
+};
+const $ = s => document.querySelector(s);
+const view = $('#view');
+const pad = n => String(n).padStart(2, '0');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const today = () => ymd(new Date());
+
+let data = load();
+let tab = 'start';
+let weekStart = monday(today());
+let month = { y: new Date().getFullYear(), m: new Date().getMonth() };
+let edit = null;
+
+function normalize(d) {
+  const def = { name: '', soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: '', startBalance: 0, since: today(), vacation: 30 };
+  return {
+    sessions: (d.sessions || []).filter(x => typeof x.s === 'number'),
+    absences: d.absences || [],
+    settings: { ...def, ...d.settings },
+  };
+}
+function load() {
+  try { return normalize(JSON.parse(localStorage.getItem(KEY)) || {}); } catch { return normalize({}); }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { alert('Speichern fehlgeschlagen: ' + e.message); }
+}
+const calc = () => makeCalc(data, Date.now());
+
+// ---------- formatting ----------
+function hm(ms, signed) {
+  const m = Math.round(Math.abs(ms) / MIN);
+  return (ms < 0 && m ? '-' : signed && m ? '+' : '') + pad(Math.floor(m / 60)) + ':' + pad(m % 60);
+}
+function dur(ms, signed) {
+  const m = Math.round(Math.abs(ms) / MIN), h = Math.floor(m / 60);
+  const txt = [h && h + ' Std.', (m % 60 || !h) && (m % 60) + ' Min.'].filter(Boolean).join(' ');
+  return (ms < 0 && m ? '-' : signed && m ? '+' : '') + txt;
+}
+const clockStr = ms => { const s = Math.floor(ms / 1000); return pad(Math.floor(s / 3600)) + ':' + pad(Math.floor(s / 60) % 60) + ':' + pad(s % 60); };
+const tod = ms => { const d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const dmy = s => s.slice(8) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4);
+const cls = ms => Math.round(ms / MIN) < 0 ? 'red' : Math.round(ms / MIN) > 0 ? 'green' : '';
+const span = (x, dash = ' – ') => x.sess.map(s => tod(s.s) + dash + (s.e ? tod(s.e) : 'läuft')).join(', ');
+const minOfDay = ms => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
+const avgTime = list => { if (!list.length) return '–'; const m = Math.round(list.reduce((a, b) => a + b, 0) / list.length); return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
+const sum = (list, k) => list.reduce((a, x) => a + x[k], 0);
+const countAbs = (days, type) => days.filter(x => x.absence?.type === type && x.workday).length;
+const workdays = (c, from, to) => from <= to ? c.range(from, to).filter(x => x.workday).length : 0;
+
+function note(x) {
+  const a = x.absence;
+  return [x.holiday, a && TYPES[a.type] + (a.type === 'reduzierung' ? ` (-${a.hours} Std.)` : '') + (a.comment ? ': ' + a.comment : '')].filter(Boolean).join(', ');
+}
+function stats(days) {
+  const w = days.filter(x => x.sess.length);
+  return { start: avgTime(w.map(x => minOfDay(x.sess[0].s))), end: avgTime(w.filter(x => x.sess.at(-1).e).map(x => minOfDay(x.sess.at(-1).e))) };
+}
+
+// ---------- navigation ----------
+function render() {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  ({ start: renderStart, week: renderWeek, month: renderMonth, setup: renderSetup })[tab]();
+}
+function go(t) { tab = t; render(); scrollTo(0, 0); }
+function sheet(html) {
+  $('#sheet').innerHTML = `<div class="backdrop" onclick="closeSheet()"></div><div class="panel"><div class="grab"></div>${html}</div>`;
+  $('#sheet').hidden = false;
+}
+function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; }
+
+// ---------- start ----------
+function renderStart() {
+  view.innerHTML = `
+  <div class="clock" id="clock">00:00:00</div>
+  <div class="card">
+    <div class="today-top">
+      <div><div class="pct" id="pct">0 %</div><div class="muted">Heute</div></div>
+      <div class="barwrap"><div class="bar"><div class="fill" id="fill"></div></div>
+        <div class="barlabels"><span id="b0"></span><span id="b1"></span><span id="b2"></span></div></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><b id="finish"></b><span>Fertig um</span></div>
+      <div class="tile"><b id="tdiff"></b><span>Differenz</span></div>
+      <div class="tile"><b>${hm(data.settings.pause * MIN)}</b><span>Pause</span></div>
+    </div>
+    <div class="sessions" id="tsess"></div>
+  </div>
+  <div class="two"><button class="pill" onclick="openOverview()">${ICON.chart} Übersicht</button><button class="pill" onclick="openAbsences()">${ICON.cal} Abwesenheiten</button></div>
+  <button id="toggle" class="big" onclick="toggle()">Start</button>`;
+  updateStart();
+}
+function updateStart() {
+  if (!$('#clock')) return;
+  const now = Date.now(), t = calc().day(today());
+  const P = data.settings.pause * MIN, pct = t.soll ? Math.floor(t.net / t.soll * 100) : 0;
+  const done = t.soll && t.net >= t.soll;
+  const finish = now + Math.max(0, t.soll + P - t.gross), first = t.sess[0]?.s ?? now;
+  $('#clock').textContent = clockStr(t.gross);
+  $('#pct').textContent = pct + ' %';
+  $('#fill').style.width = Math.min(100, pct) + '%';
+  $('#b0').textContent = tod(first);
+  $('#b1').textContent = tod((first + finish) / 2);
+  $('#b2').textContent = tod(finish);
+  $('#finish').textContent = !t.soll ? '–' : done ? 'Fertig' : tod(finish);
+  $('#tdiff').textContent = hm(t.diff, true);
+  $('#tsess').innerHTML = [note(t) && `<span class="tag">${esc(note(t))}</span>`, t.sess.length ? 'Heute: ' + span(t) + ' · netto ' + dur(t.net) : 'Heute noch nicht gestempelt'].filter(Boolean).join('<br>');
+  const running = data.sessions.some(x => x.e == null);
+  $('#toggle').textContent = running ? 'Stop' : 'Start';
+  $('#toggle').classList.toggle('stop', running);
+}
+function toggle() {
+  const run = data.sessions.find(x => x.e == null);
+  if (run) run.e = Date.now(); else data.sessions.push({ s: Date.now(), e: null });
+  save(); updateStart();
+}
+
+function openOverview() {
+  const c = calc(), t = today(), st = data.settings, y = t.slice(0, 4);
+  const all = c.range(st.since, t), s = stats(all);
+  const gestern = c.balance(addDays(t, -1)), aktuell = c.balance(t);
+  sheet(`
+  <div class="ot-grid">
+    <div class="ot ${cls(gestern)}"><b>${hm(gestern, true)}</b><span>Überstunden gestern</span></div>
+    <div class="ot ${cls(aktuell)}"><b>${hm(aktuell, true)}</b><span>Überstunden aktuell</span></div>
+    <div class="ot"><b>${s.start}</b><span>Ø Startzeit</span></div>
+    <div class="ot"><b>${s.end}</b><span>Ø Endzeit</span></div>
+  </div>
+  <p class="hint">„Aktuell“ rechnet die volle Sollzeit von heute schon mit ein.</p>
+  <p class="center">Seit Beginn der Aufzeichnung hast du ${dur(sum(all, 'net'))} gearbeitet (nach Abzug von ${st.pause} Min. Pause pro Tag).</p>
+  <div class="group">
+    <div class="row"><span>Urlaub ${y}</span><span>${countAbs(c.range(y + '-01-01', y + '-12-31'), 'urlaub')} von ${st.vacation} Tagen</span></div>
+    <div class="row"><span>Krankheitstage ${y}</span><span>${countAbs(c.range(y + '-01-01', t), 'krank')}</span></div>
+    <div class="row"><span>Aufzeichnung seit</span><span>${dmy(st.since)}</span></div>
+  </div>
+  <div class="center"><button class="round" onclick="closeSheet()" aria-label="Schließen">✕</button></div>`);
+}
+
+// ---------- absences ----------
+function openAbsences() {
+  const c = calc(), list = data.absences.slice().sort((a, b) => b.from.localeCompare(a.from));
+  sheet(`<div class="sheet-head"><h2>Abwesenheiten</h2><button class="pill sm" onclick="closeSheet()">Fertig</button></div>
+  <button class="pill wide" onclick="absenceForm()">+ Abwesenheit hinzufügen</button>
+  ${list.length ? `<div class="group">${list.map(a => `<div class="row"><div><b>${TYPES[a.type]}</b>${a.type === 'reduzierung' ? ` -${a.hours} Std./Tag` : ''}
+    <div class="muted small">${dmy(a.from)}${a.to !== a.from ? ' – ' + dmy(a.to) : ''} · ${workdays(c, a.from, a.to)} Arbeitstage${a.comment ? ' · ' + esc(a.comment) : ''}</div></div>
+    <button class="del" onclick="delAbsence('${a.id}')">Löschen</button></div>`).join('')}</div>`
+    : '<p class="muted center">Noch keine Abwesenheiten eingetragen.</p>'}`);
+}
+function absenceForm(from = today()) {
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="openAbsences()">Abbrechen</button><button class="pill sm green" onclick="saveAbsence()">Speichern</button></div>
+  <h2 id="atitle"></h2>
+  <div class="label">Abwesenheitstyp</div>
+  <div class="group">
+    <label class="row"><span>Typ</span><select id="atype" onchange="absUpdate()">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+    <label class="row" id="ahrow" hidden><span>Stunden weniger pro Tag</span><input id="ahours" type="number" inputmode="decimal" step="0.25" min="0" value="4"></label>
+  </div>
+  <div class="label">Zeitraum</div>
+  <div class="group">
+    <label class="row"><span>Start</span><input id="afrom" type="date" value="${from}" onchange="absUpdate(true)"></label>
+    <label class="row"><span>Ende</span><input id="ato" type="date" value="${from}" onchange="absUpdate()"></label>
+  </div>
+  <div class="hint" id="acount"></div>
+  <div class="label">Kommentar</div>
+  <div class="group"><div class="row"><input id="acomment" class="full" placeholder="Kommentar hinzufügen"></div></div>`);
+  absUpdate();
+}
+function absUpdate(fromChanged) {
+  const t = $('#atype').value, f = $('#afrom'), to = $('#ato');
+  if (fromChanged && to.value < f.value) to.value = f.value;
+  $('#atitle').textContent = TYPES[t] + ' hinzufügen';
+  $('#ahrow').hidden = t !== 'reduzierung';
+  $('#acount').textContent = 'Arbeitstage: ' + (f.value && to.value ? workdays(calc(), f.value, to.value) : 0);
+}
+function saveAbsence() {
+  const from = $('#afrom').value, to = $('#ato').value, type = $('#atype').value, hours = +$('#ahours').value;
+  if (!from || !to || to < from) return alert('Bitte einen gültigen Zeitraum wählen.');
+  if (type === 'reduzierung' && !(hours > 0)) return alert('Bitte die Stunden angeben.');
+  data.absences.push({ id: Date.now().toString(36), type, from, to, hours: type === 'reduzierung' ? hours : 0, comment: $('#acomment').value.trim() });
+  save(); render(); openAbsences();
+}
+function delAbsence(id) {
+  if (!confirm('Abwesenheit löschen?')) return;
+  data.absences = data.absences.filter(a => a.id !== id);
+  save(); render(); openAbsences();
+}
+
+// ---------- day editor ----------
+function openDay(d) {
+  const x = calc().day(d);
+  edit = { d, rows: x.sess.map(s => ({ s: tod(s.s), e: s.e ? tod(s.e) : '' })) };
+  if (!edit.rows.length) edit.rows.push({ s: '', e: '' });
+  renderDay();
+}
+function renderDay() {
+  const x = calc().day(edit.d);
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet()">Abbrechen</button><button class="pill sm green" onclick="saveDay()">Speichern</button></div>
+  <h2>${WD[parseYmd(edit.d).getDay()]}, ${dmy(edit.d)}</h2>
+  ${note(x) ? `<p class="badge">${esc(note(x))}</p>` : ''}
+  <div class="label">Arbeitszeiten (von – bis)</div>
+  <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${r.s}"><span class="muted">bis</span><input type="time" class="ee" value="${r.e}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>`).join('')}</div>
+  <p class="hint">Endzeit leer lassen heißt: läuft noch (nur für heute).</p>
+  <button class="pill wide" onclick="addRow()">+ Zeit hinzufügen</button>
+  <div class="group">
+    <div class="row"><span>Brutto</span><span>${dur(x.gross)}</span></div>
+    <div class="row"><span>Pause (pauschal)</span><span>${dur(x.pause)}</span></div>
+    <div class="row"><span>Netto</span><span>${dur(x.net)}</span></div>
+    <div class="row"><span>Soll</span><span>${dur(x.soll)}</span></div>
+    <div class="row"><span>Differenz</span><span class="${cls(x.diff)}">${dur(x.diff, true)}</span></div>
+  </div>
+  <button class="pill wide" onclick="absenceForm('${edit.d}')">Urlaub / Krank / Feiertag eintragen</button>`);
+}
+function readRows() {
+  edit.rows = [...document.querySelectorAll('.erow')].map(r => ({ s: r.querySelector('.es').value, e: r.querySelector('.ee').value }));
+}
+function addRow() { readRows(); edit.rows.push({ s: '', e: '' }); renderDay(); }
+function delRow(i) { readRows(); edit.rows.splice(i, 1); renderDay(); }
+function at(d, hhmm) { const [h, m] = hhmm.split(':').map(Number), x = parseYmd(d); x.setHours(h, m, 0, 0); return x.getTime(); }
+function saveDay() {
+  readRows();
+  const out = [];
+  for (const r of edit.rows) {
+    if (!r.s) continue;
+    const s = at(edit.d, r.s);
+    if (!r.e) {
+      if (edit.d !== today()) return alert('Bitte für jede Zeit eine Endzeit eintragen.');
+      out.push({ s, e: null }); continue;
+    }
+    const e = at(edit.d, r.e);
+    if (e <= s) return alert('Die Endzeit muss nach der Startzeit liegen.');
+    out.push({ s, e });
+  }
+  const others = data.sessions.filter(x => ymd(new Date(x.s)) !== edit.d);
+  if (out.filter(x => x.e == null).length + others.filter(x => x.e == null).length > 1) return alert('Es kann nur eine laufende Zeit geben.');
+  data.sessions = others.concat(out);
+  save(); closeSheet(); render();
+}
+
+// ---------- week ----------
+function ring(p) {
+  return `<svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="10"/>
+  <circle cx="50" cy="50" r="42" fill="none" stroke="${p >= 100 ? '#8cc63f' : '#d23f5a'}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${Math.min(p, 100) * 2.639} 264" transform="rotate(-90 50 50)"/>
+  <text x="50" y="57" text-anchor="middle" font-size="20" fill="#eee">${p}%</text></svg>`;
+}
+function renderWeek() {
+  const c = calc(), t = today(), days = c.range(weekStart, addDays(weekStart, 6));
+  const net = sum(days, 'net'), soll = sum(days, 'soll'), diff = sum(days.filter(x => x.d <= t), 'diff');
+  view.innerHTML = `
+  <div class="whead">${ring(soll ? Math.round(net / soll * 100) : 0)}
+    <div class="wtitle"><h1>Woche ${isoWeek(weekStart)}</h1><div class="muted">${dmy(weekStart).slice(0, 6)} – ${dmy(addDays(weekStart, 6)).slice(0, 6)}${weekStart.slice(0, 4)}</div></div>
+    <div class="wsum"><b>${dur(net)}</b><div class="${cls(diff)} small">${dur(diff, true)}</div><div class="muted small">bis heute</div></div>
+  </div>
+  <div class="navrow"><button class="pill sm" onclick="moveWeek(-1)">‹</button><button class="pill sm" onclick="weekStart = monday(today()); render()">Heute</button><button class="pill sm" onclick="moveWeek(1)">›</button></div>
+  ${days.map(x => dayRow(x, t)).join('')}`;
+}
+function dayRow(x, t) {
+  const future = x.d > t;
+  const state = x.d === t ? 'today' : x.absence || x.holiday ? 'abs' : x.soll && x.net >= x.soll ? 'ok' : x.soll && !future ? 'miss' : x.net ? 'ok' : '';
+  return `<button class="day ${x.d === t ? 'is-today' : ''} ${x.soll || x.net || note(x) ? '' : 'off'}" onclick="openDay('${x.d}')">
+    <span class="dot ${state}"></span>
+    <span class="dl"><b>${WD[parseYmd(x.d).getDay()]}</b><span class="muted">${dmy(x.d)}${x.sess.length ? ' · ' + span(x) : ''}</span>${note(x) ? `<span class="tag">${esc(note(x))}</span>` : ''}</span>
+    <span class="dr"><b>${x.sess.length || (!future && x.soll) ? dur(x.net) : ''}</b>${!future && (x.soll || x.net) ? `<span class="${cls(x.diff)} small">${dur(x.diff, true)}</span>` : ''}</span>
+  </button>`;
+}
+function moveWeek(n) { weekStart = addDays(weekStart, 7 * n); render(); }
+
+// ---------- month ----------
+const monthBounds = (y, m) => [`${y}-${pad(m + 1)}-01`, ymd(new Date(y, m + 1, 0))];
+function renderMonth() {
+  const c = calc(), t = today(), { y, m } = month, [first, last] = monthBounds(y, m);
+  const days = c.range(first, last), past = days.filter(x => x.d <= t), stand = last < t ? last : t;
+  const weeks = [];
+  for (const x of days) { const k = isoWeek(x.d), w = weeks.at(-1); if (w && w.k === k) w.net += x.net; else weeks.push({ k, net: x.net }); }
+  const max = Math.max(HOUR, ...weeks.map(w => w.net)), s = stats(days), bal = c.balance(stand);
+  const row = (label, val, k = '') => `<div class="row"><span>${label}</span><span class="${k}">${val}</span></div>`;
+  view.innerHTML = `
+  <div class="mhead"><button class="nav" onclick="moveMonth(-1)" aria-label="Vorheriger Monat">‹</button><h1>${MONTHS[m]} ${y}</h1><button class="nav" onclick="moveMonth(1)" aria-label="Nächster Monat">›</button></div>
+  <div class="bars">${weeks.map(w => `<div class="bcol"><span class="bval">${w.net ? (w.net / HOUR).toFixed(1).replace('.', ',') : 0}</span><div class="btrack"><div class="b" style="height:${w.net / max * 100}%"></div></div><span class="muted small">KW ${w.k}</span></div>`).join('')}</div>
+  <div class="group">${row('Bisher geleistete Zeit', dur(sum(past, 'net')))}${row('Sollstunden bis jetzt', dur(sum(past, 'soll')))}${row('Differenz', dur(sum(past, 'diff'), true), cls(sum(past, 'diff')))}</div>
+  <div class="group">${row('Geleistete Zeit', dur(sum(days, 'net')))}${row('Sollstunden', dur(sum(days, 'soll')))}${row('Differenz', dur(sum(days, 'diff'), true), cls(sum(days, 'diff')))}</div>
+  <div class="group"><div class="row head">Durchschnittliche Anfangs- und Endzeiten</div>${row('Start', s.start)}${row('Ende', s.end)}</div>
+  <div class="group">${row('Urlaubstage', countAbs(days, 'urlaub'))}${row('Krankheitstage', countAbs(days, 'krank'))}${row(`Überstundenkonto (${dmy(stand)})`, hm(bal, true), cls(bal))}</div>
+  <button class="big" onclick="exportPdf(${y}, ${m})">PDF exportieren</button>`;
+}
+function moveMonth(n) { const d = new Date(month.y, month.m + n, 1); month = { y: d.getFullYear(), m: d.getMonth() }; render(); }
+
+// ---------- setup ----------
+function renderSetup() {
+  const st = data.settings, now = new Date();
+  view.innerHTML = `<h1 class="center">Einstellungen</h1>
+  <div class="label">Allgemein</div>
+  <div class="group">
+    <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
+    <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
+    <label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${st.vacation}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label>
+  </div>
+  <div class="label">Sollstunden pro Tag</div>
+  <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
+  <div class="label">Überstundenkonto</div>
+  <div class="group">
+    <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
+    <label class="row"><span>Startsaldo</span><input value="${hm(st.startBalance * MIN, true)}" onchange="setBalance(this)"></label>
+  </div>
+  <p class="hint">Startsaldo = dein Stand vor dem Startdatum, z. B. -26:01 aus deiner alten App.</p>
+  <div class="label">Export</div>
+  <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
+  <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
+  <div class="label">Sicherung</div>
+  <div class="group">
+    <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
+    <label class="row"><span>Backup laden</span><input type="file" class="file" accept="application/json,.json" onchange="restore(this)"></label>
+  </div>
+  <p class="hint">Deine Zeiten liegen nur auf diesem Gerät, nicht auf GitHub. Speicher ab und zu ein Backup, z. B. in iCloud Drive.</p>`;
+}
+function setS(k, v) { data.settings[k] = v; save(); }
+function setSoll(i, el) { data.settings.soll[i] = Math.min(24, Math.max(0, +el.value || 0)); el.value = data.settings.soll[i]; save(); }
+function setBalance(el) {
+  const r = el.value.trim().replace('−', '-').match(/^([+-]?)(\d+)(?::(\d{1,2}))?$/);
+  if (r) setS('startBalance', (r[1] === '-' ? -1 : 1) * (+r[2] * 60 + +(r[3] || 0)));
+  else alert('Bitte im Format -26:01 oder 12:30 eingeben.');
+  el.value = hm(data.settings.startBalance * MIN, true);
+}
+function pdfFromSetup() {
+  const [y, m] = $('#pdfmonth').value.split('-').map(Number);
+  if (y && m) exportPdf(y, m - 1);
+}
+
+// ---------- files ----------
+async function deliver(blob, name) {
+  const file = new File([blob], name, { type: blob.type });
+  if (matchMedia('(pointer:coarse)').matches && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') alert('Teilen fehlgeschlagen: ' + e.message); }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+function backup() {
+  deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), `stempeluhr-backup-${today()}.json`);
+}
+function restore(el) {
+  const f = el.files[0];
+  if (!f) return;
+  f.text().then(txt => {
+    const d = JSON.parse(txt);
+    if (!Array.isArray(d.sessions) || !Array.isArray(d.absences) || typeof d.settings !== 'object') throw new Error('keine Stempeluhr-Sicherung');
+    if (!confirm('Backup laden? Die aktuellen Daten auf diesem Gerät werden ersetzt.')) return;
+    data = normalize(d); save(); render(); alert('Backup geladen.');
+  }).catch(e => alert('Backup konnte nicht geladen werden: ' + e.message)).finally(() => { el.value = ''; });
+}
+
+function exportPdf(y, m) {
+  if (!window.jspdf) return alert('Das PDF-Modul ist nicht geladen. Öffne die App einmal mit Internetverbindung.');
+  const c = calc(), t = today(), st = data.settings, [first, last] = monthBounds(y, m);
+  const days = c.range(first, last), stand = last < t ? last : t, past = days.filter(x => x.d <= stand);
+  const doc = new jspdf.jsPDF();
+  doc.setFontSize(16);
+  doc.text(`Arbeitszeitnachweis ${MONTHS[m]} ${y}`, 14, 18);
+  doc.setFontSize(10);
+  if (st.name) doc.text(`Name: ${st.name}`, 14, 25);
+  doc.autoTable({
+    startY: st.name ? 30 : 24,
+    head: [['Datum', 'Tag', 'Von - Bis', 'Brutto', 'Pause', 'Netto', 'Soll', 'Diff.', 'Bemerkung']],
+    body: days.map(x => [
+      dmy(x.d), WD[parseYmd(x.d).getDay()].slice(0, 2), span(x, ' - ').replaceAll(', ', '\n'),
+      x.gross ? hm(x.gross) : '', x.gross ? hm(x.pause) : '', x.gross ? hm(x.net) : '', x.soll ? hm(x.soll) : '',
+      x.d <= stand && (x.soll || x.gross) ? hm(x.diff, true) : '', note(x),
+    ]),
+    styles: { fontSize: 8, cellPadding: 1.4 },
+    headStyles: { fillColor: [70, 45, 30] },
+    didParseCell: h => { if (h.section === 'body' && !days[h.row.index].soll && !days[h.row.index].gross) h.cell.styles.textColor = [150, 150, 150]; },
+  });
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 6, theme: 'plain', tableWidth: 120,
+    styles: { fontSize: 10, cellPadding: 1 }, columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+    body: [
+      ['Sollstunden (Monat)', hm(sum(days, 'soll'))],
+      ['Geleistet (netto)', hm(sum(days, 'net'))],
+      [`Differenz bis ${dmy(stand)}`, hm(sum(past, 'diff'), true)],
+      [`Überstundenkonto (Stand ${dmy(stand)})`, hm(c.balance(stand), true)],
+      ['Urlaubstage', String(countAbs(days, 'urlaub'))],
+      ['Krankheitstage', String(countAbs(days, 'krank'))],
+    ],
+  });
+  doc.setFontSize(8);
+  doc.setTextColor(120);
+  doc.text(`Pause: pauschal ${st.pause} Min. pro Arbeitstag abgezogen. Erstellt am ${dmy(t)}.`, 14, doc.lastAutoTable.finalY + 6);
+  deliver(doc.output('blob'), `Arbeitszeit_${y}-${pad(m + 1)}.pdf`);
+}
+
+// ---------- boot ----------
+render();
+setInterval(() => tab === 'start' && $('#sheet').hidden && updateStart(), 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render(); });
+navigator.storage?.persist?.();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
