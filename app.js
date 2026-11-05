@@ -326,17 +326,26 @@ function renderPay() {
   if (first <= t && t <= last) {
     const ws = monday(t), wd = c.range(ws, t), wSoll = sum(wd, 'soll'), wNet = sum(wd, 'net'), wDiff = wNet - wSoll;
     const base = payMonth(data, y, m), wr = base.brutto ? base.netto / base.brutto : 0;
-    const diffNet = payMonth(data, y, m, wDiff / HOUR).netto - base.netto;
-    const tr = (label, ms, br, ne, k = '') => `<div class="row trow ${k}"><span>${label}</span><span>${hm(ms, k === 'diff')}</span><span>${eur(br)}</span><span>${eur(ne)}</span></div>`;
-    const konto = c.balance(t);
+    // Mit Grenze zählt Mehrarbeit erst als Geld, wenn das Konto darüber liegt (ab der 41. Stunde bei 40).
+    const capMs = cap * HOUR, konto = c.balance(t), above = c.payouts()[t.slice(0, 7)] || 0;
+    const moneyMs = !cap ? wDiff : wDiff > 0 ? Math.min(wDiff, above) : 0;
+    const moreBr = moneyMs / HOUR * rate, moreNet = moneyMs ? payMonth(data, y, m, moneyMs / HOUR).netto - base.netto : 0;
+    const sollBr = wSoll / HOUR * rate, sollNet = sollBr * wr;
+    const signed = v => (v > 0 ? '+' : v < 0 ? '-' : '+') + (v ? eur(Math.abs(v)) : '0 €');
+    const tr = (label, ms, br, ne, k = '', sign) => `<div class="row trow ${k}"><span>${label}</span><span>${hm(ms, sign)}</span><span>${sign ? signed(br) : eur(br)}</span><span>${sign ? signed(ne) : eur(ne)}</span></div>`;
+    const sub = !cap ? '' : konto < capMs ? `Noch ${hm(capMs - konto)} Std. bis zur Auszahlung`
+      : moneyMs > 0 ? `Konto voll: ${hm(moneyMs)} Std. davon werden ausgezahlt` : 'Konto voll: jede weitere Stunde wird ausgezahlt';
     weekCard = `<div class="label">Woche ${isoWeek(ws)} bis heute</div>
     <div class="group">
       <div class="row trow head muted small"><span></span><span>Std.</span><span>Brutto</span><span>Netto</span></div>
-      ${tr('Sollzeit', wSoll, wSoll / HOUR * rate, wSoll / HOUR * rate * wr)}
-      ${tr(wDiff < 0 ? 'Minusstunden' : 'Mehrarbeit', wDiff, wDiff / HOUR * rate, diffNet, 'diff')}
-      ${tr('<b>Gesamt</b>', wNet, wNet / HOUR * rate, wSoll / HOUR * rate * wr + diffNet, 'sum')}
+      ${tr('Sollzeit', wSoll, sollBr, sollNet)}
+      ${tr(wDiff < 0 ? 'Minusstunden' : 'Mehrarbeit', wDiff, moreBr, moreNet, sub ? 'nb' : '', true)}
+      ${sub ? `<div class="row subrow">${sub}</div>` : ''}
+      ${tr('<b>Gesamt</b>', wNet, sollBr + moreBr, sollNet + moreNet, 'sum')}
     </div>
-    <p class="hint">Netto der Sollzeit anteilig (${Math.round(wr * 100)} % vom Brutto), Mehrarbeit genau gerechnet wie eine Auszahlung über den Hauptjob. ${wDiff > 0 ? (cap ? (konto >= cap * HOUR ? `Dein Konto ist voll (${cap} Std.), Mehrarbeit wird am Monatsende ausgezahlt.` : `Mehrarbeit geht erst aufs Überstundenkonto (jetzt ${hm(konto, true)} von ${cap} Std.), ausgezahlt wird erst darüber.`) : 'Mehrarbeit geht aufs Überstundenkonto.') : ''}</p>`;
+    <p class="hint">Netto der Sollzeit anteilig (${Math.round(wr * 100)} % vom Brutto). ${cap
+      ? `Mehrarbeit sammelt sich bis ${cap} Std. auf dem Überstundenkonto und zählt erst darüber als Geld, dann genau gerechnet wie eine Auszahlung über den Hauptjob. Konto jetzt: ${hm(konto, true)} Std.`
+      : 'Mehrarbeit genau gerechnet wie eine Auszahlung über den Hauptjob.'}</p>`;
   }
 
   const jobGroups = p.jobs.map(x => `<div class="group">
