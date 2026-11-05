@@ -321,6 +321,24 @@ function renderPay() {
   const row = (label, val, k = '') => `<div class="row"><span>${label}</span><span class="${k}">${val}</span></div>`;
   const minus = v => v ? '-' + eur(v) : eur(0);
 
+  // Diese Woche bis heute: Sollzeit anteilig netto, Mehrarbeit genau wie eine Auszahlung über den Hauptjob
+  let weekCard = '';
+  if (first <= t && t <= last) {
+    const ws = monday(t), wd = c.range(ws, t), wSoll = sum(wd, 'soll'), wNet = sum(wd, 'net'), wDiff = wNet - wSoll;
+    const base = payMonth(data, y, m), wr = base.brutto ? base.netto / base.brutto : 0;
+    const diffNet = payMonth(data, y, m, wDiff / HOUR).netto - base.netto;
+    const tr = (label, ms, br, ne, k = '') => `<div class="row trow ${k}"><span>${label}</span><span>${hm(ms, k === 'diff')}</span><span>${eur(br)}</span><span>${eur(ne)}</span></div>`;
+    const konto = c.balance(t);
+    weekCard = `<div class="label">Woche ${isoWeek(ws)} bis heute</div>
+    <div class="group">
+      <div class="row trow head muted small"><span></span><span>Std.</span><span>Brutto</span><span>Netto</span></div>
+      ${tr('Sollzeit', wSoll, wSoll / HOUR * rate, wSoll / HOUR * rate * wr)}
+      ${tr(wDiff < 0 ? 'Minusstunden' : 'Mehrarbeit', wDiff, wDiff / HOUR * rate, diffNet, 'diff')}
+      ${tr('<b>Gesamt</b>', wNet, wNet / HOUR * rate, wSoll / HOUR * rate * wr + diffNet, 'sum')}
+    </div>
+    <p class="hint">Netto der Sollzeit anteilig (${Math.round(wr * 100)} % vom Brutto), Mehrarbeit genau gerechnet wie eine Auszahlung über den Hauptjob. ${wDiff > 0 ? (cap ? (konto >= cap * HOUR ? `Dein Konto ist voll (${cap} Std.), Mehrarbeit wird am Monatsende ausgezahlt.` : `Mehrarbeit geht erst aufs Überstundenkonto (jetzt ${hm(konto, true)} von ${cap} Std.), ausgezahlt wird erst darüber.`) : 'Mehrarbeit geht aufs Überstundenkonto.') : ''}</p>`;
+  }
+
   const jobGroups = p.jobs.map(x => `<div class="group">
     <div class="row head"><span>${esc(x.job.name || JOBTYPES[x.job.type])}</span><span class="muted small">${JOBTYPES[x.job.type]}${x.midi ? ' · Midijob' : ''}</span></div>
     ${row('Gehalt', eur(x.base))}
@@ -358,11 +376,9 @@ function renderPay() {
   </div>
   <div class="label">Nach gestempelten Stunden</div>
   <div class="card">
-    <div class="today-top">
-      <div><div class="pct">${pct} %</div><div class="muted">der Sollzeit</div></div>
-      <div class="barwrap"><div class="bar"><div class="fill" style="width:${Math.min(100, pct)}%"></div></div>
-        <div class="barlabels"><span>${hours(worked)}</span><span>von ${hours(sollMonth)}</span></div></div>
-    </div>
+    <div class="phead"><span class="pct sm">${pct} %</span><span class="muted">der Sollzeit</span></div>
+    <div class="bar thin"><div class="fill" style="width:${Math.min(100, pct)}%"></div></div>
+    <div class="barlabels"><span>${hours(worked)}</span><span>von ${hours(sollMonth)}</span></div>
     <div class="tiles">
       <div class="tile"><b>${eurK(value)}</b><span>erarbeitet brutto</span></div>
       <div class="tile"><b>${eurK(value * ratio)}</b><span>≈ netto</span></div>
@@ -372,6 +388,7 @@ function renderPay() {
     <div class="sessions">${eur(rate)} pro Stunde${st.hourly ? '' : ' (aus Gehalt und Sollstunden)'} · Stand ${dmy(stand)}</div>
   </div>
   <p class="hint">Erarbeitet = gestempelte Nettozeit mal Stundenlohn. ${cap ? `Überstunden sammeln sich bis ${cap} Std. auf dem Konto, alles darüber wird am Monatsende mit ${eur(rate)} pro Stunde über den Hauptjob ausgezahlt.` : 'Überstunden = Differenz zur Sollzeit bis heute in Euro. Ausgezahlt wird das Festgehalt oben.'}</p>
+  ${weekCard}
   <div class="label">Abrechnung je Job</div>
   ${jobGroups}
   <div class="label">Statistik ${y}</div>
