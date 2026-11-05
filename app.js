@@ -2,7 +2,9 @@
 const KEY = 'stempeluhr-v1';
 const WD = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
-const TYPES = { urlaub: 'Urlaub', krank: 'Krank', feiertag: 'Feiertag', reduzierung: 'Stundenreduzierung' };
+const TYPES = { urlaub: 'Urlaub', krank: 'Krank', kindkrank: 'Kind krank', unbezahlt: 'Unbezahlter Urlaub', feiertag: 'Feiertag', reduzierung: 'Stundenreduzierung' };
+const JOBTYPES = { haupt: 'Hauptjob', neben: 'Nebenjob (Klasse VI)', mini: 'Minijob' };
+const PVOPT = { z: 'Kinderlos', u23: 'Kinderlos, unter 23', 1: '1 Kind', 2: '2 Kinder', 3: '3 Kinder', 4: '4 Kinder', 5: '5+ Kinder' };
 const ICON = {
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4M12 12H3"/></svg>',
   cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 14h.01M12 14h.01M16 14h.01" stroke-width="2.6" stroke-linecap="round"/></svg>',
@@ -20,7 +22,8 @@ let month = { y: new Date().getFullYear(), m: new Date().getMonth() };
 let edit = null;
 
 function normalize(d) {
-  const def = { name: '', soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: '', startBalance: 0, since: today(), vacation: 30 };
+  const def = { name: '', soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: '', startBalance: 0, since: today(), vacation: 30,
+    jobs: [], stkl: 1, zkf: 0, kirche: false, kvz: 2.9, pv: 'z', hourly: 0 };
   return {
     sessions: (d.sessions || []).filter(x => typeof x.s === 'number'),
     absences: d.absences || [],
@@ -45,6 +48,11 @@ function dur(ms, signed) {
   const txt = [h && h + ' Std.', (m % 60 || !h) && (m % 60) + ' Min.'].filter(Boolean).join(' ');
   return (ms < 0 && m ? '-' : signed && m ? '+' : '') + txt;
 }
+const eur = v => (+v || 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+const eurK = (v, unit = ' €') => (Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + 'k' : Math.round(v)) + unit;
+const num = v => { let t = String(v).trim(); if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.'); const n = parseFloat(t); return isFinite(n) ? n : 0; };
+const deNum = v => String(+v || 0).replace('.', ',');
+const hours = ms => (ms / HOUR).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' Std.';
 const clockStr = ms => { const s = Math.floor(ms / 1000); return pad(Math.floor(s / 3600)) + ':' + pad(Math.floor(s / 60) % 60) + ':' + pad(s % 60); };
 const tod = ms => { const d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const dmy = s => s.slice(8) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4);
@@ -68,7 +76,7 @@ function stats(days) {
 // ---------- navigation ----------
 function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  ({ start: renderStart, week: renderWeek, month: renderMonth, setup: renderSetup })[tab]();
+  ({ start: renderStart, week: renderWeek, month: renderMonth, pay: renderPay, setup: renderSetup })[tab]();
 }
 function go(t) { tab = t; render(); scrollTo(0, 0); }
 function sheet(html) {
@@ -294,6 +302,88 @@ function renderMonth() {
 }
 function moveMonth(n) { const d = new Date(month.y, month.m + n, 1); month = { y: d.getFullYear(), m: d.getMonth() }; render(); }
 
+// ---------- verdienst ----------
+const MSHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+function renderPay() {
+  const st = data.settings, c = calc(), t = today(), { y, m } = month;
+  const head = `<div class="mhead"><button class="nav" onclick="moveMonth(-1)" aria-label="Vorheriger Monat">‹</button><h1>${MONTHS[m]} ${y}</h1><button class="nav" onclick="moveMonth(1)" aria-label="Nächster Monat">›</button></div>`;
+  if (!st.jobs.length) {
+    view.innerHTML = head + `<div class="card center"><p>Trag ein, welche Jobs du hast und was du dort brutto verdienst. Dann rechnet die App hier Brutto, Abzüge und Netto aus.</p>
+      <button class="big" onclick="jobForm()">Job hinzufügen</button><p class="hint">Steuerklasse und Krankenkasse stellst du unter Setup ein.</p></div>`;
+    return;
+  }
+  const p = payMonth(data, y, m), [first, last] = monthBounds(y, m), stand = last < t ? last : t;
+  const days = c.range(first, last), past = days.filter(x => x.d <= stand);
+  const rate = hourlyRate(st), ratio = p.brutto ? p.netto / p.brutto : 0;
+  const worked = sum(past, 'net'), sollMonth = sum(days, 'soll'), overtime = sum(past, 'diff');
+  const value = worked / HOUR * rate, pct = sollMonth ? Math.floor(worked / sollMonth * 100) : 0;
+  const row = (label, val, k = '') => `<div class="row"><span>${label}</span><span class="${k}">${val}</span></div>`;
+  const minus = v => v ? '-' + eur(v) : eur(0);
+
+  const jobGroups = p.jobs.map(x => `<div class="group">
+    <div class="row head"><span>${esc(x.job.name || JOBTYPES[x.job.type])}</span><span class="muted small">${JOBTYPES[x.job.type]}${x.midi ? ' · Midijob' : ''}</span></div>
+    ${row('Gehalt', eur(x.base))}
+    ${x.cut ? row(`Unbezahlt (${x.days} ${x.days === 1 ? 'Kalendertag' : 'Kalendertage'})`, minus(x.cut), 'red') : ''}
+    ${x.job.type === 'mini' ? (x.rv ? row('Rentenversicherung', minus(x.rv)) : row('Abzüge', 'keine')) : `
+    ${row('Krankenversicherung', minus(x.kv))}${row('Rentenversicherung', minus(x.rv))}${row('Arbeitslosenversicherung', minus(x.av))}${row('Pflegeversicherung', minus(x.pv))}
+    ${row('Lohnsteuer', minus(x.lst))}${x.soli ? row('Solidaritätszuschlag', minus(x.soli)) : ''}${st.kirche ? row('Kirchensteuer', minus(x.kist)) : ''}`}
+    ${row('<b>Netto</b>', `<b>${eur(x.netto)}</b>`)}
+    ${x.sach ? row('Sachbezug (Gutschein)', '+' + eur(x.sach)) : ''}
+  </div>`).join('');
+
+  // Jahresstatistik: Vertragsnetto je Monat und gestempelte Stunden
+  const curY = +t.slice(0, 4), curM = +t.slice(5, 7) - 1;
+  const months = MONTHS.map((_, i) => {
+    const pm = payMonth(data, y, i), [f, l] = monthBounds(y, i), hrs = l < st.since || f > t ? 0 : sum(c.range(f > st.since ? f : st.since, l < t ? l : t), 'net');
+    return { i, pm, hrs, done: y < curY || (y === curY && i <= curM), full: f >= st.since && l < t };
+  });
+  const done = months.filter(x => x.done), ysum = k => done.reduce((a, x) => a + x.pm[k], 0);
+  const yHours = done.reduce((a, x) => a + x.hrs, 0), max = Math.max(1, ...months.map(x => x.pm.netto));
+  const full = months.filter(x => x.full && x.hrs), fullHours = full.reduce((a, x) => a + x.hrs, 0), fullNet = full.reduce((a, x) => a + x.pm.netto, 0);
+
+  view.innerHTML = head + `
+  <div class="card">
+    <div class="muted center">Auszahlung laut Vertrag</div>
+    <div class="money">${eur(p.netto)}</div>
+    <div class="tiles">
+      <div class="tile"><b>${eurK(p.brutto)}</b><span>Brutto</span></div>
+      <div class="tile"><b>${eurK(p.abz)}</b><span>Abzüge</span></div>
+      <div class="tile"><b>${p.brutto ? Math.round(p.abz / p.brutto * 100) : 0} %</b><span>Abgabenquote</span></div>
+    </div>
+    ${p.unpaid ? `<div class="sessions"><span class="tag">${p.unpaid} unbezahlte Kalendertage: -${eur(p.cut)} brutto</span></div>` : ''}
+    ${p.sach ? `<div class="sessions">Dazu ${eur(p.sach)} Sachbezug als Gutschein</div>` : ''}
+  </div>
+  <div class="label">Nach gestempelten Stunden</div>
+  <div class="card">
+    <div class="today-top">
+      <div><div class="pct">${pct} %</div><div class="muted">der Sollzeit</div></div>
+      <div class="barwrap"><div class="bar"><div class="fill" style="width:${Math.min(100, pct)}%"></div></div>
+        <div class="barlabels"><span>${hours(worked)}</span><span>von ${hours(sollMonth)}</span></div></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><b>${eurK(value)}</b><span>erarbeitet brutto</span></div>
+      <div class="tile"><b>${eurK(value * ratio)}</b><span>≈ netto</span></div>
+      <div class="tile"><b class="${cls(overtime)}">${overtime < 0 ? '-' : '+'}${eurK(Math.abs(overtime / HOUR * rate))}</b><span>Überstunden</span></div>
+    </div>
+    <div class="sessions">${eur(rate)} pro Stunde${st.hourly ? '' : ' (aus Gehalt und Sollstunden)'} · Stand ${dmy(stand)}</div>
+  </div>
+  <p class="hint">Erarbeitet = gestempelte Nettozeit mal Stundenlohn. Überstunden = Differenz zur Sollzeit bis heute in Euro. Ausgezahlt wird das Festgehalt oben.</p>
+  <div class="label">Abrechnung je Job</div>
+  ${jobGroups}
+  <div class="label">Statistik ${y}</div>
+  <div class="bars y12">${months.map(x => `<div class="bcol ${x.done ? '' : 'future'}"><span class="bval">${x.pm.netto ? eurK(x.pm.netto, '') : ''}</span><div class="btrack"><div class="b" style="height:${x.pm.netto / max * 100}%"></div></div><span class="muted small">${MSHORT[x.i].slice(0, 1)}</span></div>`).join('')}</div>
+  <div class="group">
+    ${row(done.length ? `Netto ${MSHORT[0]} – ${MSHORT[done.at(-1).i]}` : 'Netto bisher', eur(ysum('netto')))}
+    ${row('Brutto', eur(ysum('brutto')))}
+    ${row('Steuern und Abgaben', eur(ysum('abz')))}
+    ${ysum('sach') ? row('Sachbezüge', eur(ysum('sach'))) : ''}
+    ${row('Gearbeitete Stunden', hours(yHours))}
+    ${row('Netto pro gearbeiteter Stunde', fullHours ? eur(fullNet / (fullHours / HOUR)) : '–')}
+    ${row(`Netto ganzes Jahr ${y} (Prognose)`, eur(months.reduce((a, x) => a + x.pm.netto, 0)))}
+  </div>
+  <p class="hint">Rechnung nach dem amtlichen Lohnsteuer-Programmablaufplan 2026 und den Sozialversicherungswerten 2026. Netto pro Stunde zählt nur abgeschlossene Monate seit Beginn der Aufzeichnung. Einmalzahlungen wie Boni fehlen. Verbindlich ist deine Lohnabrechnung.</p>`;
+}
+
 // ---------- setup ----------
 function renderSetup() {
   const st = data.settings, now = new Date();
@@ -313,6 +403,20 @@ function renderSetup() {
     <label class="row"><span>Startsaldo</span><input value="${hm(st.startBalance * MIN, true)}" onchange="setBalance(this)"></label>
   </div>
   <p class="hint">Startsaldo = dein Stand vor dem Startdatum, z. B. -26:01 aus deiner alten App.</p>
+  <div class="label">Jobs</div>
+  ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
+  <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
+  <p class="hint">Brutto pro Monat laut Vertrag. Mit den Angaben rechnet der Tab Verdienst Brutto und Netto aus.</p>
+  <div class="label">Steuer und Sozialversicherung</div>
+  <div class="group">
+    <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}" ${st.stkl === k ? 'selected' : ''}>${['I', 'II', 'III', 'IV', 'V', 'VI'][k - 1]}</option>`).join('')}</select></label>
+    <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${st.zkf}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
+    <label class="row"><span>Kirchensteuer</span><select onchange="setS('kirche', this.value === '1')"><option value="0">Nein</option><option value="1" ${st.kirche ? 'selected' : ''}>Ja</option></select></label>
+    <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${k}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
+    <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value))); render()"></label>
+  </div>
+  <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25, wer ältere Kinder hat, wählt 1 Kind. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland.</p>
   <div class="label">Export</div>
   <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
   <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
@@ -322,6 +426,47 @@ function renderSetup() {
     <label class="row"><span>Backup laden</span><input type="file" class="file" accept="application/json,.json" onchange="restore(this)"></label>
   </div>
   <p class="hint">Deine Zeiten liegen nur auf diesem Gerät, nicht auf GitHub. Speicher ab und zu ein Backup, z. B. in iCloud Drive.</p>`;
+}
+function jobForm(i) {
+  const j = i == null ? { name: '', type: 'haupt', brutto: '', since: '', sach: 0, cut: true, rvFrei: true } : data.settings.jobs[i];
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet(); render()">Abbrechen</button><button class="pill sm green" onclick="saveJob(${i ?? -1})">Speichern</button></div>
+  <h2>${i == null ? 'Job hinzufügen' : 'Job bearbeiten'}</h2>
+  <div class="group">
+    <label class="row"><span>Name</span><input id="jname" value="${esc(j.name)}" placeholder="z. B. Firma"></label>
+    <label class="row"><span>Art</span><select id="jtype" onchange="jobUpdate(true)">${Object.entries(JOBTYPES).map(([k, v]) => `<option value="${k}" ${j.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="row"><span>Brutto pro Monat (€)</span><input id="jbrutto" class="short" inputmode="decimal" value="${j.brutto === '' ? '' : deNum(j.brutto)}" placeholder="0,00" oninput="jobUpdate()"></label>
+    <label class="row"><span>Seit</span><input id="jsince" type="date" value="${j.since || ''}"></label>
+    <label class="row"><span>Sachbezug steuerfrei (€)</span><input id="jsach" class="short" inputmode="decimal" value="${j.sach ? deNum(j.sach) : ''}" placeholder="0"></label>
+  </div>
+  <div class="group">
+    <label class="row"><span>Unbezahlte Tage kürzen das Gehalt</span><input id="jcut" type="checkbox" ${j.cut ? 'checked' : ''}></label>
+    <label class="row" id="jrvrow"><span>Von der Rentenversicherung befreit</span><input id="jrv" type="checkbox" ${j.rvFrei ? 'checked' : ''}></label>
+  </div>
+  <p class="hint" id="jhint"></p>
+  ${i == null ? '' : `<button class="pill wide red" onclick="delJob(${i})">Job löschen</button>`}`);
+  jobUpdate();
+}
+function jobUpdate(typeChanged) {
+  const t = $('#jtype').value, b = num($('#jbrutto').value);
+  if (typeChanged) $('#jcut').checked = t !== 'mini';
+  $('#jrvrow').hidden = t !== 'mini';
+  $('#jhint').textContent = t === 'mini'
+    ? `Minijob bis ${eur(603)} im Monat. Steuern zahlt der Arbeitgeber pauschal. Ohne Befreiung gehen 3,6 % Rentenversicherung ab.`
+    : t === 'neben' ? 'Zweiter Job auf Lohnsteuerkarte, versteuert mit Steuerklasse VI.'
+    : b > 603 && b <= 2000 ? 'Midijob (Übergangsbereich 603,01 bis 2.000 €): geringere Sozialabgaben, wird automatisch berücksichtigt.'
+    : 'Sozialversicherungspflichtig, versteuert mit deiner Steuerklasse.';
+  if (t === 'mini' && b > 603) $('#jhint').textContent += ` Achtung: ${eur(b)} liegt über der Minijob-Grenze.`;
+}
+function saveJob(i) {
+  const j = { name: $('#jname').value.trim(), type: $('#jtype').value, brutto: num($('#jbrutto').value), since: $('#jsince').value,
+    sach: num($('#jsach').value), cut: $('#jcut').checked, rvFrei: $('#jrv').checked };
+  if (!(j.brutto > 0)) return alert('Bitte das Brutto pro Monat eintragen.');
+  if (i < 0) data.settings.jobs.push(j); else data.settings.jobs[i] = j;
+  save(); closeSheet(); render();
+}
+function delJob(i) {
+  if (!confirm('Job löschen?')) return;
+  data.settings.jobs.splice(i, 1); save(); closeSheet(); render();
 }
 function setS(k, v) { data.settings[k] = v; save(); }
 function setSoll(i, el) { data.settings.soll[i] = Math.min(24, Math.max(0, +el.value || 0)); el.value = data.settings.soll[i]; save(); }

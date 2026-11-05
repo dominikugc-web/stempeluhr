@@ -32,4 +32,64 @@ assert.equal(c.day('2026-11-01').soll, 0); // before start date
 assert.equal(c.balance('2026-11-05'), -13.5 * H);
 assert.equal(c.balance('2026-11-01'), -1 * H);
 
+
+// ---------- Lohnsteuer: amtliche Prüftabelle PAP 2026 (Jahreslohnsteuer, KVZ 2,90, PVZ = 1 außer Klasse II) ----------
+const TABLE = {
+  5000: [0, 0, 0, 0, 372, 558],
+  17500: [51, 0, 0, 51, 1778, 1956],
+  22500: [782, 32, 0, 782, 3073, 3604],
+  30000: [2248, 1230, 0, 2248, 5588, 6120],
+  35000: [3300, 2233, 294, 3300, 7216, 7682],
+  50000: [6788, 5580, 2810, 6788, 12010, 12542],
+  70000: [12220, 10835, 6952, 12220, 18729, 19260],
+  75000: [13922, 12476, 8206, 13922, 20633, 21165],
+  100000: [23248, 21634, 15012, 23248, 30157, 30689],
+  110000: [27393, 25779, 18252, 27393, 34302, 34834],
+};
+for (const [brutto, row] of Object.entries(TABLE)) row.forEach((want, i) => {
+  const stkl = i + 1;
+  const got = L.lohnsteuer({ re4: +brutto, lzz: 1, stkl, zkf: 0, kvz: 2.9, pvz: stkl === 2 ? 0 : 1, pva: 0, pvs: false }).lst;
+  assert.equal(got, want, `Prüftabelle ${brutto} € Klasse ${stkl}: ${got} statt ${want}`);
+});
+
+// ---------- Abgleich mit echten Abrechnungen 2026 (Steuerklasse III, 2 Kinderfreibeträge, AOK 2,47 %) ----------
+const pay = (brutto, kids) => {
+  const s = L.sv(brutto, 'haupt', { kvz: 2.47, pv: kids, pvs: false }, 2185);
+  const t = L.lohnsteuer({ re4: brutto, lzz: 2, stkl: 3, zkf: 2, kvz: 2.47, pvz: 0, pva: kids - 1, pvs: false });
+  return [s.kv, s.rv, s.av, s.pv, t.lst];
+};
+assert.deepEqual(pay(2185, 2), [186.49, 203.21, 28.41, 33.87, 0]); // September
+assert.deepEqual(pay(2114.52, 2), [180.47, 196.65, 27.49, 32.77, 0]); // August, 1 Tag Kind krank
+assert.deepEqual(pay(1832.58, 3), [156.41, 170.43, 23.82, 23.83, 0]); // Oktober, 5 Tage unbezahlt
+
+const job = { settings: { soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: 'RP', startBalance: 0, since: '2026-01-01',
+  stkl: 3, zkf: 2, kirche: false, kvz: 2.47, pv: 3, hourly: 16,
+  jobs: [
+    { name: 'Heldenwerker', type: 'haupt', brutto: 2185, cut: true, sach: 50 },
+    { name: 'Gymstar', type: 'mini', brutto: 603, cut: false, rvFrei: true },
+  ] },
+  sessions: [],
+  absences: [
+    { type: 'unbezahlt', from: '2026-10-05', to: '2026-10-07' },
+    { type: 'unbezahlt', from: '2026-10-19', to: '2026-10-20' },
+    { type: 'urlaub', from: '2026-10-21', to: '2026-10-21' },
+  ] };
+const okt = L.payMonth(job, 2026, 9);
+assert.equal(okt.unpaid, 5);
+assert.equal(okt.jobs[0].cut, 352.42);
+assert.equal(okt.jobs[0].brutto, 1832.58);
+assert.equal(okt.jobs[0].netto, 1458.09); // Auszahlungsbetrag laut Abrechnung
+assert.equal(okt.jobs[1].netto, 603);
+assert.equal(okt.netto, 2061.09);
+const nov = L.payMonth(job, 2026, 10);
+assert.equal(nov.brutto, 2788);
+assert.equal(L.hourlyRate(job.settings), 16);
+assert.equal(L.hourlyRate({ ...job.settings, hourly: 0 }).toFixed(3), '16.085');
+
+// Minijob mit Rentenversicherung, Midijob im Übergangsbereich, Steuerklasse VI im Nebenjob
+assert.equal(L.sv(603, 'mini', { rvFrei: false }).rv, 21.71);
+const midi = L.sv(1000, 'haupt', { kvz: 2.9, pv: 'z', pvs: false });
+assert.ok(midi.midi && midi.rv === round(568.36 * 0.093));
+function round(x) { return Math.round(x * 100) / 100; }
+
 console.log('ok');

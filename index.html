@@ -83,7 +83,7 @@ h2{font-size:30px;margin:8px 0 14px}
 .label{color:var(--mut);font-weight:600;margin:20px 6px 8px}
 .hint{color:var(--mut);font-size:14px;margin:-6px 8px 14px}
 input,select{font:inherit;font-size:16px;color:var(--txt);background:rgba(255,255,255,.09);border:0;border-radius:12px;padding:8px 12px;max-width:58%;min-width:0}
-input[type=number]{width:90px}
+input[type=number],input.short{width:100px}
 input.full{max-width:none;width:100%;background:none;padding:0}
 input.file{max-width:50%;background:none;padding:0;font-size:13px}
 .erow input[type=time]{flex:1;max-width:none}
@@ -102,6 +102,11 @@ input.file{max-width:50%;background:none;padding:0;font-size:13px}
 .ot.red{border-color:#9c1d35;color:var(--txt)}.ot.green{border-color:#4f8a1c;color:var(--txt)}
 .round{width:60px;height:60px;border-radius:50%;font-size:26px;color:#fff;background:#c42746;margin-top:8px}
 .badge{color:var(--blue);margin:-6px 0 6px}
+.money{font-size:min(15vw,64px);font-weight:300;text-align:center;font-variant-numeric:tabular-nums;margin:4px 0 0;white-space:nowrap}
+.bars.y12{gap:2px}.bars.y12 .btrack{height:120px;width:70%;max-width:26px}.bars.y12 .b{background:var(--green)}.bars.y12 .bval{font-size:11px}
+.bcol.future{opacity:.4}
+input[type=checkbox]{width:22px;height:22px;flex:none;accent-color:var(--green);padding:0}
+.label:first-child{margin-top:0}
 </style>
 </head>
 <body>
@@ -110,6 +115,7 @@ input.file{max-width:50%;background:none;padding:0;font-size:13px}
   <button data-tab="start" onclick="go('start')"><svg viewBox="0 0 24 24"><path d="M6 3.5l14 8.5-14 8.5z" fill="currentColor"/></svg>Start</button>
   <button data-tab="week" onclick="go('week')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.5M3.5 12h.5M3.5 18h.5"/></svg>Woche</button>
   <button data-tab="month" onclick="go('month')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01" stroke-linecap="round" stroke-width="2.6"/></svg>Monat</button>
+  <button data-tab="pay" onclick="go('pay')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17.5 6.5A7 7 0 1 0 17.5 17.5M4 10.5h9M4 13.5h9"/></svg>Verdienst</button>
   <button data-tab="setup" onclick="go('setup')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8.5" stroke-width="3.5" stroke-dasharray="3.3 3.37"/><circle cx="12" cy="12" r="5" stroke-width="3"/></svg>Setup</button>
 </nav>
 <div id="sheet" hidden></div>

@@ -83,4 +83,108 @@ function makeCalc(data, now) {
   return { day, range, balance };
 }
 
-if (typeof module !== 'undefined') module.exports = { MIN, HOUR, ymd, parseYmd, addDays, monday, isoWeek, easter, holidays, makeCalc };
+
+// ---------- Lohn 2026: Sozialversicherung und Lohnsteuer ----------
+// Lohnsteuer nach dem Programmablaufplan 2026 des BMF (Stand 12.11.2025), ohne Versorgungsbezüge,
+// Altersentlastung, Freibeträge, sonstige Bezüge und private Krankenversicherung.
+const UNPAID = ['unbezahlt', 'kindkrank'];
+const MINIJOB_MAX = 603, MIDI_TOP = 2000; // Euro im Monat
+const W1STKL5 = 14071, W2STKL5 = 34939, W3STKL5 = 222260;
+const fl = x => Math.floor(x + 1e-9);
+const round2 = x => Math.round(x * 100 + 1e-7) / 100;
+
+function tarif(x, kztab) { // UPTAB26, x in vollen Euro
+  let st;
+  if (x < 12349) st = 0;
+  else if (x < 17800) { const y = (x - 12348) / 10000; st = fl((y * 914.51 + 1400) * y); }
+  else if (x < 69879) { const y = (x - 17799) / 10000; st = fl((y * 173.1 + 2397) * y + 1034.87); }
+  else if (x < 277826) st = fl(x * 0.42 - 11135.63);
+  else st = fl(x * 0.45 - 19470.38);
+  return st * kztab;
+}
+function up56(zx) {
+  const diff = (tarif(fl(zx * 1.25), 1) - tarif(fl(zx * 0.75), 1)) * 2, mist = fl(zx * 0.14);
+  return Math.max(mist, diff);
+}
+function mst56(x) { // Steuerklasse V und VI
+  if (x > W2STKL5) {
+    let st = up56(W2STKL5);
+    if (x > W3STKL5) { st = fl(st + (W3STKL5 - W2STKL5) * 0.42); return fl(st + (x - W3STKL5) * 0.45); }
+    return fl(st + (x - W2STKL5) * 0.42);
+  }
+  const st = up56(x);
+  return x > W1STKL5 ? Math.min(st, fl(up56(W1STKL5) + (x - W1STKL5) * 0.42)) : st;
+}
+
+// o: { re4 (Euro je Zeitraum), lzz (1 = Jahr, 2 = Monat), stkl, zkf, kvz, pvz, pva, pvs }
+// -> { lst, soli, bk } in Euro für den Zeitraum; bk = Bemessungsgrundlage Kirchensteuer
+function lohnsteuer(o) {
+  const n = o.lzz === 1 ? 1 : 12, zre4 = o.re4 * n, stkl = o.stkl, kztab = stkl === 3 ? 2 : 1;
+  const kvsatz = o.kvz / 200 + 0.07;
+  const pvsatz = (o.pvs ? 0.023 : 0.018) + (o.pvz ? 0.006 : -o.pva * 0.0025);
+  const rvBase = Math.min(zre4, 101400), vspr = rvBase * 0.093, vspkvpv = Math.min(zre4, 69750) * (kvsatz + pvsatz);
+  let vsp = Math.ceil(vspkvpv + vspr - 1e-9);
+  if (stkl !== 6) vsp = Math.max(vsp, Math.ceil(vspr + Math.min(1900, rvBase * 0.013 + vspkvpv) - 1e-9));
+  const anp = stkl < 6 ? Math.min(1230, Math.ceil(zre4 - 1e-9)) : 0;
+  const ztabfb = (stkl === 2 ? 4260 : 0) + anp + (stkl < 6 ? 36 : 0);
+  const kfb = stkl <= 3 ? o.zkf * 9756 : stkl === 4 ? o.zkf * 4878 : 0;
+  const tax = zve => { const x = zve < 1 ? 0 : fl(zve / kztab); return stkl < 5 ? tarif(x, kztab) : mst56(x); };
+  const zve = zre4 - ztabfb - vsp, lstjahr = tax(zve), jbmg = kfb > 0 ? tax(zve - kfb) : lstjahr;
+  let solzj = 0;
+  if (jbmg > 20350 * kztab) solzj = Math.min(fl(jbmg * 5.5) / 100, fl((jbmg - 20350 * kztab) * 11.9) / 100);
+  const part = euro => n === 1 ? euro : fl(Math.round(euro * 100) / 12) / 100;
+  return { lst: part(lstjahr), soli: part(solzj), bk: part(jbmg) };
+}
+
+// Pflegeversicherung aus der Einstellung: 'z' = kinderlos (Zuschlag), 'u23' = kinderlos unter 23, 1..5 = Kinder unter 25
+const pvParams = pv => pv === 'z' ? { pvz: 1, pva: 0 } : pv === 'u23' ? { pvz: 0, pva: 0 } : { pvz: 0, pva: Math.max(0, Math.min(5, +pv || 1) - 1) };
+
+// Arbeitnehmeranteile im Monat, gerundet wie in der Lohnabrechnung. rate in 1/100000.
+// Ob ein Midijob vorliegt, entscheidet das regelmäßige Entgelt (regular), nicht ein gekürzter Monat.
+function sv(brutto, type, s, regular = brutto) {
+  const share = (base, rate) => Math.round(Math.round(base * 100) * rate / 100000) / 100;
+  if (type === 'mini') return { kv: 0, rv: s.rvFrei ? 0 : share(brutto, 3600), av: 0, pv: 0, midi: false };
+  const midi = regular > MINIJOB_MAX && regular <= MIDI_TOP;
+  const be = midi ? Math.max(0, round2(MIDI_TOP / (MIDI_TOP - MINIJOB_MAX) * (brutto - MINIJOB_MAX))) : brutto;
+  const kvpv = Math.min(be, 5812.5), rvav = Math.min(be, 8450), { pvz, pva } = pvParams(s.pv);
+  const pvBase = s.pvs ? 2300 : 1800;
+  return {
+    kv: share(kvpv, 7300 + Math.round(s.kvz * 500)),
+    rv: share(rvav, 9300),
+    av: share(rvav, 1300),
+    pv: pvz ? share(kvpv, pvBase + 600) : round2(share(kvpv, pvBase) - share(kvpv, 250 * pva)),
+    midi,
+  };
+}
+
+// Verdienst laut Vertrag für einen Monat (m = 0..11).
+function payMonth(data, y, m) {
+  const st = data.settings, first = ymd(new Date(y, m, 1)), last = ymd(new Date(y, m + 1, 0)), ndays = +last.slice(8);
+  let unpaid = 0;
+  for (let d = first; d <= last; d = addDays(d, 1)) if (data.absences.some(a => UNPAID.includes(a.type) && a.from <= d && d <= a.to)) unpaid++;
+  const { pvz, pva } = pvParams(st.pv), pvs = st.state === 'SN';
+  const kistRate = st.state === 'BY' || st.state === 'BW' ? 0.08 : 0.09;
+  const jobs = (st.jobs || []).filter(j => !j.since || j.since <= last).map(j => {
+    const base = +j.brutto || 0, days = j.cut ? unpaid : 0, cut = round2(base * days / ndays), brutto = Math.max(0, round2(base - cut));
+    const s = sv(brutto, j.type, { rvFrei: j.rvFrei, kvz: st.kvz, pv: st.pv, pvs }, base);
+    let lst = 0, soli = 0, kist = 0;
+    if (j.type !== 'mini' && brutto > 0) {
+      const neben = j.type === 'neben';
+      const r = lohnsteuer({ re4: brutto, lzz: 2, stkl: neben ? 6 : st.stkl, zkf: neben ? 0 : st.zkf, kvz: st.kvz, pvz, pva, pvs });
+      lst = r.lst; soli = r.soli; kist = st.kirche ? fl(r.bk * kistRate * 100) / 100 : 0;
+    }
+    const abz = round2(s.kv + s.rv + s.av + s.pv + lst + soli + kist);
+    return { job: j, base, days, cut, brutto, ...s, lst, soli, kist, abz, netto: round2(brutto - abz), sach: +j.sach || 0 };
+  });
+  const tot = k => round2(jobs.reduce((t, x) => t + x[k], 0));
+  return { jobs, unpaid, brutto: tot('brutto'), abz: tot('abz'), netto: tot('netto'), sach: tot('sach'), cut: tot('cut') };
+}
+
+// Stundenlohn: eingetragen oder aus dem Festgehalt und den Sollstunden (Woche x 13 / 3) berechnet.
+function hourlyRate(st) {
+  if (+st.hourly > 0) return +st.hourly;
+  const week = st.soll.reduce((a, b) => a + (+b || 0), 0), monthly = (st.jobs || []).reduce((a, j) => a + (+j.brutto || 0), 0);
+  return week ? monthly / (week * 13 / 3) : 0;
+}
+
+if (typeof module !== 'undefined') module.exports = { MIN, HOUR, ymd, parseYmd, addDays, monday, isoWeek, easter, holidays, makeCalc, lohnsteuer, sv, payMonth, hourlyRate };
