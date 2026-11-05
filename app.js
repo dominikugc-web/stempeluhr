@@ -423,7 +423,7 @@ function renderSetup() {
   <div class="label">Sicherung</div>
   <div class="group">
     <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
-    <label class="row"><span>Backup laden</span><input type="file" class="file" accept="application/json,.json" onchange="restore(this)"></label>
+    <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" accept="application/json,.json" onchange="restore(this)"></label>
   </div>
   <p class="hint">Deine Zeiten liegen nur auf diesem Gerät, nicht auf GitHub. Speicher ab und zu ein Backup, z. B. in iCloud Drive.</p>`;
 }
@@ -500,6 +500,11 @@ function restore(el) {
   if (!f) return;
   f.text().then(txt => {
     const d = JSON.parse(txt);
+    if (d.app === 'stempeluhr-einstellungen' && d.settings && typeof d.settings === 'object') { // nur Einstellungen, Zeiten bleiben
+      if (!confirm('Einstellungen übernehmen? Deine gestempelten Zeiten und Abwesenheiten bleiben erhalten.')) return;
+      data = normalize({ ...data, settings: { ...data.settings, ...d.settings } }); save(); render(); alert('Einstellungen übernommen.');
+      return;
+    }
     if (!Array.isArray(d.sessions) || !Array.isArray(d.absences) || typeof d.settings !== 'object') throw new Error('keine Stempeluhr-Sicherung');
     if (!confirm('Backup laden? Die aktuellen Daten auf diesem Gerät werden ersetzt.')) return;
     data = normalize(d); save(); render(); alert('Backup geladen.');
