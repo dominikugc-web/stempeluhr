@@ -92,4 +92,17 @@ const midi = L.sv(1000, 'haupt', { kvz: 2.9, pv: 'z', pvs: false });
 assert.ok(midi.midi && midi.rv === round(568.36 * 0.093));
 function round(x) { return Math.round(x * 100) / 100; }
 
+// ---------- Überstunden: bis 40 Std. ansammeln, darüber am Monatsende auszahlen ----------
+const ot = { settings: { ...job.settings, since: '2026-11-02', startBalance: 39 * 60, otCap: 40 }, absences: [],
+  sessions: [2, 3].map(d => ({ s: +new Date(2026, 10, d, 7, 0), e: +new Date(2026, 10, d, 17, 30) })) };
+// 2 Tage je 10,5 h brutto, 10 h netto: +4 h -> Konto 43 h, davon 3 h über der Grenze
+const oc = L.makeCalc(ot, +new Date(2026, 10, 3, 18, 0));
+assert.equal(oc.payouts()['2026-11'], 3 * H);
+assert.equal(oc.balance('2026-11-03'), 40 * H);
+const op = L.payMonth(ot, 2026, 10, 3);
+assert.equal(op.jobs[0].otPay, 48); // 3 h x 16 €
+assert.equal(op.jobs[0].brutto, 2233);
+assert.equal(op.jobs[1].brutto, 603); // Minijob bleibt gleich
+assert.deepEqual(L.makeCalc({ ...ot, settings: { ...ot.settings, otCap: 0 } }, +new Date(2026, 10, 3, 18, 0)).payouts(), {});
+
 console.log('ok');

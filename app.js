@@ -23,7 +23,7 @@ let edit = null;
 
 function normalize(d) {
   const def = { name: '', soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: '', startBalance: 0, since: today(), vacation: 30,
-    jobs: [], stkl: 1, zkf: 0, kirche: false, kvz: 2.9, pv: 'z', hourly: 0 };
+    jobs: [], stkl: 1, zkf: 0, kirche: false, kvz: 2.9, pv: 'z', hourly: 0, otCap: 0 };
   return {
     sessions: (d.sessions || []).filter(x => typeof x.s === 'number'),
     absences: d.absences || [],
@@ -142,7 +142,7 @@ function openOverview() {
     <div class="ot"><b>${s.start}</b><span>Ø Startzeit</span></div>
     <div class="ot"><b>${s.end}</b><span>Ø Endzeit</span></div>
   </div>
-  <p class="hint">„Aktuell“ rechnet die volle Sollzeit von heute schon mit ein.</p>
+  <p class="hint">„Aktuell“ rechnet die volle Sollzeit von heute schon mit ein.${+st.otCap ? ` Das Konto geht höchstens bis ${st.otCap} Std., alles darüber wird ausgezahlt.` : ''}</p>
   <p class="center">Seit Beginn der Aufzeichnung hast du ${dur(sum(all, 'net'))} gearbeitet (nach Abzug von ${st.pause} Min. Pause pro Tag).</p>
   <div class="group">
     <div class="row"><span>Urlaub ${y}</span><span>${countAbs(c.range(y + '-01-01', y + '-12-31'), 'urlaub')} von ${st.vacation} Tagen</span></div>
@@ -312,7 +312,8 @@ function renderPay() {
       <button class="big" onclick="jobForm()">Job hinzufügen</button><p class="hint">Steuerklasse und Krankenkasse stellst du unter Setup ein.</p></div>`;
     return;
   }
-  const p = payMonth(data, y, m), [first, last] = monthBounds(y, m), stand = last < t ? last : t;
+  const otH = (yy, mm) => (c.payouts()[`${yy}-${pad(mm + 1)}`] || 0) / HOUR, cap = +st.otCap || 0;
+  const p = payMonth(data, y, m, otH(y, m)), [first, last] = monthBounds(y, m), stand = last < t ? last : t;
   const days = c.range(first, last), past = days.filter(x => x.d <= stand);
   const rate = hourlyRate(st), ratio = p.brutto ? p.netto / p.brutto : 0;
   const worked = sum(past, 'net'), sollMonth = sum(days, 'soll'), overtime = sum(past, 'diff');
@@ -324,6 +325,7 @@ function renderPay() {
     <div class="row head"><span>${esc(x.job.name || JOBTYPES[x.job.type])}</span><span class="muted small">${JOBTYPES[x.job.type]}${x.midi ? ' · Midijob' : ''}</span></div>
     ${row('Gehalt', eur(x.base))}
     ${x.cut ? row(`Unbezahlt (${x.days} ${x.days === 1 ? 'Kalendertag' : 'Kalendertage'})`, minus(x.cut), 'red') : ''}
+    ${x.ot ? row(`Überstunden (${hm(x.ot * HOUR)} Std.)`, '+' + eur(x.otPay), 'green') : ''}
     ${x.job.type === 'mini' ? (x.rv ? row('Rentenversicherung', minus(x.rv)) : row('Abzüge', 'keine')) : `
     ${row('Krankenversicherung', minus(x.kv))}${row('Rentenversicherung', minus(x.rv))}${row('Arbeitslosenversicherung', minus(x.av))}${row('Pflegeversicherung', minus(x.pv))}
     ${row('Lohnsteuer', minus(x.lst))}${x.soli ? row('Solidaritätszuschlag', minus(x.soli)) : ''}${st.kirche ? row('Kirchensteuer', minus(x.kist)) : ''}`}
@@ -334,7 +336,7 @@ function renderPay() {
   // Jahresstatistik: Vertragsnetto je Monat und gestempelte Stunden
   const curY = +t.slice(0, 4), curM = +t.slice(5, 7) - 1;
   const months = MONTHS.map((_, i) => {
-    const pm = payMonth(data, y, i), [f, l] = monthBounds(y, i), hrs = l < st.since || f > t ? 0 : sum(c.range(f > st.since ? f : st.since, l < t ? l : t), 'net');
+    const pm = payMonth(data, y, i, otH(y, i)), [f, l] = monthBounds(y, i), hrs = l < st.since || f > t ? 0 : sum(c.range(f > st.since ? f : st.since, l < t ? l : t), 'net');
     return { i, pm, hrs, done: y < curY || (y === curY && i <= curM), full: f >= st.since && l < t };
   });
   const done = months.filter(x => x.done), ysum = k => done.reduce((a, x) => a + x.pm[k], 0);
@@ -351,6 +353,7 @@ function renderPay() {
       <div class="tile"><b>${p.brutto ? Math.round(p.abz / p.brutto * 100) : 0} %</b><span>Abgabenquote</span></div>
     </div>
     ${p.unpaid ? `<div class="sessions"><span class="tag">${p.unpaid} unbezahlte Kalendertage: -${eur(p.cut)} brutto</span></div>` : ''}
+    ${p.otPay ? `<div class="sessions"><span class="green">Inklusive ${hm(p.ot * HOUR)} Std. Überstunden: +${eur(p.otPay)} brutto${stand < last ? ' (bisher)' : ''}</span></div>` : ''}
     ${p.sach ? `<div class="sessions">Dazu ${eur(p.sach)} Sachbezug als Gutschein</div>` : ''}
   </div>
   <div class="label">Nach gestempelten Stunden</div>
@@ -363,11 +366,12 @@ function renderPay() {
     <div class="tiles">
       <div class="tile"><b>${eurK(value)}</b><span>erarbeitet brutto</span></div>
       <div class="tile"><b>${eurK(value * ratio)}</b><span>≈ netto</span></div>
-      <div class="tile"><b class="${cls(overtime)}">${overtime < 0 ? '-' : '+'}${eurK(Math.abs(overtime / HOUR * rate))}</b><span>Überstunden</span></div>
+      ${cap ? `<div class="tile"><b class="${cls(c.balance(stand))}">${hm(c.balance(stand), true)}</b><span>Konto (max. ${cap} Std.)</span></div>`
+        : `<div class="tile"><b class="${cls(overtime)}">${overtime < 0 ? '-' : '+'}${eurK(Math.abs(overtime / HOUR * rate))}</b><span>Überstunden</span></div>`}
     </div>
     <div class="sessions">${eur(rate)} pro Stunde${st.hourly ? '' : ' (aus Gehalt und Sollstunden)'} · Stand ${dmy(stand)}</div>
   </div>
-  <p class="hint">Erarbeitet = gestempelte Nettozeit mal Stundenlohn. Überstunden = Differenz zur Sollzeit bis heute in Euro. Ausgezahlt wird das Festgehalt oben.</p>
+  <p class="hint">Erarbeitet = gestempelte Nettozeit mal Stundenlohn. ${cap ? `Überstunden sammeln sich bis ${cap} Std. auf dem Konto, alles darüber wird am Monatsende mit ${eur(rate)} pro Stunde über den Hauptjob ausgezahlt.` : 'Überstunden = Differenz zur Sollzeit bis heute in Euro. Ausgezahlt wird das Festgehalt oben.'}</p>
   <div class="label">Abrechnung je Job</div>
   ${jobGroups}
   <div class="label">Statistik ${y}</div>
@@ -402,7 +406,8 @@ function renderSetup() {
     <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
     <label class="row"><span>Startsaldo</span><input value="${hm(st.startBalance * MIN, true)}" onchange="setBalance(this)"></label>
   </div>
-  <p class="hint">Startsaldo = dein Stand vor dem Startdatum, z. B. -26:01 aus deiner alten App.</p>
+  <div class="group"><label class="row"><span>Auszahlen ab (Std.)</span><input type="number" inputmode="numeric" min="0" placeholder="nie" value="${st.otCap || ''}" onchange="setS('otCap', Math.max(0, num(this.value)))"></label></div>
+  <p class="hint">Startsaldo = dein Stand vor dem Startdatum, z. B. -26:01 aus deiner alten App. Auszahlen ab: Überstunden über dieser Grenze werden am Monatsende mit dem Stundenlohn über den Hauptjob ausgezahlt, das Konto bleibt bei der Grenze. Leer = nie.</p>
   <div class="label">Jobs</div>
   ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
   <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
@@ -540,6 +545,7 @@ function exportPdf(y, m) {
       ['Geleistet (netto)', hm(sum(days, 'net'))],
       [`Differenz bis ${dmy(stand)}`, hm(sum(past, 'diff'), true)],
       [`Überstundenkonto (Stand ${dmy(stand)})`, hm(c.balance(stand), true)],
+      ...(c.payouts()[`${y}-${pad(m + 1)}`] ? [['Ausgezahlte Überstunden', hm(c.payouts()[`${y}-${pad(m + 1)}`])]] : []),
       ['Urlaubstage', String(countAbs(days, 'urlaub'))],
       ['Krankheitstage', String(countAbs(days, 'krank'))],
     ],

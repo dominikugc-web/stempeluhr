@@ -79,8 +79,32 @@ function makeCalc(data, now) {
     return { d, sess, gross, pause, net: gross - pause, soll, diff: gross - pause - soll, holiday, absence, workday: weekday > 0 && !holiday };
   }
   const range = (from, to) => { const out = []; for (let d = from; d <= to; d = addDays(d, 1)) out.push(day(d)); return out; };
-  const balance = until => st.startBalance * MIN + range(st.since, until).reduce((t, x) => t + x.diff, 0);
-  return { day, range, balance };
+  const rawBalance = until => st.startBalance * MIN + range(st.since, until).reduce((t, x) => t + x.diff, 0);
+  // Überstunden über der Grenze st.otCap (Std.) werden am Monatsende ausgezahlt, im laufenden Monat bis heute gerechnet.
+  const cap = +st.otCap > 0 ? st.otCap * HOUR : 0;
+  let po = null;
+  function payouts() { // { 'YYYY-MM': ausgezahlte ms }
+    if (po) return po;
+    po = {};
+    if (!cap) return po;
+    const t = ymd(new Date(now));
+    let bal = st.startBalance * MIN, paid = 0;
+    for (let d = st.since; d <= t; d = addDays(d, 1)) {
+      bal += day(d).diff;
+      if (d === t || addDays(d, 1).endsWith('-01')) {
+        const over = bal - paid - cap;
+        if (over > 0) { po[d.slice(0, 7)] = over; paid += over; }
+      }
+    }
+    return po;
+  }
+  function balance(until) {
+    if (!cap) return rawBalance(until);
+    const m = until.slice(0, 7);
+    const paidBefore = Object.entries(payouts()).reduce((t, [k, v]) => k < m ? t + v : t, 0);
+    return Math.min(rawBalance(until) - paidBefore, cap);
+  }
+  return { day, range, balance, payouts };
 }
 
 
@@ -157,15 +181,19 @@ function sv(brutto, type, s, regular = brutto) {
   };
 }
 
-// Verdienst laut Vertrag für einen Monat (m = 0..11).
-function payMonth(data, y, m) {
+// Verdienst laut Vertrag für einen Monat (m = 0..11). otHours = ausgezahlte Überstunden, laufen über den Hauptjob.
+function payMonth(data, y, m, otHours = 0) {
   const st = data.settings, first = ymd(new Date(y, m, 1)), last = ymd(new Date(y, m + 1, 0)), ndays = +last.slice(8);
   let unpaid = 0;
   for (let d = first; d <= last; d = addDays(d, 1)) if (data.absences.some(a => UNPAID.includes(a.type) && a.from <= d && d <= a.to)) unpaid++;
   const { pvz, pva } = pvParams(st.pv), pvs = st.state === 'SN';
   const kistRate = st.state === 'BY' || st.state === 'BW' ? 0.08 : 0.09;
-  const jobs = (st.jobs || []).filter(j => !j.since || j.since <= last).map(j => {
-    const base = +j.brutto || 0, days = j.cut ? unpaid : 0, cut = round2(base * days / ndays), brutto = Math.max(0, round2(base - cut));
+  const active = (st.jobs || []).filter(j => !j.since || j.since <= last);
+  const otJob = active.find(j => j.type === 'haupt') || active.find(j => j.type !== 'mini');
+  const jobs = active.map(j => {
+    const base = +j.brutto || 0, days = j.cut ? unpaid : 0, cut = round2(base * days / ndays);
+    const ot = j === otJob ? otHours : 0, otPay = round2(ot * hourlyRate(st));
+    const brutto = Math.max(0, round2(base - cut + otPay));
     const s = sv(brutto, j.type, { rvFrei: j.rvFrei, kvz: st.kvz, pv: st.pv, pvs }, base);
     let lst = 0, soli = 0, kist = 0;
     if (j.type !== 'mini' && brutto > 0) {
@@ -174,10 +202,10 @@ function payMonth(data, y, m) {
       lst = r.lst; soli = r.soli; kist = st.kirche ? fl(r.bk * kistRate * 100) / 100 : 0;
     }
     const abz = round2(s.kv + s.rv + s.av + s.pv + lst + soli + kist);
-    return { job: j, base, days, cut, brutto, ...s, lst, soli, kist, abz, netto: round2(brutto - abz), sach: +j.sach || 0 };
+    return { job: j, base, days, cut, ot, otPay, brutto, ...s, lst, soli, kist, abz, netto: round2(brutto - abz), sach: +j.sach || 0 };
   });
   const tot = k => round2(jobs.reduce((t, x) => t + x[k], 0));
-  return { jobs, unpaid, brutto: tot('brutto'), abz: tot('abz'), netto: tot('netto'), sach: tot('sach'), cut: tot('cut') };
+  return { jobs, unpaid, brutto: tot('brutto'), abz: tot('abz'), netto: tot('netto'), sach: tot('sach'), cut: tot('cut'), otPay: tot('otPay'), ot: otJob ? otHours : 0 };
 }
 
 // Stundenlohn: eingetragen oder aus dem Festgehalt und den Sollstunden (Woche x 13 / 3) berechnet.
