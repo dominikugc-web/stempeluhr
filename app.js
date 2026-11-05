@@ -423,7 +423,7 @@ function renderSetup() {
   <div class="label">Sicherung</div>
   <div class="group">
     <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
-    <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" accept="application/json,.json" onchange="restore(this)"></label>
+    <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" onchange="restore(this)"></label>
   </div>
   <p class="hint">Deine Zeiten liegen nur auf diesem Gerät, nicht auf GitHub. Speicher ab und zu ein Backup, z. B. in iCloud Drive.</p>`;
 }
@@ -508,7 +508,7 @@ function restore(el) {
     if (!Array.isArray(d.sessions) || !Array.isArray(d.absences) || typeof d.settings !== 'object') throw new Error('keine Stempeluhr-Sicherung');
     if (!confirm('Backup laden? Die aktuellen Daten auf diesem Gerät werden ersetzt.')) return;
     data = normalize(d); save(); render(); alert('Backup geladen.');
-  }).catch(e => alert('Backup konnte nicht geladen werden: ' + e.message)).finally(() => { el.value = ''; });
+  }).catch(e => alert('Datei konnte nicht geladen werden: ' + (e instanceof SyntaxError ? 'keine Stempeluhr-Datei' : e.message))).finally(() => { el.value = ''; });
 }
 
 function exportPdf(y, m) {
