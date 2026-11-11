@@ -61,25 +61,60 @@ function holidays(y, state) { // -> { 'YYYY-MM-DD': name }
   return out;
 }
 
+// Soll pro Wochentag am Tag d: der passende Arbeitsplan (spätestes "ab"), sonst die Standard-Sollzeiten.
+function sollWeek(st, d) {
+  let best = null;
+  for (const p of st.plans || []) if (p.from <= d && (!p.to || d <= p.to) && (!best || p.from > best.from)) best = p;
+  return best ? best.soll : st.soll;
+}
+
+// Rundet einen Zeitpunkt auf step Minuten. mode: nearest | up | down
+function roundTime(ms, step, mode) {
+  if (!step) return ms;
+  const s = step * MIN, off = new Date(ms).getTimezoneOffset() * MIN, t = ms - off;
+  const f = mode === 'up' ? Math.ceil : mode === 'down' ? Math.floor : Math.round;
+  return f(t / s) * s + off;
+}
+// Rundungsregel: "nearest" kaufmännisch; "employee" Start ab-, Ende aufrunden; "employer" umgekehrt.
+function roundSession(x, r, now) {
+  const e = x.e ?? now;
+  if (!r || !+r.step) return { s: x.s, e };
+  const [ms, me] = r.mode === 'employee' ? ['down', 'up'] : r.mode === 'employer' ? ['up', 'down'] : ['nearest', 'nearest'];
+  const s = roundTime(x.s, +r.step, ms);
+  return { s, e: x.e == null ? e : Math.max(s, roundTime(x.e, +r.step, me)) };
+}
+
 function makeCalc(data, now) {
-  const st = data.settings, byDay = {}, hol = {};
+  const st = data.settings, byDay = {}, hol = {}, adjByDay = {};
   // shortcut: a session counts fully for the day it started on; split it if night shifts are ever needed
   for (const x of data.sessions) (byDay[ymd(new Date(x.s))] ||= []).push(x);
+  for (const a of data.adjustments || []) adjByDay[a.d] = (adjByDay[a.d] || 0) + a.min * MIN;
 
   function day(d) {
     const sess = (byDay[d] || []).slice().sort((a, b) => a.s - b.s);
-    const gross = sess.reduce((t, x) => t + Math.max(0, (x.e ?? now) - x.s), 0);
+    const gross = sess.reduce((t, x) => { const r = roundSession(x, st.round, now); return t + Math.max(0, r.e - r.s); }, 0);
     const pause = Math.min(gross, st.pause * MIN);
     const year = d.slice(0, 4), holiday = (hol[year] ||= holidays(+year, st.state))[d];
     const absence = data.absences.find(a => a.from <= d && d <= a.to);
-    const weekday = +st.soll[parseYmd(d).getDay()] || 0;
+    const weekday = +sollWeek(st, d)[parseYmd(d).getDay()] || 0;
     let soll = d < st.since ? 0 : weekday * HOUR;
     if (holiday || (absence && absence.type !== 'reduzierung')) soll = 0;
     else if (absence) soll = Math.max(0, soll - absence.hours * HOUR);
-    return { d, sess, gross, pause, net: gross - pause, soll, diff: gross - pause - soll, holiday, absence, workday: weekday > 0 && !holiday };
+    const adj = d < st.since ? 0 : adjByDay[d] || 0;
+    return { d, sess, gross, pause, net: gross - pause, soll, diff: gross - pause - soll, adj, holiday, absence, workday: weekday > 0 && !holiday, planned: weekday > 0 };
   }
   const range = (from, to) => { const out = []; for (let d = from; d <= to; d = addDays(d, 1)) out.push(day(d)); return out; };
-  const rawBalance = until => st.startBalance * MIN + range(st.since, until).reduce((t, x) => t + x.diff, 0);
+  // Laufende Summe ab Startdatum, einmal berechnet und dann gemerkt.
+  const start = st.startBalance * MIN, cum = {};
+  let cumTo = null, cumVal = start;
+  function rawBalance(until) {
+    if (until < st.since) return start;
+    if (cumTo === null || until > cumTo) {
+      for (let d = cumTo === null ? st.since : addDays(cumTo, 1); d <= until; d = addDays(d, 1)) { const x = day(d); cumVal += x.diff + x.adj; cum[d] = cumVal; }
+      cumTo = until;
+    }
+    return cum[until];
+  }
   // Überstunden über der Grenze st.otCap (Std.) werden am Monatsende ausgezahlt, im laufenden Monat bis heute gerechnet.
   const cap = +st.otCap > 0 ? st.otCap * HOUR : 0;
   let po = null;
@@ -88,11 +123,10 @@ function makeCalc(data, now) {
     po = {};
     if (!cap) return po;
     const t = ymd(new Date(now));
-    let bal = st.startBalance * MIN, paid = 0;
+    let paid = 0;
     for (let d = st.since; d <= t; d = addDays(d, 1)) {
-      bal += day(d).diff;
       if (d === t || addDays(d, 1).endsWith('-01')) {
-        const over = bal - paid - cap;
+        const over = rawBalance(d) - paid - cap;
         if (over > 0) { po[d.slice(0, 7)] = over; paid += over; }
       }
     }
@@ -107,6 +141,32 @@ function makeCalc(data, now) {
   return { day, range, balance, payouts };
 }
 
+
+// Urlaubsplaner: Blöcke freier Tage zwischen from und to, die mit wenigen Urlaubstagen rund um Feiertage entstehen.
+// Ein Block beginnt nach und endet vor einem normalen Arbeitstag; need = Arbeitstage, die man dafür Urlaub nimmt.
+function bridgeIdeas(calc, from, to, maxDays) {
+  const days = calc.range(addDays(from, -1), addDays(to, 1));
+  const off = x => !x.workday || (x.absence && x.absence.type !== 'reduzierung');
+  const ideas = [];
+  for (let i = 1; i < days.length - 1; i++) {
+    if (off(days[i - 1])) continue;
+    const need = [];
+    let hol = null;
+    for (let j = i; j < days.length - 1 && j - i < 16; j++) {
+      const x = days[j];
+      if (!off(x)) need.push(x.d);
+      if (x.holiday && x.planned && !hol) hol = x.holiday;  // nur Feiertage, die einen Arbeitstag ersetzen
+      if (need.length > Math.min(4, maxDays)) break;
+      const len = j - i + 1;
+      if (!off(days[j + 1]) && need.length && hol && len >= 3 && len / need.length >= 2.5)
+        ideas.push({ from: days[i].d, to: x.d, need: need.slice(), len, holiday: hol });
+    }
+  }
+  ideas.sort((a, b) => b.len / b.need.length - a.len / a.need.length || b.len - a.len || a.from.localeCompare(b.from));
+  const out = [];
+  for (const x of ideas) if (!out.some(o => x.from <= o.to && o.from <= x.to)) out.push(x);
+  return out.sort((a, b) => a.from.localeCompare(b.from));
+}
 
 // ---------- Lohn 2026: Sozialversicherung und Lohnsteuer ----------
 // Lohnsteuer nach dem Programmablaufplan 2026 des BMF (Stand 12.11.2025), ohne Versorgungsbezüge,
@@ -215,4 +275,4 @@ function hourlyRate(st) {
   return week ? monthly / (week * 13 / 3) : 0;
 }
 
-if (typeof module !== 'undefined') module.exports = { MIN, HOUR, ymd, parseYmd, addDays, monday, isoWeek, easter, holidays, makeCalc, lohnsteuer, sv, payMonth, hourlyRate };
+if (typeof module !== 'undefined') module.exports = { MIN, HOUR, ymd, parseYmd, addDays, monday, isoWeek, easter, holidays, makeCalc, roundTime, sollWeek, bridgeIdeas, lohnsteuer, sv, payMonth, hourlyRate };

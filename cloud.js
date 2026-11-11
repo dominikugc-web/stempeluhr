@@ -1,6 +1,6 @@
 // Login (Google oder E-Mail), Speichern in Firestore und Firmenverwaltung. Die Zeit-Oberfläche liegt in app.js.
 // Gehalts- und Steuerangaben liegen getrennt in private/{uid}, damit der Chef sie nie sieht.
-const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly'];
+const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const G_ICON = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.8h3.6c2-1.9 3.2-4.7 3.2-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.9A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 10l3.7-2.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7l3.7 2.9C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
 
@@ -68,6 +68,7 @@ function firstLogin() {
   try { local = JSON.parse(localStorage.getItem(KEY)); } catch {}
   data = normalize(local || {});
   if (!data.settings.name) data.settings.name = me.displayName || '';
+  if (!local) data.settings.onboarded = false;  // neues Konto: Einführung zeigen
   writeOwn(true);
   own.ready = true;  // data ist schon vollständig; die Snapshots der eigenen Schreibvorgänge werden übersprungen
   showTabs(true); tab = 'start'; refresh();
@@ -75,7 +76,7 @@ function firstLogin() {
 }
 
 function merged(shared, priv) {
-  return normalize({ sessions: shared.sessions, absences: shared.absences, settings: { ...shared.settings, ...(priv?.settings || {}) } });
+  return normalize({ sessions: shared.sessions, absences: shared.absences, adjustments: shared.adjustments, settings: { ...shared.settings, ...(priv?.settings || {}) } });
 }
 function split(settings) {
   const shared = { ...settings }, priv = {};
@@ -88,12 +89,12 @@ function save() {
   if (!me) return;
   if (viewing) {
     const { shared } = split(data.settings);
-    ref('data/' + viewing.uid).update({ sessions: data.sessions, absences: data.absences, settings: shared }).catch(cloudError);
+    ref('data/' + viewing.uid).update({ sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: shared }).catch(cloudError);
   } else writeOwn(false);
 }
 function writeOwn(first) {
   const { shared, priv } = split(data.settings), b = fb.db.batch();
-  const doc = { sessions: data.sessions, absences: data.absences, settings: shared };
+  const doc = { sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: shared };
   if (first) doc.cid = null;
   b.set(ref('data/' + me.uid), doc, first ? undefined : { merge: true });
   b.set(ref('private/' + me.uid), { settings: priv });
@@ -318,7 +319,8 @@ function renderTeam() {
     <span>${s?.running ? '<span class="green">●</span> ' : ''}${esc(m.name)}<div class="muted small">${s ? 'Diese Woche ' + dur(s.week) : esc(m.email)}</div></span>
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
     <p class="hint">Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt Wochen, Monate und PDF des Mitarbeiters, dort kannst du auch korrigieren.</p>`
-    : '<p class="muted center">Noch keine Mitarbeiter. Teil den Einladungscode.</p>'}`;
+    : '<p class="muted center">Noch keine Mitarbeiter. Teil den Einladungscode.</p>'}
+  ${active.length ? '<button class="big" onclick="openTeamExport()">Team als Excel exportieren</button>' : ''}`;
 }
 async function shareInvite() {
   const link = location.origin + location.pathname + '?join=' + company.code;

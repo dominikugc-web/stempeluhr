@@ -33,6 +33,38 @@ assert.equal(c.balance('2026-11-05'), -13.5 * H);
 assert.equal(c.balance('2026-11-01'), -1 * H);
 
 
+// ---------- Runden, Arbeitspläne, Korrekturen ----------
+const at = (h, m) => +new Date(2026, 10, 2, h, m);
+assert.equal(L.roundTime(at(7, 52), 15, 'nearest'), at(7, 45));
+assert.equal(L.roundTime(at(7, 53), 15, 'nearest'), at(8, 0));
+assert.equal(L.roundTime(at(7, 46), 15, 'up'), at(8, 0));
+assert.equal(L.roundTime(at(16, 14), 15, 'down'), at(16, 0));
+const rd = { ...data, settings: { ...data.settings, round: { step: 15, mode: 'employer' } },
+  sessions: [{ s: at(6, 5), e: at(15, 10) }] };   // employer: start up to 6:15, end down to 15:00
+assert.equal(L.makeCalc(rd, at(20, 0)).day('2026-11-02').gross, 8.75 * H);
+const rdE = { ...rd, settings: { ...rd.settings, round: { step: 15, mode: 'employee' } } }; // 6:00 - 15:15
+assert.equal(L.makeCalc(rdE, at(20, 0)).day('2026-11-02').gross, 9.25 * H);
+const plan = { ...data, settings: { ...data.settings, plans: [{ from: '2026-11-03', soll: [0, 4, 4, 4, 4, 4, 0] }] } };
+const cp = L.makeCalc(plan, +new Date(2026, 10, 5, 12, 0));
+assert.equal(cp.day('2026-11-02').soll, 8 * H);   // before plan
+assert.equal(cp.day('2026-11-03').soll, 4 * H);   // plan active
+const adj = { ...data, adjustments: [{ d: '2026-11-03', min: 120 }, { d: '2026-10-01', min: 600 }] };
+const ca = L.makeCalc(adj, +new Date(2026, 10, 5, 12, 0));
+assert.equal(ca.balance('2026-11-05'), -11.5 * H);  // +2 h correction, the one before the start date is ignored
+assert.equal(ca.balance('2026-11-02'), -0.5 * H);
+
+// ---------- Urlaubsplaner ----------
+const yr = { sessions: [], absences: [], settings: { soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: 'NW', startBalance: 0, since: '2026-01-01' } };
+const ideas = L.bridgeIdeas(L.makeCalc(yr, +new Date(2026, 0, 1)), '2026-05-01', '2026-06-30', 30);
+const asc = ideas.find(x => x.holiday === 'Christi Himmelfahrt');  // Do 14.05.2026
+assert.deepEqual(asc && [asc.from, asc.to, asc.need.join()], ['2026-05-14', '2026-05-17', '2026-05-15']);
+const fron = ideas.find(x => x.holiday === 'Fronleichnam');        // Do 04.06.2026 in NW
+assert.deepEqual(fron && fron.need, ['2026-06-05']);
+assert.ok(ideas.every(x => x.len / x.need.length >= 2.5));
+const y27 = L.bridgeIdeas(L.makeCalc(yr, +new Date(2026, 0, 1)), '2027-04-01', '2027-05-05', 30);
+assert.ok(!y27.some(x => x.holiday === 'Tag der Arbeit'));  // 01.05.2027 ist ein Samstag
+
+
 // ---------- Lohnsteuer: amtliche Prüftabelle PAP 2026 (Jahreslohnsteuer, KVZ 2,90, PVZ = 1 außer Klasse II) ----------
 const TABLE = {
   5000: [0, 0, 0, 0, 372, 558],

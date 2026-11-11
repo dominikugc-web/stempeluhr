@@ -24,10 +24,12 @@ let edit = null;
 
 function normalize(d) {
   const def = { name: '', soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: '', startBalance: 0, since: today(), vacation: 30,
-    jobs: [], stkl: 1, zkf: 0, kirche: false, kvz: 2.9, pv: 'z', hourly: 0, otCap: 0 };
+    jobs: [], stkl: 1, zkf: 0, kirche: false, kvz: 2.9, pv: 'z', hourly: 0, otCap: 0,
+    plans: [], round: { step: 0, mode: 'nearest' }, onboarded: true, theme: {}, tips: true };
   return {
     sessions: (d.sessions || []).filter(x => typeof x.s === 'number'),
     absences: d.absences || [],
+    adjustments: d.adjustments || [],
     settings: { ...def, ...d.settings },
   };
 }
@@ -73,8 +75,10 @@ function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   if (tab === 'login') return renderLogin();
   if (viewing && (tab === 'start' || tab === 'pay')) tab = 'week';
-  ({ start: renderStart, week: renderWeek, month: renderMonth, pay: renderPay, setup: renderSetup, team: renderTeam })[tab]();
+  applyTheme();
+  ({ start: renderStart, week: renderWeek, month: renderMonth, stats: renderStats, pay: renderPay, setup: renderSetup, team: renderTeam })[tab]();
   view.insertAdjacentHTML('afterbegin', viewBanner());
+  maybeOnboard();
 }
 function go(t) { tab = t; render(); scrollTo(0, 0); if (t === 'team') loadTeamStats(); }
 function sheet(html) {
@@ -101,7 +105,8 @@ function renderStart() {
     <div class="sessions" id="tsess"></div>
   </div>
   <div class="two"><button class="pill" onclick="openOverview()">${ICON.chart} Übersicht</button><button class="pill" onclick="openAbsences()">${ICON.cal} Abwesenheiten</button></div>
-  <button id="toggle" class="big" onclick="toggle()">Start</button>`;
+  <button id="toggle" class="big" onclick="toggle()">Start</button>
+  ${tipHtml()}`;
   updateStart();
 }
 function updateStart() {
@@ -113,6 +118,7 @@ function updateStart() {
   $('#clock').textContent = clockStr(t.gross);
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
+  $('#fill').style.background = progColor(pct);
   $('#b0').textContent = tod(first);
   $('#b1').textContent = tod((first + finish) / 2);
   $('#b2').textContent = tod(finish);
@@ -135,12 +141,12 @@ function openOverview() {
   const gestern = c.balance(addDays(t, -1)), aktuell = c.balance(t);
   sheet(`
   <div class="ot-grid">
-    <div class="ot ${cls(gestern)}"><b>${hm(gestern, true)}</b><span>Überstunden gestern</span></div>
-    <div class="ot ${cls(aktuell)}"><b>${hm(aktuell, true)}</b><span>Überstunden aktuell</span></div>
+    <button class="ot ${cls(gestern)}" onclick="openBalance()"><b>${hm(gestern, true)}</b><span>Überstunden gestern</span></button>
+    <button class="ot ${cls(aktuell)}" onclick="openBalance()"><b>${hm(aktuell, true)}</b><span>Überstunden aktuell ›</span></button>
     <div class="ot"><b>${s.start}</b><span>Ø Startzeit</span></div>
     <div class="ot"><b>${s.end}</b><span>Ø Endzeit</span></div>
   </div>
-  <p class="hint">„Aktuell“ rechnet die volle Sollzeit von heute schon mit ein.${+st.otCap ? ` Das Konto geht höchstens bis ${st.otCap} Std., alles darüber wird ausgezahlt.` : ''}</p>
+  <p class="hint">Tippe auf das Konto, um die Rechnung Tag für Tag zu sehen. „Aktuell“ rechnet die volle Sollzeit von heute schon mit ein.${+st.otCap ? ` Das Konto geht höchstens bis ${st.otCap} Std., alles darüber wird ausgezahlt.` : ''}</p>
   <p class="center">Seit Beginn der Aufzeichnung hast du ${dur(sum(all, 'net'))} gearbeitet (nach Abzug von ${st.pause} Min. Pause pro Tag).</p>
   <div class="group">
     <div class="row"><span>Urlaub ${y}</span><span>${countAbs(c.range(y + '-01-01', y + '-12-31'), 'urlaub')} von ${st.vacation} Tagen</span></div>
@@ -155,6 +161,7 @@ function openAbsences() {
   const c = calc(), list = data.absences.slice().sort((a, b) => b.from.localeCompare(a.from));
   sheet(`<div class="sheet-head"><h2>Abwesenheiten</h2><button class="pill sm" onclick="closeSheet()">Fertig</button></div>
   <button class="pill wide" onclick="absenceForm()">+ Abwesenheit hinzufügen</button>
+  <div class="two" style="margin:0 0 14px"><button class="pill" onclick="openPlanner()">🏖 Urlaubsplaner</button><button class="pill" onclick="openFerien()">🎒 Schulferien</button></div>
   ${list.length ? `<div class="group">${list.map(a => `<div class="row"><div><b>${TYPES[a.type]}</b>${a.type === 'reduzierung' ? ` -${a.hours} Std./Tag` : ''}
     <div class="muted small">${dmy(a.from)}${a.to !== a.from ? ' – ' + dmy(a.to) : ''} · ${workdays(c, a.from, a.to)} Arbeitstage${a.comment ? ' · ' + esc(a.comment) : ''}</div></div>
     <button class="del" onclick="delAbsence('${a.id}')">Löschen</button></div>`).join('')}</div>`
@@ -255,7 +262,7 @@ function saveDay() {
 // ---------- week ----------
 function ring(p) {
   return `<svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="10"/>
-  <circle cx="50" cy="50" r="42" fill="none" stroke="${p >= 100 ? '#8cc63f' : '#d23f5a'}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${Math.min(p, 100) * 2.639} 264" transform="rotate(-90 50 50)"/>
+  <circle cx="50" cy="50" r="42" fill="none" stroke="${progColor(p)}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${Math.min(p, 100) * 2.639} 264" transform="rotate(-90 50 50)"/>
   <text x="50" y="57" text-anchor="middle" font-size="20" fill="#eee">${p}%</text></svg>`;
 }
 function renderWeek() {
@@ -426,6 +433,7 @@ function renderSetup() {
   </div>
   <div class="label">Sollstunden pro Tag</div>
   <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
+  ${setupExtrasHtml()}
   <div class="label">Überstundenkonto</div>
   <div class="group">
     <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
@@ -456,6 +464,7 @@ function renderSetup() {
     <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" onchange="restore(this)"></label>
   </div>
   <p class="hint">${viewing ? 'Backup laden ersetzt die Zeiten dieses Mitarbeiters.' : 'Deine Zeiten liegen in deinem Konto und sind auf allen Geräten gleich. Gehalt und Steuerdaten sieht nur du, auch nicht dein Chef.'}</p>
+  ${setupHelpHtml()}
   ${viewing ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
 }
 function jobForm(i) {
