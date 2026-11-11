@@ -465,7 +465,7 @@ function renderSetup() {
     <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
     <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" onchange="restore(this)"></label>
   </div>
-  <p class="hint">${viewing ? 'Backup laden ersetzt die Zeiten dieses Mitarbeiters.' : 'Deine Zeiten liegen in deinem Konto und sind auf allen Geräten gleich. Gehalt und Steuerdaten sieht nur du, auch nicht dein Chef.'}</p>
+  <p class="hint">${viewing ? 'Backup laden ersetzt die Zeiten dieses Mitarbeiters.' : 'Deine Zeiten liegen in deinem Konto und sind auf allen Geräten gleich. Gehalt und Steuerdaten sieht nur du, auch nicht dein Geschäftsführer.'}</p>
   ${setupHelpHtml()}
   ${viewing ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
 }

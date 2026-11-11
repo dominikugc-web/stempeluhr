@@ -129,3 +129,6 @@ input[type=color]{width:44px;height:32px;padding:0;border-radius:10px;background
 .adminbar{margin:0 0 14px}.adminbar .seg{margin:0 0 10px}.adminbar .group{margin-bottom:6px}
 a.pill{text-decoration:none;color:inherit}
 .adminbar .seg{flex-wrap:nowrap;gap:5px}.adminbar .pill.sm{padding:8px 11px;font-size:14px;white-space:nowrap}
+.choice{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--card);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:16px;margin:0 0 12px}
+.choice>span:last-child{display:flex;flex-direction:column;gap:3px}.choice b{font-size:19px}.ci{font-size:34px;flex:none}
+.adminbar .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px}

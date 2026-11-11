@@ -1,5 +1,5 @@
 // Login (Google oder E-Mail), Speichern in Firestore und Firmenverwaltung. Die Zeit-Oberfläche liegt in app.js.
-// Gehalts- und Steuerangaben liegen getrennt in private/{uid}, damit der Chef sie nie sieht.
+// Gehalts- und Steuerangaben liegen getrennt in private/{uid}, damit der Geschäftsführer sie nie sieht.
 const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const G_ICON = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.8h3.6c2-1.9 3.2-4.7 3.2-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.9A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 10l3.7-2.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7l3.7 2.9C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
@@ -9,11 +9,11 @@ let own = {};               // letzte Snapshots der eigenen Dokumente: { shared,
 let cid = undefined;        // Firma laut eigenem Datendokument
 let company, membership, members = [], teamStats = {}; // undefined = lädt noch, null = gibt es nicht / kein Zugriff
 let membersOn = false;
-let viewing = null;         // { uid, name } wenn der Chef einen Mitarbeiter ansieht
+let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mitarbeiter ansieht
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
 let joinCode = new URLSearchParams(location.search).get('join');
 
-// Entwickler-App (admin/index.html): dieselbe Oberfläche mit Umschalter Entwickler / Chef / Mitarbeiter / Ich.
+// Entwickler-App (admin/index.html): dieselbe Oberfläche mit Umschalter Entwickler / Geschäftsführer / Mitarbeiter / Ich.
 // Die UID muss auch in firestore.rules (isAdmin) stehen, sonst verweigert der Server den Zugriff.
 const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
 const ADMIN_APP = !!window.ADMIN_APP;
@@ -118,7 +118,7 @@ function writeOwn(first) {
 function refresh() { if ($('#sheet').hidden) render(); }
 
 // ---------- firma beobachten ----------
-function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Firma als Chef
+function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Firma als Geschäftsführer
   off(companyUnsubs);
   if (!acting) cid = id;
   company = undefined; membership = undefined; members = []; teamStats = {}; membersOn = false;
@@ -241,12 +241,12 @@ function displayName() { return data.settings.name || me.displayName || me.email
 function accountHtml() {
   if (viewing || !me) return '';
   let firm;
-  if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Chef)</span><span class="muted">›</span></button>
-    <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Chef)</span><span class="muted">›</span></button>`;
-  else if (isOwner()) firm = `<button class="row" onclick="go('team')"><span>Chef von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>`;
+  if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
+    <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Geschäftsführer)</span><span class="muted">›</span></button>`;
+  else if (isOwner()) firm = `<button class="row" onclick="go('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>`;
   else if (membership?.status === 'active') firm = `<div class="row"><span>Mitarbeiter bei <b>${esc(company?.name || membership.companyName)}</b></span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`;
-  else if (membership?.status === 'pending') firm = `<div class="row"><span>Anfrage an <b>${esc(membership.companyName)}</b> gesendet. Der Chef muss dich noch freigeben.</span></div>
+  else if (membership?.status === 'pending') firm = `<div class="row"><span>Anfrage an <b>${esc(membership.companyName)}</b> gesendet. Der Geschäftsführer muss dich noch freigeben.</span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Anfrage zurückziehen</span></button>`;
   else if (membership === null && company === null) firm = `<div class="row"><span>Deine Anfrage wurde abgelehnt oder du wurdest aus der Firma entfernt.</span></div>
     <button class="row" onclick="leaveCompany()"><span>OK</span><span class="muted">›</span></button>`;
@@ -279,6 +279,7 @@ async function createCompany() {
     await ref('invites/' + code).set({ cid: c.id, name });
     await ref('data/' + me.uid).update({ cid: c.id });
     closeSheet(); tab = 'team';
+    return true;
   } catch (e) { alert('Firma konnte nicht angelegt werden: ' + e.message); }
 }
 
@@ -289,33 +290,34 @@ function joinForm(code = '') {
     <label class="row"><span>Einladungscode</span><input id="jcode" class="short" value="${esc(code)}" autocapitalize="characters" placeholder="ABC123" style="text-transform:uppercase"></label>
     <label class="row"><span>Dein Name</span><input id="jname2" value="${esc(displayName())}"></label>
   </div>
-  <p class="hint">Den Code bekommst du von deinem Chef. Nach der Freigabe sieht er deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>`);
+  <p class="hint">Den Code bekommst du von deinem Geschäftsführer. Nach der Freigabe sieht er deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>`);
 }
 async function joinCompany() {
   const code = $('#jcode').value.trim().toUpperCase(), name = $('#jname2').value.trim();
   if (!code || !name) return alert('Bitte Code und Namen eintragen.');
   try {
     const inv = await ref('invites/' + code).get();
-    if (!inv.exists) return alert('Diesen Code gibt es nicht. Frag deinen Chef nach dem aktuellen Code.');
+    if (!inv.exists) return alert('Diesen Code gibt es nicht. Frag deinen Geschäftsführer nach dem aktuellen Code.');
     const { cid: id, name: companyName } = inv.data();
     await ref(`companies/${id}/members/${me.uid}`).set({ name, email: me.email || '', status: 'pending', code, companyName, requested: firebase.firestore.FieldValue.serverTimestamp() });
     data.settings.name = name;
     await ref('data/' + me.uid).update({ cid: id, 'settings.name': name });
     closeSheet();
-    alert(`Anfrage an ${companyName} gesendet. Sobald dein Chef dich freigibt, bist du drin.`);
+    alert(`Anfrage an ${companyName} gesendet. Sobald dein Geschäftsführer dich freigibt, bist du drin.`);
+    return true;
   } catch (e) {
     alert(e.code === 'permission-denied' ? 'Beitritt nicht möglich. Vielleicht bist du schon Mitglied oder der Code ist abgelaufen.' : 'Beitritt fehlgeschlagen: ' + e.message);
   }
 }
 async function leaveCompany() {
-  if (membership && !confirm(membership.status === 'active' ? 'Firma wirklich verlassen? Dein Chef sieht deine Zeiten dann nicht mehr.' : 'Anfrage zurückziehen?')) return;
+  if (membership && !confirm(membership.status === 'active' ? 'Firma wirklich verlassen? Dein Geschäftsführer sieht deine Zeiten dann nicht mehr.' : 'Anfrage zurückziehen?')) return;
   try {
     if (membership) await ref(`companies/${cid}/members/${me.uid}`).delete();
     await ref('data/' + me.uid).update({ cid: null });
   } catch (e) { alert(e.message); }
 }
 
-// ---------- team (nur Chef) ----------
+// ---------- team (nur Geschäftsführer) ----------
 function renderTeam() {
   if (company === undefined && cid !== null) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
   if (!isOwner()) return renderStart();
@@ -447,7 +449,7 @@ function adminBar() {
     ctx = `<label class="row"><span>Firma</span><select onchange="setRole('boss', this.value)">${adminCache.companies.map(c => `<option value="${c.id}" ${company?.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
   if (role === 'emp' && adminCache?.users.length)
     ctx = `<label class="row"><span>Mitarbeiter</span><select onchange="setRole('emp', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${viewing?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>`;
-  return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Chef')}${seg('emp', 'Mitarbeiter')}${seg('self', 'Ich')}</div>
+  return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Geschäftsführer')}${seg('emp', 'Mitarbeiter')}${seg('self', 'Ich')}</div>
     ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'emp' ? '<p class="hint">Vorschau: So sieht dieser Mitarbeiter die App. Stempeln ist gesperrt, Korrekturen in Woche/Monat werden gespeichert.</p>' : ''}</div>`;
 }
 function renderAdmin() {
@@ -458,12 +460,12 @@ function renderAdmin() {
   <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.running).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
   <div class="label">Firmen</div>
   ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
-    <div class="muted small">Chef: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Chef ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
+    <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
   <div class="label">Nutzer</div>
   <div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
   <div id="ulist">${adminUsers()}</div>
   <button class="pill wide" onclick="adminCache = null; render(); loadAdmin()">Aktualisieren</button>
-  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Chef zu sehen, oder auf einen Nutzer für seine Mitarbeiter-Ansicht. Gehalts- und Steuerdaten der Nutzer sind auch für Entwickler gesperrt.</p>
+  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Geschäftsführer zu sehen, oder auf einen Nutzer für seine Mitarbeiter-Ansicht. Gehalts- und Steuerdaten der Nutzer sind auch für Entwickler gesperrt.</p>
   <div class="group"><div class="row"><span>${esc(me.email)}</span><button class="pill sm" onclick="logout()">Abmelden</button></div></div>
   <a class="pill wide" href="${APP_URL}">Normale App öffnen</a>`;
 }
@@ -472,7 +474,7 @@ function adminUsers() {
   const list = a.users.filter(u => !q || (u.name + ' ' + u.email).toLowerCase().includes(q));
   const firm = u => {
     const own = a.companies.find(c => c.owner === u.uid), c = a.companies.find(c => c.id === u.cid);
-    return own ? `Chef von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
+    return own ? `Geschäftsführer von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
   };
   if (!list.length) return '<p class="muted center">Keine Treffer.</p>';
   return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('emp', '${u.uid}')"><span>${u.running ? '<span class="green">●</span> ' : ''}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}

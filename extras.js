@@ -45,7 +45,7 @@ const TIPS = [
   ['Tag nachtragen', 'In Woche oder Monat auf einen Tag tippen, dann kannst du Zeiten ergänzen oder korrigieren.'],
   ['Überstunden verstehen', 'Tippe in der Übersicht auf dein Überstundenkonto. Du siehst Tag für Tag, wie es zustande kommt.'],
   ['Brückentage finden', 'Unter Abwesenheiten → Urlaubsplaner findest du die besten Brückentage für deinen Resturlaub.'],
-  ['Export für den Chef', 'Unter Statistik → Exportieren bekommst du Excel, CSV oder eine Kalenderdatei.'],
+  ['Export für den Geschäftsführer', 'Unter Statistik → Exportieren bekommst du Excel, CSV oder eine Kalenderdatei.'],
   ['Farben anpassen', 'Unter Setup → Farben wählst du Hintergrund und Farben für Minus, Ziel und Überstunden.'],
   ['Wie funktioniert was?', 'Unter Setup → Tutorial erklärt dir die App Schritt für Schritt alle Funktionen.'],
 ];
@@ -58,47 +58,66 @@ function tipHtml() {
 }
 
 // ---------- einführung (erster Start) ----------
-let onboardStep = 0;
+// Schritt 0: Rolle wählen (Geschäftsführer legt Firma an, Mitarbeiter tritt mit Code bei), dann Bundesland,
+// Sollzeit, Überstundenkonto, fertig. Wer per Einladungslink schon beigetreten ist, überspringt Schritt 0.
+let onboardStep = 0, onboardRole = '';
 function maybeOnboard() {
-  if (!ADMIN_APP && !viewing && me && data.settings.onboarded === false && $('#sheet').hidden) onboard(0);
+  if (!ADMIN_APP && !viewing && me && data.settings.onboarded === false && $('#sheet').hidden) onboard(onboardStep);
 }
 function onboard(step) {
+  if (step === 0 && cid) step = 1;
   onboardStep = step;
-  const st = data.settings, steps = 6, dots = `<div class="dots">${Array.from({ length: steps }, (_, i) => `<span class="${i === step ? 'on' : ''}"></span>`).join('')}</div>`;
+  const st = data.settings, steps = 5, dots = `<div class="dots">${Array.from({ length: steps }, (_, i) => `<span class="${i === step ? 'on' : ''}"></span>`).join('')}</div>`;
   const next = (label = 'Weiter') => `<button class="big" onclick="onboardNext()">${label}</button>`;
   const pages = [
-    () => `<h2>Willkommen 👋</h2>
-      <p>Die Stempeluhr erfasst deine Arbeitszeit und rechnet dein Überstundenkonto aus.</p>
+    () => onboardRole === 'boss' ? `<h2>Deine Firma</h2>
+      <div class="group"><label class="row"><span>Name der Firma</span><input id="cname" placeholder="z. B. Muster GmbH"></label></div>
+      <p class="hint">Danach bekommst du einen Einladungscode. Deine Mitarbeiter geben ihn in ihrer App ein, du gibst sie frei und siehst im Tab Team ihre Zeiten.</p>
+      <button class="big" onclick="onboardCompany()">Firma anlegen</button>
+      <button class="pill wide" onclick="onboardRole = ''; onboard(0)">‹ Zurück</button>`
+    : onboardRole === 'emp' ? `<h2>Firma beitreten</h2>
       <div class="group">
-        <div class="row"><span>▶︎ Ein Tipp auf Start beginnt die Zeit, Stop beendet sie.</span></div>
-        <div class="row"><span>⏱ Pause, Feiertage und Urlaub werden automatisch eingerechnet.</span></div>
-        <div class="row"><span>👥 Mit einer Firma sieht dein Chef deine Zeiten, nicht aber dein Gehalt.</span></div>
-      </div><p class="hint">In vier kurzen Schritten richten wir alles ein. Alles kannst du später unter Setup ändern.</p>${next("Los geht's")}`,
+        <label class="row"><span>Einladungscode</span><input id="jcode" class="short" autocapitalize="characters" placeholder="ABC123" style="text-transform:uppercase"></label>
+        <label class="row"><span>Dein Name</span><input id="jname2" value="${esc(displayName())}"></label>
+      </div>
+      <p class="hint">Den Code bekommst du von deinem Geschäftsführer. Nach der Freigabe sieht er deine Zeiten und Abwesenheiten, aber nicht dein Gehalt und deine Steuerdaten.</p>
+      <button class="big" onclick="onboardJoin()">Beitreten</button>
+      <button class="pill wide" onclick="onboard(1)">Ich habe noch keinen Code</button>
+      <button class="pill wide" onclick="onboardRole = ''; onboard(0)">‹ Zurück</button>`
+    : `<h2>Willkommen 👋</h2>
+      <p>Die Stempeluhr erfasst Arbeitszeiten und rechnet das Überstundenkonto aus. Wer bist du?</p>
+      <button class="choice" onclick="onboardRole = 'boss'; onboard(0)"><span class="ci">🏢</span><span><b>Geschäftsführer</b><span class="muted small">Ich lege meine Firma an, lade Mitarbeiter ein und sehe ihre Zeiten.</span></span></button>
+      <button class="choice" onclick="onboardRole = 'emp'; onboard(0)"><span class="ci">👤</span><span><b>Mitarbeiter</b><span class="muted small">Ich erfasse meine Zeiten. Den Einladungscode habe ich von meinem Geschäftsführer.</span></span></button>
+      <button class="pill wide" onclick="onboardRole = 'solo'; onboard(1)">Ich nutze die App nur für mich</button>
+      <p class="hint">Das kannst du später unter Setup → Firma ändern.</p>`,
     () => `<h2>Wo arbeitest du?</h2>
       <div class="group">
         <label class="row"><span>Bundesland</span><select id="ob-state"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="row"><span>Pause pro Tag (Min.)</span><input id="ob-pause" type="number" inputmode="numeric" min="0" value="${st.pause}"></label>
       </div><p class="hint">Das Bundesland bestimmt die Feiertage und Schulferien. Die Pause wird an jedem Arbeitstag pauschal abgezogen.</p>${next()}`,
-    () => `<h2>Deine Sollzeit</h2>
+    () => `<h2>${onboardRole === 'boss' ? 'Deine eigene Sollzeit' : 'Deine Sollzeit'}</h2>
       <p class="muted">An welchen Tagen arbeitest du und wie lange?</p>
       <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" class="ob-soll" data-i="${i}" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}"></label>`).join('')}</div>
-      <p class="hint">Stunden pro Tag, 0 = frei. Wechselnde Zeiten (z. B. Teilzeit ab einem Datum) stellst du später unter Setup → Arbeitspläne ein.</p>${next()}`,
+      <p class="hint">Stunden pro Tag, 0 = frei. Wechselnde Zeiten (z. B. Teilzeit ab einem Datum) stellst du später unter Setup → Arbeitspläne ein.${onboardRole === 'boss' ? ' Die Sollzeiten deiner Mitarbeiter stellen diese selbst ein, oder du über Team → Mitarbeiter → Setup.' : ''}</p>${next()}`,
     () => `<h2>Überstundenkonto</h2>
       <div class="group">
         <label class="row"><span>Aufzeichnung seit</span><input id="ob-since" type="date" value="${st.since}"></label>
         <label class="row"><span>Startsaldo</span><input id="ob-bal" value="${hm(st.startBalance * MIN, true)}" placeholder="00:00"></label>
       </div><p class="hint">Ab diesem Datum zählen die Sollstunden. Hast du schon Überstunden (z. B. aus einer alten App), trag sie als Startsaldo ein, etwa 12:30 oder -3:15.</p>${next()}`,
-    () => `<h2>Arbeitest du in einer Firma?</h2>
-      <p class="muted">Dein Chef kann dann deine Zeiten sehen und korrigieren. Gehalt und Steuerdaten bleiben privat.</p>
-      <button class="pill wide" onclick="onboardDone(); joinForm()">Firma beitreten (Code vom Chef)</button>
-      <button class="pill wide" onclick="onboardDone(); companyForm()">Firma anlegen (ich bin Chef)</button>
-      <button class="pill wide" onclick="onboardNext()">Ich nutze die App allein</button>
-      <p class="hint">Das geht auch später unter Setup → Firma.</p>`,
     () => `<h2>Fertig! 🎉</h2>
+      ${isOwner() ? `<p>Deine Firma <b>${esc(company?.name || '')}</b> ist angelegt. Im Tab <b>Team</b> findest du den Einladungscode für deine Mitarbeiter.</p>`
+        : membership?.status === 'pending' ? `<p>Deine Anfrage an <b>${esc(membership.companyName)}</b> ist raus. Sobald dein Geschäftsführer dich freigibt, sieht er deine Zeiten.</p>` : ''}
       <p>Tippe auf <b>Start</b>, wenn du anfängst zu arbeiten.</p>
       <p class="muted">Eine ausführliche Erklärung aller Funktionen findest du jederzeit unter <b>Setup → Tutorial</b>.</p>${next('Auf geht\'s')}`,
   ];
   sheet(`${dots}${pages[step]()}`);
+}
+async function onboardCompany() {
+  if (!$('#cname').value.trim()) return alert('Bitte den Namen der Firma eintragen.');
+  if (await createCompany()) onboard(1);
+}
+async function onboardJoin() {
+  if (await joinCompany()) onboard(1);
 }
 function onboardNext() {
   const st = data.settings, s = onboardStep;
@@ -110,8 +129,8 @@ function onboardNext() {
     if (b == null) return alert('Startsaldo bitte im Format 12:30 oder -3:15 eingeben.');
     st.startBalance = b;
   }
-  if (s >= 5) { onboardDone(); closeSheet(); render(); return; }
-  save(); onboard(s === 3 && cid ? 5 : s + 1);  // schon in einer Firma (Einladungslink): Firmen-Schritt überspringen
+  if (s >= 4) { onboardDone(); closeSheet(); go(isOwner() ? 'team' : 'start'); return; }
+  save(); onboard(s + 1);
 }
 function onboardDone() { data.settings.onboarded = true; save(); }
 function parseHm(v) {
@@ -132,7 +151,7 @@ const TUTORIAL = [
   ['⏱', 'Runden', 'Rundet dein Arbeitgeber Zeiten, stellst du das unter Setup → Runden ein: auf 5, 10, 15 oder 30 Minuten, kaufmännisch, zugunsten Mitarbeiter (Start ab-, Ende aufrunden) oder zugunsten Arbeitgeber (umgekehrt). Gerundet wird nur in der Rechnung, die echten Stempelzeiten bleiben erhalten.'],
   ['📈', 'Statistik & Export', 'Der Tab <b>Statistik</b> zeigt Stunden, Überstunden, Urlaub und Krankheit für ein Jahr oder einen eigenen Zeitraum, mit Monats- und Wochentagsdiagrammen. Über <b>Exportieren</b> bekommst du Excel, CSV (Felder frei wählbar) oder eine Kalenderdatei für Apple- oder Google-Kalender.'],
   ['💶', 'Verdienst', 'Trag unter Setup deine Jobs, Steuerklasse und Krankenkasse ein. Der Tab <b>Verdienst</b> rechnet dann Brutto, Abzüge und Netto pro Monat aus, inklusive ausgezahlter Überstunden. Diese Daten sieht nur du.'],
-  ['👥', 'Firma & Team', 'Ein Chef legt unter Setup eine <b>Firma</b> an und teilt den Einladungscode. Mitarbeiter treten bei, der Chef gibt sie frei. Im Tab <b>Team</b> sieht der Chef, wer gerade eingestempelt ist, Wochenstunden und Überstundenkonten, und kann Zeiten korrigieren oder alle Mitarbeiter als Excel exportieren.'],
+  ['👥', 'Firma & Team', 'Ein Geschäftsführer legt unter Setup eine <b>Firma</b> an und teilt den Einladungscode. Mitarbeiter treten bei, der Geschäftsführer gibt sie frei. Im Tab <b>Team</b> sieht der Geschäftsführer, wer gerade eingestempelt ist, Wochenstunden und Überstundenkonten, und kann Zeiten korrigieren oder alle Mitarbeiter als Excel exportieren.'],
 ];
 const GLOSSARY = [
   ['Brutto', 'Die ganze Zeit zwischen Ein- und Ausstempeln, inklusive Pause.'],
@@ -143,7 +162,7 @@ const GLOSSARY = [
   ['Überstundenkonto', 'Alle Differenzen seit dem Startdatum zusammengezählt, plus Startsaldo und Korrekturen, minus Auszahlungen.'],
   ['Überstunden gestern / aktuell', '„Gestern“ ist der Stand bis gestern. „Aktuell“ rechnet heute schon mit dem vollen Soll ein.'],
   ['Startsaldo', 'Dein Überstundenstand zu Beginn der Aufzeichnung, z. B. aus einer alten App.'],
-  ['Korrektur', 'Eine manuelle Buchung aufs Konto, z. B. abgefeierte oder vom Chef gutgeschriebene Stunden.'],
+  ['Korrektur', 'Eine manuelle Buchung aufs Konto, z. B. abgefeierte oder vom Geschäftsführer gutgeschriebene Stunden.'],
   ['Auszahlen ab', 'Grenze für das Konto. Was am Monatsende darüber liegt, wird ausgezahlt und im Verdienst berechnet.'],
   ['Arbeitsplan', 'Eine eigene Sollzeit pro Wochentag ab einem Datum, z. B. bei Teilzeit.'],
   ['Runden', 'Start und Ende werden für die Rechnung auf volle 5/10/15/30 Minuten gerundet.'],
@@ -333,7 +352,7 @@ function adjForm() {
     <label class="row"><span>Stunden</span><input id="amin" class="short" placeholder="2:30" inputmode="numeric"></label>
     <label class="row"><span>Notiz</span><input id="anote" placeholder="z. B. Überstunden abgefeiert"></label>
   </div>
-  <p class="hint">Für Buchungen, die keine Arbeitszeit sind: abgefeierte Überstunden, Gutschriften vom Chef, Ausgleich aus einer alten App. Erst ab dem Startdatum (${dmy(data.settings.since)}) wirksam.</p>`);
+  <p class="hint">Für Buchungen, die keine Arbeitszeit sind: abgefeierte Überstunden, Gutschriften vom Geschäftsführer, Ausgleich aus einer alten App. Erst ab dem Startdatum (${dmy(data.settings.since)}) wirksam.</p>`);
 }
 function saveAdj() {
   const d = $('#adate').value, m = parseHm($('#amin').value);
@@ -428,7 +447,7 @@ function icsFor(d, from, to) {
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Stempeluhr//DE', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Arbeitszeit', ...ev.flat(), 'END:VCALENDAR'].join('\r\n');
 }
 
-// Chef: alle Mitarbeiter eines Monats als Excel (Übersicht + ein Blatt pro Person)
+// Geschäftsführer: alle Mitarbeiter eines Monats als Excel (Übersicht + ein Blatt pro Person)
 function openTeamExport() {
   const n = new Date();
   sheet(`<div class="sheet-head"><h2>Team exportieren</h2><button class="pill sm" onclick="closeSheet()">Abbrechen</button></div>
