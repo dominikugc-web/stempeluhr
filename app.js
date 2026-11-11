@@ -1,4 +1,5 @@
-// UI of the Stempeluhr web app. Calculations live in logic.js, data lives in localStorage.
+// UI of the Stempeluhr web app. Calculations live in logic.js, login and cloud storage in cloud.js.
+// KEY: where times lived before the login existed; cloud.js moves them into the account on first login.
 const KEY = 'stempeluhr-v1';
 const WD = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -15,7 +16,7 @@ const pad = n => String(n).padStart(2, '0');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const today = () => ymd(new Date());
 
-let data = load();
+let data = normalize({});
 let tab = 'start';
 let weekStart = monday(today());
 let month = { y: new Date().getFullYear(), m: new Date().getMonth() };
@@ -29,12 +30,6 @@ function normalize(d) {
     absences: d.absences || [],
     settings: { ...def, ...d.settings },
   };
-}
-function load() {
-  try { return normalize(JSON.parse(localStorage.getItem(KEY)) || {}); } catch { return normalize({}); }
-}
-function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { alert('Speichern fehlgeschlagen: ' + e.message); }
 }
 const calc = () => makeCalc(data, Date.now());
 
@@ -76,9 +71,12 @@ function stats(days) {
 // ---------- navigation ----------
 function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  ({ start: renderStart, week: renderWeek, month: renderMonth, pay: renderPay, setup: renderSetup })[tab]();
+  if (tab === 'login') return renderLogin();
+  if (viewing && (tab === 'start' || tab === 'pay')) tab = 'week';
+  ({ start: renderStart, week: renderWeek, month: renderMonth, pay: renderPay, setup: renderSetup, team: renderTeam })[tab]();
+  view.insertAdjacentHTML('afterbegin', viewBanner());
 }
-function go(t) { tab = t; render(); scrollTo(0, 0); }
+function go(t) { tab = t; render(); scrollTo(0, 0); if (t === 'team') loadTeamStats(); }
 function sheet(html) {
   $('#sheet').innerHTML = `<div class="backdrop" onclick="closeSheet()"></div><div class="panel"><div class="grab"></div>${html}</div>`;
   $('#sheet').hidden = false;
@@ -418,6 +416,7 @@ function renderPay() {
 function renderSetup() {
   const st = data.settings, now = new Date();
   view.innerHTML = `<h1 class="center">Einstellungen</h1>
+  ${accountHtml()}
   <div class="label">Allgemein</div>
   <div class="group">
     <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
@@ -434,7 +433,7 @@ function renderSetup() {
   </div>
   <div class="group"><label class="row"><span>Auszahlen ab (Std.)</span><input type="number" inputmode="numeric" min="0" placeholder="nie" value="${st.otCap || ''}" onchange="setS('otCap', Math.max(0, num(this.value)))"></label></div>
   <p class="hint">Startsaldo = dein Stand vor dem Startdatum, z. B. -26:01 aus deiner alten App. Auszahlen ab: Überstunden über dieser Grenze werden am Monatsende mit dem Stundenlohn über den Hauptjob ausgezahlt, das Konto bleibt bei der Grenze. Leer = nie.</p>
-  <div class="label">Jobs</div>
+  ${viewing ? '' : `<div class="label">Jobs</div>
   ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
   <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
   <p class="hint">Brutto pro Monat laut Vertrag. Mit den Angaben rechnet der Tab Verdienst Brutto und Netto aus.</p>
@@ -447,7 +446,7 @@ function renderSetup() {
     <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
     <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value))); render()"></label>
   </div>
-  <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25, wer ältere Kinder hat, wählt 1 Kind. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland.</p>
+  <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25, wer ältere Kinder hat, wählt 1 Kind. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland.</p>`}
   <div class="label">Export</div>
   <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
   <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
@@ -456,7 +455,8 @@ function renderSetup() {
     <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
     <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" onchange="restore(this)"></label>
   </div>
-  <p class="hint">Deine Zeiten liegen nur auf diesem Gerät, nicht auf GitHub. Speicher ab und zu ein Backup, z. B. in iCloud Drive.</p>`;
+  <p class="hint">${viewing ? 'Backup laden ersetzt die Zeiten dieses Mitarbeiters.' : 'Deine Zeiten liegen in deinem Konto und sind auf allen Geräten gleich. Gehalt und Steuerdaten sieht nur du, auch nicht dein Chef.'}</p>
+  ${viewing ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
 }
 function jobForm(i) {
   const j = i == null ? { name: '', type: 'haupt', brutto: '', since: '', sach: 0, cut: true, rvFrei: true } : data.settings.jobs[i];
@@ -583,8 +583,8 @@ function exportPdf(y, m) {
 }
 
 // ---------- boot ----------
-render();
+startCloud();
 setInterval(() => tab === 'start' && $('#sheet').hidden && updateStart(), 1000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden && me) render(); });
 navigator.storage?.persist?.();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');

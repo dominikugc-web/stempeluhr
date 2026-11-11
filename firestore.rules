@@ -1,0 +1,58 @@
+rules_version = '2';
+// Zugriffsregeln der Stempeluhr. In der Firebase-Konsole unter Firestore → Regeln einfügen
+// (oder mit `firebase deploy --only firestore:rules`).
+//
+// data/{uid}      Zeiten, Abwesenheiten, Arbeitszeit-Einstellungen. Lesen/ändern: der Nutzer selbst
+//                 und der Chef seiner Firma, sobald er den Mitarbeiter freigegeben hat.
+// private/{uid}   Gehalt, Steuerklasse usw. Nur der Nutzer selbst.
+// companies/{cid} Firma (Name, Chef, Einladungscode). Lesen: Chef und freigegebene Mitarbeiter.
+//   members/{uid} Beitrittsanfrage bzw. Mitgliedschaft (status: pending | active).
+// invites/{code}  Einladungscode → Firma. Jeder Angemeldete darf einen Code nachschlagen.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function companyPath(cid) { return /databases/$(db)/documents/companies/$(cid); }
+    function memberPath(cid, uid) { return /databases/$(db)/documents/companies/$(cid)/members/$(uid); }
+    function isOwner(cid) {
+      return cid is string && exists(companyPath(cid)) && get(companyPath(cid)).data.owner == request.auth.uid;
+    }
+    function isActive(cid, uid) {
+      return exists(memberPath(cid, uid)) && get(memberPath(cid, uid)).data.status == 'active';
+    }
+    function bossOf(cid, uid) { return isOwner(cid) && isActive(cid, uid); }
+
+    match /data/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || bossOf(resource.data.cid, uid));
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && (request.auth.uid == uid
+        || (bossOf(resource.data.cid, uid) && request.resource.data.cid == resource.data.cid));
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /private/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && isOwner(request.resource.data.cid);
+      allow delete: if signedIn() && isOwner(resource.data.cid);
+    }
+
+    match /companies/{cid} {
+      allow read: if signedIn() && (resource.data.owner == request.auth.uid || isActive(cid, request.auth.uid));
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow update: if signedIn() && resource.data.owner == request.auth.uid
+        && request.resource.data.owner == resource.data.owner;
+
+      match /members/{uid} {
+        allow read: if signedIn() && (request.auth.uid == uid || isOwner(cid));
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.status == 'pending'
+          && get(/databases/$(db)/documents/invites/$(request.resource.data.code)).data.cid == cid;
+        allow update: if signedIn() && isOwner(cid);
+        allow delete: if signedIn() && (request.auth.uid == uid || isOwner(cid));
+      }
+    }
+  }
+}
