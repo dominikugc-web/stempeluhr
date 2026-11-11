@@ -13,7 +13,15 @@ let viewing = null;         // { uid, name } wenn der Chef einen Mitarbeiter ans
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
 let joinCode = new URLSearchParams(location.search).get('join');
 
-const isOwner = () => !!(company && me && company.owner === me.uid);
+// Entwickler-App (admin/index.html): dieselbe Oberfläche mit Umschalter Entwickler / Chef / Mitarbeiter / Ich.
+// Die UID muss auch in firestore.rules (isAdmin) stehen, sonst verweigert der Server den Zugriff.
+const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
+const ADMIN_APP = !!window.ADMIN_APP;
+const APP_URL = location.origin + location.pathname.replace(/admin\/(index\.html)?$/, '');
+let role = 'self', adminCache = null, adminQuery = '';
+const isAdmin = () => !!me && ADMIN_UIDS.includes(me.uid);
+
+const isOwner = () => !!(company && me && (company.owner === me.uid || (ADMIN_APP && role === 'boss' && isAdmin())));
 const off = list => { list.forEach(f => f()); list.length = 0; };
 const ref = path => fb.db.doc(path);
 
@@ -52,10 +60,16 @@ function onOwn(kind, s) {
   own[kind + 'Seen'] = true;
   if (!own.sharedSeen || !own.privSeen) return;
   if (!own.shared) return firstLogin();
-  if (own.shared.cid !== cid) watchCompany(own.shared.cid || null);
+  if (own.shared.cid !== cid) {
+    if (ADMIN_APP && role !== 'self') cid = own.shared.cid || null;  // Admin sieht gerade eine andere Firma
+    else watchCompany(own.shared.cid || null);
+  }
   if (s.metadata.hasPendingWrites && own.ready) return;  // eigene Änderung, data ist schon aktuell
   own.ready = true;
   if (!viewing) data = merged(own.shared, own.priv);
+  if (ADMIN_APP && !own.roleSet) { own.roleSet = true; return isAdmin() ? setRole('dev') : renderNoAccess(); }
+  if (ADMIN_APP && !isAdmin()) return;
+  if (ADMIN_APP && role === 'dev') return;
   showTabs(true);
   if (tab === 'login') tab = 'start';
   refresh();
@@ -71,6 +85,7 @@ function firstLogin() {
   if (!local) data.settings.onboarded = false;  // neues Konto: Einführung zeigen
   writeOwn(true);
   own.ready = true;  // data ist schon vollständig; die Snapshots der eigenen Schreibvorgänge werden übersprungen
+  if (ADMIN_APP) { own.roleSet = true; return isAdmin() ? setRole('dev') : renderNoAccess(); }
   showTabs(true); tab = 'start'; refresh();
   if (joinCode) { const c = joinCode; joinCode = null; history.replaceState(null, '', location.pathname); joinForm(c); }
 }
@@ -94,7 +109,7 @@ function save() {
 }
 function writeOwn(first) {
   const { shared, priv } = split(data.settings), b = fb.db.batch();
-  const doc = { sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: shared };
+  const doc = { sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: shared, email: me.email || '' };
   if (first) doc.cid = null;
   b.set(ref('data/' + me.uid), doc, first ? undefined : { merge: true });
   b.set(ref('private/' + me.uid), { settings: priv });
@@ -103,9 +118,10 @@ function writeOwn(first) {
 function refresh() { if ($('#sheet').hidden) render(); }
 
 // ---------- firma beobachten ----------
-function watchCompany(id) {
+function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Firma als Chef
   off(companyUnsubs);
-  cid = id; company = undefined; membership = undefined; members = []; teamStats = {}; membersOn = false;
+  if (!acting) cid = id;
+  company = undefined; membership = undefined; members = []; teamStats = {}; membersOn = false;
   if (!id) return updateTabs();
   const listenCompany = () => companyUnsubs.push(ref('companies/' + id).onSnapshot(s => {
     company = s.exists ? { id, ...s.data() } : null;
@@ -118,7 +134,7 @@ function watchCompany(id) {
     }
     updateTabs(); refresh();
   }, () => { company = null; updateTabs(); refresh(); }));
-  companyUnsubs.push(ref(`companies/${id}/members/${me.uid}`).onSnapshot(s => {
+  if (!acting) companyUnsubs.push(ref(`companies/${id}/members/${me.uid}`).onSnapshot(s => {
     const was = membership?.status;
     membership = s.exists ? s.data() : null;
     if (membership?.status === 'active' && was !== 'active' && !company) listenCompany();
@@ -142,7 +158,7 @@ async function loadTeamStats() {
 // ---------- tabs ----------
 function showTabs(on) { $('.tabs').hidden = !on; if (on) updateTabs(); }
 function updateTabs() {
-  const show = { start: !viewing, pay: !viewing, team: isOwner() };
+  const show = { start: !viewing || viewing.preview, pay: !viewing, team: isOwner() };
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab in show) b.hidden = !show[b.dataset.tab]; });
   if (tab === 'team' && !isOwner()) { tab = 'start'; refresh(); }
 }
@@ -301,9 +317,9 @@ async function leaveCompany() {
 
 // ---------- team (nur Chef) ----------
 function renderTeam() {
+  if (company === undefined && cid !== null) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
   if (!isOwner()) return renderStart();
   const pending = members.filter(m => m.status === 'pending'), active = members.filter(m => m.status === 'active');
-  const link = location.origin + location.pathname + '?join=' + company.code;
   view.innerHTML = `<h1 class="center">${esc(company.name)}</h1>
   <div class="label">Einladung</div>
   <div class="card center">
@@ -323,7 +339,7 @@ function renderTeam() {
   ${active.length ? '<button class="big" onclick="openTeamExport()">Team als Excel exportieren</button>' : ''}`;
 }
 async function shareInvite() {
-  const link = location.origin + location.pathname + '?join=' + company.code;
+  const link = APP_URL + '?join=' + company.code;
   const text = `Tritt ${company.name} in der Stempeluhr bei: ${link} (Code ${company.code})`;
   if (navigator.share) { try { await navigator.share({ text }); } catch {} return; }
   try { await navigator.clipboard.writeText(link); alert('Link kopiert:\n' + link); } catch { prompt('Link kopieren:', link); }
@@ -337,22 +353,23 @@ async function rotateCode() {
     await ref('invites/' + old).delete();
   } catch (e) { alert(e.message); }
 }
-function approveMember(uid) { ref(`companies/${cid}/members/${uid}`).update({ status: 'active' }).catch(cloudError); }
+function approveMember(uid) { ref(`companies/${company.id}/members/${uid}`).update({ status: 'active' }).catch(cloudError); }
 function rejectMember(uid) {
   const m = members.find(x => x.uid === uid);
-  if (confirm(`Anfrage von ${m.name} ablehnen?`)) ref(`companies/${cid}/members/${uid}`).delete().catch(cloudError);
+  if (confirm(`Anfrage von ${m.name} ablehnen?`)) ref(`companies/${company.id}/members/${uid}`).delete().catch(cloudError);
 }
 function removeMember(uid) {
   const m = members.find(x => x.uid === uid);
   if (!confirm(`${m.name} aus der Firma entfernen? Du siehst die Zeiten dann nicht mehr. Die Daten bleiben beim Mitarbeiter.`)) return;
   stopViewing();
-  ref(`companies/${cid}/members/${uid}`).delete().catch(cloudError);
+  ref(`companies/${company.id}/members/${uid}`).delete().catch(cloudError);
 }
 
-function viewMember(uid) {
-  const m = members.find(x => x.uid === uid);
-  viewing = { uid, name: m.name };
-  tab = 'week'; weekStart = monday(today());
+function viewMember(uid) { viewAs(uid, members.find(x => x.uid === uid).name); }
+function viewAs(uid, name, startTab = 'week', preview = false) {  // preview: Entwickler sieht die App wie dieser Mitarbeiter
+  viewUnsub?.(); viewUnsub = null;
+  viewing = { uid, name, preview };
+  tab = startTab; weekStart = monday(today());
   view.innerHTML = '<p class="center muted" style="margin-top:40vh">Lädt …</p>';
   updateTabs();
   viewUnsub = ref('data/' + uid).onSnapshot(s => {
@@ -364,10 +381,101 @@ function viewMember(uid) {
 function stopViewing() {
   viewUnsub?.(); viewUnsub = null;
   if (!viewing) return;
+  const preview = viewing.preview;
   viewing = null;
   data = merged(own.shared, own.priv);
+  if (preview) return setRole('dev');
   updateTabs(); closeSheet(); go('team');
 }
 function viewBanner() {
+  if (viewing?.preview) return '';
   return viewing ? `<div class="viewing"><span>Ansicht: <b>${esc(viewing.name)}</b></span><button class="pill sm" onclick="stopViewing()">Zurück zum Team</button></div>` : '';
+}
+
+// ---------- entwickler-bereich (nur admin/index.html) ----------
+function renderNoAccess() {
+  showTabs(false);
+  view.innerHTML = `<div class="card center" style="margin-top:20vh"><h2>Kein Zugriff</h2>
+    <p class="muted">Dieser Bereich ist nur für Entwickler. Angemeldet als ${esc(me.email || me.uid)}.</p>
+    <button class="pill wide" onclick="fb.auth.signOut()">Abmelden</button><a class="pill wide" href="${APP_URL}">Zur Stempeluhr</a></div>`;
+}
+async function setRole(r, id) {
+  viewUnsub?.(); viewUnsub = null; viewing = null; closeSheet();
+  role = r;
+  data = merged(own.shared, own.priv);
+  if (r === 'dev') { showTabs(false); tab = 'admin'; render(); scrollTo(0, 0); return loadAdmin(); }
+  showTabs(true);
+  if (r === 'self') { watchCompany(own.shared.cid || null); return go('start'); }
+  if (!adminCache) await loadAdmin();
+  if (r === 'boss') {
+    const c = id || company?.id || adminCache.companies[0]?.id;
+    if (!c) { alert('Es gibt noch keine Firma.'); return setRole('dev'); }
+    watchCompany(c, true); updateTabs(); return go('team');
+  }
+  if (r === 'emp') {
+    const u = adminCache.users.find(x => x.uid === id) || adminCache.users.find(x => x.uid !== me.uid) || adminCache.users[0];
+    if (!u) return setRole('dev');
+    viewAs(u.uid, u.name, 'start', true);
+  }
+}
+async function loadAdmin() {
+  try {
+    const [d, c, m] = await Promise.all([fb.db.collection('data').get(), fb.db.collection('companies').get(), fb.db.collectionGroup('members').get()]);
+    const t = today(), mem = m.docs.map(x => ({ uid: x.id, cid: x.ref.parent.parent.id, ...x.data() }));
+    const users = d.docs.map(x => {
+      const v = x.data(), dd = merged(v, null), mm = mem.find(y => y.uid === x.id && y.cid === v.cid);
+      return { uid: x.id, name: dd.settings.name || mm?.name || v.email || 'Ohne Namen', email: v.email || mm?.email || '', cid: v.cid || null, status: mm?.status,
+        running: dd.sessions.some(s => s.e == null), last: dd.sessions.reduce((a, s) => Math.max(a, s.e || Date.now()), 0), balance: makeCalc(dd, Date.now()).balance(t) };
+    });
+    const companies = c.docs.map(x => {
+      const v = x.data(), ms = mem.filter(y => y.cid === x.id);
+      return { id: x.id, name: v.name, owner: v.owner, ownerName: v.ownerName || users.find(u => u.uid === v.owner)?.name || '', code: v.code,
+        active: ms.filter(y => y.status === 'active').length, pending: ms.filter(y => y.status === 'pending').length };
+    });
+    adminCache = { users: users.sort((a, b) => b.last - a.last), companies: companies.sort((a, b) => a.name.localeCompare(b.name)), at: Date.now() };
+  } catch (e) {
+    alert('Entwickler-Daten konnten nicht geladen werden: ' + e.message);
+    adminCache ||= { users: [], companies: [], at: Date.now() };
+  }
+  if (tab === 'admin' || role !== 'dev') refresh();
+}
+function adminBar() {
+  if (!ADMIN_APP || !isAdmin()) return '';
+  const seg = (r, l) => `<button class="pill sm ${role === r ? 'sel' : ''}" onclick="setRole('${r}')">${l}</button>`;
+  let ctx = '';
+  if (role === 'boss' && adminCache?.companies.length)
+    ctx = `<label class="row"><span>Firma</span><select onchange="setRole('boss', this.value)">${adminCache.companies.map(c => `<option value="${c.id}" ${company?.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
+  if (role === 'emp' && adminCache?.users.length)
+    ctx = `<label class="row"><span>Mitarbeiter</span><select onchange="setRole('emp', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${viewing?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>`;
+  return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Chef')}${seg('emp', 'Mitarbeiter')}${seg('self', 'Ich')}</div>
+    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'emp' ? '<p class="hint">Vorschau: So sieht dieser Mitarbeiter die App. Stempeln ist gesperrt, Korrekturen in Woche/Monat werden gespeichert.</p>' : ''}</div>`;
+}
+function renderAdmin() {
+  const a = adminCache;
+  if (!a) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
+  const wk = Date.now() - 7 * 86400000, kpi = (v, l) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`;
+  view.innerHTML = `<h1 class="center">Entwickler</h1>
+  <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.running).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
+  <div class="label">Firmen</div>
+  ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
+    <div class="muted small">Chef: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Chef ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
+  <div class="label">Nutzer</div>
+  <div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
+  <div id="ulist">${adminUsers()}</div>
+  <button class="pill wide" onclick="adminCache = null; render(); loadAdmin()">Aktualisieren</button>
+  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Chef zu sehen, oder auf einen Nutzer für seine Mitarbeiter-Ansicht. Gehalts- und Steuerdaten der Nutzer sind auch für Entwickler gesperrt.</p>
+  <div class="group"><div class="row"><span>${esc(me.email)}</span><button class="pill sm" onclick="logout()">Abmelden</button></div></div>
+  <a class="pill wide" href="${APP_URL}">Normale App öffnen</a>`;
+}
+function adminUsers() {
+  const a = adminCache, q = adminQuery.trim().toLowerCase();
+  const list = a.users.filter(u => !q || (u.name + ' ' + u.email).toLowerCase().includes(q));
+  const firm = u => {
+    const own = a.companies.find(c => c.owner === u.uid), c = a.companies.find(c => c.id === u.cid);
+    return own ? `Chef von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
+  };
+  if (!list.length) return '<p class="muted center">Keine Treffer.</p>';
+  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('emp', '${u.uid}')"><span>${u.running ? '<span class="green">●</span> ' : ''}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}
+    <div class="muted small">${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
+    <span class="${cls(u.balance)}">${hm(u.balance, true)} ›</span></button>`).join('')}</div>`;
 }

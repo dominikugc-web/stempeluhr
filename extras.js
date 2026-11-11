@@ -60,7 +60,7 @@ function tipHtml() {
 // ---------- einführung (erster Start) ----------
 let onboardStep = 0;
 function maybeOnboard() {
-  if (!viewing && me && data.settings.onboarded === false && $('#sheet').hidden) onboard(0);
+  if (!ADMIN_APP && !viewing && me && data.settings.onboarded === false && $('#sheet').hidden) onboard(0);
 }
 function onboard(step) {
   onboardStep = step;

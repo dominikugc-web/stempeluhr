@@ -74,10 +74,11 @@ function stats(days) {
 function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   if (tab === 'login') return renderLogin();
-  if (viewing && (tab === 'start' || tab === 'pay')) tab = 'week';
+  if (ADMIN_APP && me && !isAdmin()) return renderNoAccess();
+  if (viewing && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'week';
   applyTheme();
-  ({ start: renderStart, week: renderWeek, month: renderMonth, stats: renderStats, pay: renderPay, setup: renderSetup, team: renderTeam })[tab]();
-  view.insertAdjacentHTML('afterbegin', viewBanner());
+  ({ start: renderStart, week: renderWeek, month: renderMonth, stats: renderStats, pay: renderPay, setup: renderSetup, team: renderTeam, admin: renderAdmin })[tab]();
+  view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner());
   maybeOnboard();
 }
 function go(t) { tab = t; render(); scrollTo(0, 0); if (t === 'team') loadTeamStats(); }
@@ -130,6 +131,7 @@ function updateStart() {
   $('#toggle').classList.toggle('stop', running);
 }
 function toggle() {
+  if (viewing) return alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du in Woche oder Monat.');
   const run = data.sessions.find(x => x.e == null);
   if (run) run.e = Date.now(); else data.sessions.push({ s: Date.now(), e: null });
   save(); updateStart();
@@ -596,4 +598,4 @@ startCloud();
 setInterval(() => tab === 'start' && $('#sheet').hidden && updateStart(), 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden && me) render(); });
 navigator.storage?.persist?.();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register(window.ADMIN_APP ? '../sw.js' : 'sw.js', { scope: window.ADMIN_APP ? '../' : './' });
