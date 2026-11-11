@@ -158,9 +158,9 @@ async function loadTeamStats() {
 // ---------- tabs ----------
 function showTabs(on) { $('.tabs').hidden = !on; if (on) updateTabs(); }
 function updateTabs() {
-  const show = { start: !viewing || viewing.preview, pay: !viewing, team: isOwner() };
+  const show = { start: !viewing || viewing.preview, pay: !viewing, team: isOwner() && !viewing?.preview };  // Team nur für Geschäftsführer
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab in show) b.hidden = !show[b.dataset.tab]; });
-  if (tab === 'team' && !isOwner()) { tab = 'start'; refresh(); }
+  if (tab === 'team' && !show.team) { tab = 'start'; refresh(); }
 }
 
 // ---------- login ----------
