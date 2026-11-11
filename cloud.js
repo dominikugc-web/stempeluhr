@@ -129,10 +129,10 @@ function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Fir
       membersOn = true;
       companyUnsubs.push(fb.db.collection(`companies/${id}/members`).onSnapshot(q => {
         members = q.docs.map(d => ({ uid: d.id, ...d.data() }));
-        loadTeamStats(); updateTabs(); if (tab === 'team') refresh();
+        loadTeamStats(); updateTabs(); refreshTeam();
       }, cloudError));
     }
-    updateTabs(); refresh();
+    updateTabs(); refreshTeam();
   }, () => { company = null; updateTabs(); refresh(); }));
   if (!acting) companyUnsubs.push(ref(`companies/${id}/members/${me.uid}`).onSnapshot(s => {
     const was = membership?.status;
@@ -152,15 +152,15 @@ async function loadTeamStats() {
       teamStats[m.uid] = { balance: c.balance(t), week: sum(c.range(w, addDays(w, 6)), 'net'), running: d.sessions.some(x => x.e == null) };
     } catch {}
   }
-  if (tab === 'team') refresh();
+  refreshTeam();
 }
+function refreshTeam() { if (currentTopic === 'team') openTopic('team', true); else refresh(); }
 
 // ---------- tabs ----------
 function showTabs(on) { $('.tabs').hidden = !on; if (on) updateTabs(); }
 function updateTabs() {
-  const show = { start: !viewing || viewing.preview, pay: !viewing, team: isOwner() && !viewing?.preview };  // Team nur für Geschäftsführer
+  const show = { start: !viewing || viewing.preview, pay: !viewing };
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab in show) b.hidden = !show[b.dataset.tab]; });
-  if (tab === 'team' && !show.team) { tab = 'start'; refresh(); }
 }
 
 // ---------- login ----------
@@ -243,7 +243,7 @@ function accountHtml() {
   let firm;
   if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
     <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Geschäftsführer)</span><span class="muted">›</span></button>`;
-  else if (isOwner()) firm = `<button class="row" onclick="go('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>`;
+  else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>`;
   else if (membership?.status === 'active') firm = `<div class="row"><span>Mitarbeiter bei <b>${esc(company?.name || membership.companyName)}</b></span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`;
   else if (membership?.status === 'pending') firm = `<div class="row"><span>Anfrage an <b>${esc(membership.companyName)}</b> gesendet. Der Geschäftsführer muss dich noch freigeben.</span></div>
@@ -278,7 +278,8 @@ async function createCompany() {
     await c.set({ name, owner: me.uid, ownerName: displayName(), code, created: firebase.firestore.FieldValue.serverTimestamp() });
     await ref('invites/' + code).set({ cid: c.id, name });
     await ref('data/' + me.uid).update({ cid: c.id });
-    closeSheet(); tab = 'team';
+    closeSheet();
+    if (data.settings.onboarded !== false) { go('setup'); openTopic('team'); }  // in der Einführung geht es dort weiter
     return true;
   } catch (e) { alert('Firma konnte nicht angelegt werden: ' + e.message); }
 }
@@ -318,25 +319,24 @@ async function leaveCompany() {
 }
 
 // ---------- team (nur Geschäftsführer) ----------
-function renderTeam() {
-  if (company === undefined && cid !== null) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
-  if (!isOwner()) return renderStart();
+function teamHtml() {  // Inhalt des Fensters Setup → Team
+  if (!isOwner()) return '<p class="center muted">Lädt …</p>';
   const pending = members.filter(m => m.status === 'pending'), active = members.filter(m => m.status === 'active');
-  view.innerHTML = `<h1 class="center">${esc(company.name)}</h1>
+  return `<p class="center"><b>${esc(company.name)}</b></p>
   <div class="label">Einladung</div>
   <div class="card center">
     <div class="muted small">Einladungscode</div>
     <div class="code">${esc(company.code)}</div>
     <div class="two" style="margin:14px 0 0"><button class="pill" onclick="shareInvite()">Link teilen</button><button class="pill" onclick="rotateCode()">Neuer Code</button></div>
   </div>
-  <p class="hint" style="margin-top:8px">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Firma beitreten ein. Ein neuer Code macht den alten ungültig.</p>
+  <p class="hint" style="margin-top:8px">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig.</p>
   ${pending.length ? `<div class="label">Anfragen</div><div class="group">${pending.map(m => `<div class="row"><span>${esc(m.name)}<div class="muted small">${esc(m.email)}</div></span>
     <span style="display:flex;gap:6px"><button class="pill sm red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill sm green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
   <div class="label">Mitarbeiter</div>
   ${active.length ? `<div class="group">${active.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
     <span>${s?.running ? '<span class="green">●</span> ' : ''}${esc(m.name)}<div class="muted small">${s ? 'Diese Woche ' + dur(s.week) : esc(m.email)}</div></span>
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
-    <p class="hint">Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt Wochen, Monate und PDF des Mitarbeiters, dort kannst du auch korrigieren.</p>`
+    <p class="hint">Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt den Kalender des Mitarbeiters, dort kannst du auch Zeiten korrigieren.</p>`
     : '<p class="muted center">Noch keine Mitarbeiter. Teil den Einladungscode.</p>'}
   ${active.length ? '<button class="big" onclick="openTeamExport()">Team als Excel exportieren</button>' : ''}`;
 }
@@ -367,11 +367,11 @@ function removeMember(uid) {
   ref(`companies/${company.id}/members/${uid}`).delete().catch(cloudError);
 }
 
-function viewMember(uid) { viewAs(uid, members.find(x => x.uid === uid).name); }
-function viewAs(uid, name, startTab = 'week', preview = false) {  // preview: Entwickler sieht die App wie dieser Mitarbeiter
+function viewMember(uid) { closeSheet(); viewAs(uid, members.find(x => x.uid === uid).name); }
+function viewAs(uid, name, startTab = 'cal', preview = false) {  // preview: Entwickler sieht die App wie dieser Mitarbeiter
   viewUnsub?.(); viewUnsub = null;
   viewing = { uid, name, preview };
-  tab = startTab; weekStart = monday(today());
+  tab = startTab; calView = 'week'; calDay = today();
   view.innerHTML = '<p class="center muted" style="margin-top:40vh">Lädt …</p>';
   updateTabs();
   viewUnsub = ref('data/' + uid).onSnapshot(s => {
@@ -387,7 +387,7 @@ function stopViewing() {
   viewing = null;
   data = merged(own.shared, own.priv);
   if (preview) return setRole('dev');
-  updateTabs(); closeSheet(); go('team');
+  updateTabs(); closeSheet(); go('setup'); openTopic('team');
 }
 function viewBanner() {
   if (viewing?.preview) return '';
@@ -412,7 +412,7 @@ async function setRole(r, id) {
   if (r === 'boss') {
     const c = id || company?.id || adminCache.companies[0]?.id;
     if (!c) { alert('Es gibt noch keine Firma.'); return setRole('dev'); }
-    watchCompany(c, true); updateTabs(); return go('team');
+    watchCompany(c, true); updateTabs(); go('setup'); return openTopic('team');
   }
   if (r === 'emp') {
     const u = adminCache.users.find(x => x.uid === id) || adminCache.users.find(x => x.uid !== me.uid) || adminCache.users[0];
@@ -450,7 +450,7 @@ function adminBar() {
   if (role === 'emp' && adminCache?.users.length)
     ctx = `<label class="row"><span>Mitarbeiter</span><select onchange="setRole('emp', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${viewing?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>`;
   return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Geschäftsführer')}${seg('emp', 'Mitarbeiter')}${seg('self', 'Ich')}</div>
-    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'emp' ? '<p class="hint">Vorschau: So sieht dieser Mitarbeiter die App. Stempeln ist gesperrt, Korrekturen in Woche/Monat werden gespeichert.</p>' : ''}</div>`;
+    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'emp' ? '<p class="hint">Vorschau: So sieht dieser Mitarbeiter die App. Stempeln ist gesperrt, Korrekturen im Kalender werden gespeichert.</p>' : ''}</div>`;
 }
 function renderAdmin() {
   const a = adminCache;

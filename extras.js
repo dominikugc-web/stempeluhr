@@ -25,7 +25,7 @@ const progColor = p => p >= 110 ? 'var(--over)' : p >= 100 ? 'var(--ok)' : p >= 
 
 function openTheme() {
   const t = data.settings.theme || {};
-  sheet(`<div class="sheet-head"><h2>Farben</h2><button class="pill sm" onclick="closeSheet(); render()">Fertig</button></div>
+  sheet(`<div class="sheet-head"><h2>Farben</h2><button class="pill sm" onclick="backToTopic()">Fertig</button></div>
   <div class="label">Hintergrund</div>
   <div class="swatches">${Object.entries(BGS).map(([k, b]) => `<button class="swatch ${(t.bg || 'kaffee') === k ? 'on' : ''}" onclick="setTheme('bg', '${k}')" style="background:${b[2] === 'none' ? '' : b[2] + ','}${b[1]}"><span>${b[0]}</span></button>`).join('')}</div>
   <div class="label">Farben</div>
@@ -42,12 +42,12 @@ function setTheme(k, v) {
 
 // ---------- tipps ----------
 const TIPS = [
-  ['Tag nachtragen', 'In Woche oder Monat auf einen Tag tippen, dann kannst du Zeiten ergänzen oder korrigieren.'],
+  ['Tag nachtragen', 'Im Kalender auf einen Tag tippen, dann kannst du Zeiten ergänzen oder korrigieren.'],
   ['Überstunden verstehen', 'Tippe in der Übersicht auf dein Überstundenkonto. Du siehst Tag für Tag, wie es zustande kommt.'],
   ['Brückentage finden', 'Unter Abwesenheiten → Urlaubsplaner findest du die besten Brückentage für deinen Resturlaub.'],
   ['Export für den Geschäftsführer', 'Unter Statistik → Exportieren bekommst du Excel, CSV oder eine Kalenderdatei.'],
-  ['Farben anpassen', 'Unter Setup → Farben wählst du Hintergrund und Farben für Minus, Ziel und Überstunden.'],
-  ['Wie funktioniert was?', 'Unter Setup → Tutorial erklärt dir die App Schritt für Schritt alle Funktionen.'],
+  ['Farben anpassen', 'Unter Setup → Darstellung wählst du Hintergrund und Farben für Minus, Ziel und Überstunden.'],
+  ['Wie funktioniert was?', 'Unter Setup → Hilfe erklärt dir die App Schritt für Schritt alle Funktionen.'],
 ];
 let tipIdx = Math.floor(Date.now() / 86400000) % TIPS.length;
 function tipHtml() {
@@ -89,7 +89,7 @@ function onboard(step) {
       <button class="choice" onclick="onboardRole = 'boss'; onboard(0)"><span class="ci">🏢</span><span><b>Geschäftsführer</b><span class="muted small">Ich lege meine Firma an, lade Mitarbeiter ein und sehe ihre Zeiten.</span></span></button>
       <button class="choice" onclick="onboardRole = 'emp'; onboard(0)"><span class="ci">👤</span><span><b>Mitarbeiter</b><span class="muted small">Ich erfasse meine Zeiten. Den Einladungscode habe ich von meinem Geschäftsführer.</span></span></button>
       <button class="pill wide" onclick="onboardRole = 'solo'; onboard(1)">Ich nutze die App nur für mich</button>
-      <p class="hint">Das kannst du später unter Setup → Firma ändern.</p>`,
+      <p class="hint">Das kannst du später unter Setup → Konto & Firma ändern.</p>`,
     () => `<h2>Wo arbeitest du?</h2>
       <div class="group">
         <label class="row"><span>Bundesland</span><select id="ob-state"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
@@ -98,7 +98,7 @@ function onboard(step) {
     () => `<h2>${onboardRole === 'boss' ? 'Deine eigene Sollzeit' : 'Deine Sollzeit'}</h2>
       <p class="muted">An welchen Tagen arbeitest du und wie lange?</p>
       <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" class="ob-soll" data-i="${i}" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}"></label>`).join('')}</div>
-      <p class="hint">Stunden pro Tag, 0 = frei. Wechselnde Zeiten (z. B. Teilzeit ab einem Datum) stellst du später unter Setup → Arbeitspläne ein.${onboardRole === 'boss' ? ' Die Sollzeiten deiner Mitarbeiter stellen diese selbst ein, oder du über Team → Mitarbeiter → Setup.' : ''}</p>${next()}`,
+      <p class="hint">Stunden pro Tag, 0 = frei. Wechselnde Zeiten (z. B. Teilzeit ab einem Datum) stellst du später unter Setup → Arbeitszeit ein.${onboardRole === 'boss' ? ' Die Sollzeiten deiner Mitarbeiter stellen diese selbst ein, oder du über Setup → Team → Mitarbeiter → Setup.' : ''}</p>${next()}`,
     () => `<h2>Überstundenkonto</h2>
       <div class="group">
         <label class="row"><span>Aufzeichnung seit</span><input id="ob-since" type="date" value="${st.since}"></label>
@@ -108,7 +108,7 @@ function onboard(step) {
       ${isOwner() ? `<p>Deine Firma <b>${esc(company?.name || '')}</b> ist angelegt. Im Tab <b>Team</b> findest du den Einladungscode für deine Mitarbeiter.</p>`
         : membership?.status === 'pending' ? `<p>Deine Anfrage an <b>${esc(membership.companyName)}</b> ist raus. Sobald dein Geschäftsführer dich freigibt, sieht er deine Zeiten.</p>` : ''}
       <p>Tippe auf <b>Start</b>, wenn du anfängst zu arbeiten.</p>
-      <p class="muted">Eine ausführliche Erklärung aller Funktionen findest du jederzeit unter <b>Setup → Tutorial</b>.</p>${next('Auf geht\'s')}`,
+      <p class="muted">Eine ausführliche Erklärung aller Funktionen findest du jederzeit unter <b>Setup → Hilfe</b>.</p>${next('Auf geht\'s')}`,
   ];
   sheet(`${dots}${pages[step]()}`);
 }
@@ -129,7 +129,7 @@ function onboardNext() {
     if (b == null) return alert('Startsaldo bitte im Format 12:30 oder -3:15 eingeben.');
     st.startBalance = b;
   }
-  if (s >= 4) { onboardDone(); closeSheet(); go(isOwner() ? 'team' : 'start'); return; }
+  if (s >= 4) { onboardDone(); closeSheet(); if (isOwner()) { go('setup'); openTopic('team'); } else go('start'); return; }
   save(); onboard(s + 1);
 }
 function onboardDone() { data.settings.onboarded = true; save(); }
@@ -143,15 +143,15 @@ function parseHm(v) {
 const TUTORIAL = [
   ['▶︎', 'Stempeln', 'Auf <b>Start</b> tippst du, wenn du anfängst, auf <b>Stop</b>, wenn du gehst. Machst du mittendrin länger Schluss, stempelst du einfach erneut: Ein Tag darf mehrere Zeitblöcke haben. Die große Uhr zeigt, wie lange du heute schon da bist.'],
   ['📊', 'Die Heute-Karte', 'Die <b>Prozentzahl</b> zeigt, wie viel deiner Sollzeit von heute geschafft ist. Der Balken färbt sich von Rot über Orange zu Grün, ab 110 % in der Überstundenfarbe. <b>Fertig um</b> sagt dir, wann du dein Soll inklusive Pause erreichst. <b>Differenz</b> ist Ist minus Soll von heute.'],
-  ['☕️', 'Pause', 'Die Pause wird an jedem Tag mit Arbeitszeit <b>pauschal</b> abgezogen (Setup → Pause). Du musst sie also nicht ausstempeln. Arbeitest du kürzer als die Pause, wird nur so viel abgezogen, wie du da warst.'],
-  ['🎯', 'Sollzeit & Arbeitspläne', 'Unter Setup legst du fest, wie viele Stunden du an jedem Wochentag arbeiten sollst. Ändert sich das (z. B. Teilzeit ab März), legst du unter <b>Arbeitspläne</b> eine neue Sollzeit ab einem Datum an. Gesetzliche <b>Feiertage</b> deines Bundeslands haben automatisch kein Soll.'],
+  ['☕️', 'Pause', 'Die Pause wird an jedem Tag mit Arbeitszeit <b>pauschal</b> abgezogen (Setup → Arbeitszeit). Du musst sie also nicht ausstempeln. Arbeitest du kürzer als die Pause, wird nur so viel abgezogen, wie du da warst.'],
+  ['🎯', 'Sollzeit & Arbeitspläne', 'Unter Setup → Arbeitszeit legst du fest, wie viele Stunden du an jedem Wochentag arbeiten sollst. Ändert sich das (z. B. Teilzeit ab März), legst du unter <b>Arbeitspläne</b> eine neue Sollzeit ab einem Datum an. Gesetzliche <b>Feiertage</b> deines Bundeslands haben automatisch kein Soll.'],
   ['⚖️', 'Überstundenkonto', 'Jeden Tag wird <b>Netto minus Soll</b> gerechnet und aufaddiert, ab dem Datum „Aufzeichnung seit“. Dazu kommt dein <b>Startsaldo</b> und eventuelle <b>Korrekturen</b>. Tippe in der Übersicht auf das Konto, um die Rechnung Tag für Tag zu sehen. Mit „Auszahlen ab“ wird alles über einer Grenze am Monatsende ausgezahlt.'],
-  ['📅', 'Woche & Monat', 'In der Woche siehst du jeden Tag mit Zeiten und Differenz. Der Punkt links zeigt den Status: <span class="green">grün</span> = Soll erreicht, <span class="red">rot</span> = zu wenig, <span style="color:var(--accent)">blau</span> = frei/abwesend. <b>Tippe auf einen Tag</b>, um Zeiten nachzutragen oder zu ändern. Der Monat zeigt Summen, Wochenbalken und den PDF-Export.'],
+  ['📅', 'Kalender', 'Im Tab <b>Kalender</b> wechselst du oben zwischen <b>Tag</b>, <b>Woche</b> und <b>Monat</b>. Mit ‹ › blätterst du, „Heute“ springt zurück. Die Punkte zeigen den Status: <span class="green">grün</span> = Soll erreicht, <span class="red">rot</span> = zu wenig, <span style="color:var(--accent)">blau</span> = frei/abwesend. <b>Tippe auf einen Tag</b>, dann öffnet sich die Tagesansicht. Dort trägst du Zeiten nach, änderst sie oder trägst eine Abwesenheit ein. Im Monat findest du auch den PDF-Export.'],
   ['🏖', 'Abwesenheiten', 'Urlaub, Krank, Kind krank, unbezahlter Urlaub, Feiertag oder Stundenreduzierung trägst du unter <b>Abwesenheiten</b> ein. Diese Tage haben kein Soll (bei Reduzierung weniger). Der <b>Urlaubsplaner</b> sucht dir die besten Brückentage, und die <b>Schulferien</b> deines Bundeslands übernimmst du mit einem Tipp.'],
-  ['⏱', 'Runden', 'Rundet dein Arbeitgeber Zeiten, stellst du das unter Setup → Runden ein: auf 5, 10, 15 oder 30 Minuten, kaufmännisch, zugunsten Mitarbeiter (Start ab-, Ende aufrunden) oder zugunsten Arbeitgeber (umgekehrt). Gerundet wird nur in der Rechnung, die echten Stempelzeiten bleiben erhalten.'],
-  ['📈', 'Statistik & Export', 'Der Tab <b>Statistik</b> zeigt Stunden, Überstunden, Urlaub und Krankheit für ein Jahr oder einen eigenen Zeitraum, mit Monats- und Wochentagsdiagrammen. Über <b>Exportieren</b> bekommst du Excel, CSV (Felder frei wählbar) oder eine Kalenderdatei für Apple- oder Google-Kalender.'],
-  ['💶', 'Verdienst', 'Trag unter Setup deine Jobs, Steuerklasse und Krankenkasse ein. Der Tab <b>Verdienst</b> rechnet dann Brutto, Abzüge und Netto pro Monat aus, inklusive ausgezahlter Überstunden. Diese Daten sieht nur du.'],
-  ['👥', 'Firma & Team', 'Ein Geschäftsführer legt unter Setup eine <b>Firma</b> an und teilt den Einladungscode. Mitarbeiter treten bei, der Geschäftsführer gibt sie frei. Im Tab <b>Team</b> sieht der Geschäftsführer, wer gerade eingestempelt ist, Wochenstunden und Überstundenkonten, und kann Zeiten korrigieren oder alle Mitarbeiter als Excel exportieren.'],
+  ['⏱', 'Runden', 'Rundet dein Arbeitgeber Zeiten, stellst du das unter Setup → Arbeitszeit ein: auf 5, 10, 15 oder 30 Minuten, kaufmännisch, zugunsten Mitarbeiter (Start ab-, Ende aufrunden) oder zugunsten Arbeitgeber (umgekehrt). Gerundet wird nur in der Rechnung, die echten Stempelzeiten bleiben erhalten.'],
+  ['📈', 'Statistik & Export', 'Der Tab <b>Statistik</b> zeigt Stunden, Überstunden, Urlaub und Krankheit für dieses Jahr. Über <b>Zeitraum</b> wählst du einen Monat, das Vorjahr oder beliebige Daten. Über <b>Exportieren</b> bekommst du Excel, CSV (Felder frei wählbar) oder eine Kalenderdatei für Apple- oder Google-Kalender.'],
+  ['💶', 'Verdienst', 'Trag unter Setup → Verdienst & Steuern deine Jobs, Steuerklasse und Krankenkasse ein. Der Tab <b>Verdienst</b> rechnet dann Brutto, Abzüge und Netto pro Monat aus, inklusive ausgezahlter Überstunden. Diese Daten sieht nur du.'],
+  ['👥', 'Firma & Team', 'Ein Geschäftsführer legt unter Setup eine <b>Firma</b> an und teilt den Einladungscode. Mitarbeiter treten bei, der Geschäftsführer gibt sie frei. Unter <b>Setup → Team</b> sieht der Geschäftsführer, wer gerade eingestempelt ist, Wochenstunden und Überstundenkonten, und kann Zeiten korrigieren oder alle Mitarbeiter als Excel exportieren.'],
 ];
 const GLOSSARY = [
   ['Brutto', 'Die ganze Zeit zwischen Ein- und Ausstempeln, inklusive Pause.'],
@@ -172,14 +172,14 @@ let tutPage = 0;
 function openTutorial(p = 0) {
   tutPage = Math.max(0, Math.min(TUTORIAL.length - 1, p));
   const [icon, title, text] = TUTORIAL[tutPage];
-  sheet(`<div class="sheet-head"><span class="muted small">${tutPage + 1} / ${TUTORIAL.length}</span><button class="pill sm" onclick="closeSheet()">Schließen</button></div>
+  sheet(`<div class="sheet-head"><span class="muted small">${tutPage + 1} / ${TUTORIAL.length}</span><button class="pill sm" onclick="backToTopic()">Schließen</button></div>
   <div class="tut-icon">${icon}</div><h2 class="center">${title}</h2><p class="tut-text">${text}</p>
   <div class="dots">${TUTORIAL.map((_, i) => `<span class="${i === tutPage ? 'on' : ''}" onclick="openTutorial(${i})"></span>`).join('')}</div>
   <div class="two"><button class="pill" onclick="openTutorial(${tutPage - 1})" ${tutPage ? '' : 'disabled style="opacity:.4"'}>‹ Zurück</button>
   ${tutPage < TUTORIAL.length - 1 ? `<button class="pill" onclick="openTutorial(${tutPage + 1})">Weiter ›</button>` : '<button class="pill green" onclick="openGlossary()">Begriffe ›</button>'}</div>`);
 }
 function openGlossary() {
-  sheet(`<div class="sheet-head"><h2>Begriffe</h2><button class="pill sm" onclick="closeSheet()">Fertig</button></div>
+  sheet(`<div class="sheet-head"><h2>Begriffe</h2><button class="pill sm" onclick="backToTopic()">Fertig</button></div>
   <div class="group">${GLOSSARY.map(([t, x]) => `<div class="row"><span><b>${t}</b><div class="muted small">${x}</div></span></div>`).join('')}</div>`);
 }
 
@@ -189,7 +189,7 @@ function planText(p) {
 }
 function planForm(i) {
   const p = i == null ? { name: '', from: today(), to: '', soll: data.settings.soll.slice() } : data.settings.plans[i];
-  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet(); render()">Abbrechen</button><button class="pill sm green" onclick="savePlan(${i ?? -1})">Speichern</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="backToTopic()">Abbrechen</button><button class="pill sm green" onclick="savePlan(${i ?? -1})">Speichern</button></div>
   <h2>${i == null ? 'Arbeitsplan anlegen' : 'Arbeitsplan bearbeiten'}</h2>
   <div class="group">
     <label class="row"><span>Name</span><input id="pname" value="${esc(p.name)}" placeholder="z. B. Teilzeit"></label>
@@ -208,10 +208,10 @@ function savePlan(i) {
   if (p.to && p.to < p.from) return alert('„Gilt bis“ muss nach „Gilt ab“ liegen.');
   if (i < 0) data.settings.plans.push(p); else data.settings.plans[i] = p;
   data.settings.plans.sort((a, b) => a.from.localeCompare(b.from));
-  save(); closeSheet(); render();
+  save(); backToTopic();
 }
-function delPlan(i) { if (confirm('Arbeitsplan löschen?')) { data.settings.plans.splice(i, 1); save(); closeSheet(); render(); } }
-function setRound(k, v) { data.settings.round = { ...data.settings.round, [k]: k === 'step' ? +v : v }; save(); render(); }
+function delPlan(i) { if (confirm('Arbeitsplan löschen?')) { data.settings.plans.splice(i, 1); save(); backToTopic(); } }
+function setRound(k, v) { data.settings.round = { ...data.settings.round, [k]: k === 'step' ? +v : v }; save(); openTopic('work'); }
 
 function setupExtrasHtml() {
   const st = data.settings, r = st.round || {};
@@ -226,34 +226,39 @@ function setupExtrasHtml() {
   </div>
   <p class="hint">Gerundet wird nur in der Rechnung, deine echten Stempelzeiten bleiben. Zugunsten Mitarbeiter: Start wird ab-, Ende aufgerundet. Zugunsten Arbeitgeber: umgekehrt.</p>`;
 }
-function setupHelpHtml() {
-  if (viewing) return '';
-  return `<div class="label">Darstellung</div>
-  <div class="group">
-    <button class="row" onclick="openTheme()"><span>Farben & Hintergrund</span><span class="muted">›</span></button>
-    <label class="row"><span>Tipps auf der Startseite</span><input type="checkbox" ${data.settings.tips !== false ? 'checked' : ''} onchange="setS('tips', this.checked)"></label>
-  </div>
-  <div class="label">Hilfe</div>
-  <div class="group">
-    <button class="row" onclick="openTutorial()"><span>Tutorial: So funktioniert die App</span><span class="muted">›</span></button>
-    <button class="row" onclick="openGlossary()"><span>Begriffe erklärt</span><span class="muted">›</span></button>
-    <button class="row" onclick="onboard(0)"><span>Einführung erneut starten</span><span class="muted">›</span></button>
-  </div>`;
-}
-
 // ---------- statistik ----------
+// Standard ist dieses Jahr; „Zeitraum“ öffnet ein Fenster mit weiteren Zeiträumen und freier Auswahl.
 let statRange = { preset: 'year', from: '', to: '' };
+const STAT_PRESETS = { month: 'Dieser Monat', lastmonth: 'Letzter Monat', '12m': 'Letzte 12 Monate', last: 'Letztes Jahr' };
 function statBounds() {
-  const t = today(), y = +t.slice(0, 4), p = statRange.preset;
+  const t = today(), y = +t.slice(0, 4), m = +t.slice(5, 7) - 1, p = statRange.preset;
   if (p === 'year') return [y + '-01-01', y + '-12-31'];
   if (p === 'last') return [(y - 1) + '-01-01', (y - 1) + '-12-31'];
   if (p === '12m') return [addDays(t, -364), t];
+  if (p === 'month') return monthBounds(y, m);
+  if (p === 'lastmonth') { const d = new Date(y, m - 1, 1); return monthBounds(d.getFullYear(), d.getMonth()); }
   return [statRange.from || y + '-01-01', statRange.to || t];
 }
-function setStat(p, el) {
-  if (p === 'from' || p === 'to') { statRange[p] = el.value; statRange.preset = 'custom'; }
-  else { statRange.preset = p; if (p === 'custom' && !statRange.from) [statRange.from, statRange.to] = statBounds(); }
-  render();
+function statLabel() {
+  if (statRange.preset === 'custom') { const [f, t] = statBounds(); return dmy(f).slice(0, 6) + ' – ' + dmy(t); }
+  return STAT_PRESETS[statRange.preset];
+}
+function setStat(p) { statRange.preset = p; closeSheet(); render(); }
+function openRange() {
+  const [f, t] = statBounds(), opt = (p, l) => `<button class="row" onclick="setStat('${p}')"><span>${l}</span><span>${statRange.preset === p ? '✓' : ''}</span></button>`;
+  sheet(`<div class="sheet-head"><h2>Zeitraum</h2><button class="pill sm" onclick="closeSheet()">Abbrechen</button></div>
+  <div class="group" style="margin-top:12px">${opt('year', 'Dieses Jahr')}${Object.entries(STAT_PRESETS).map(([p, l]) => opt(p, l)).join('')}</div>
+  <div class="label">Eigener Zeitraum</div>
+  <div class="group">
+    <label class="row"><span>Von</span><input type="date" id="rfrom" value="${f}"></label>
+    <label class="row"><span>Bis</span><input type="date" id="rto" value="${t}"></label>
+  </div>
+  <button class="big" onclick="applyRange()">Übernehmen</button>`);
+}
+function applyRange() {
+  const f = $('#rfrom').value, t = $('#rto').value;
+  if (!f || !t || t < f) return alert('Bitte einen gültigen Zeitraum wählen.');
+  statRange = { preset: 'custom', from: f, to: t }; closeSheet(); render();
 }
 function chart(cols, h = 140) {
   const max = Math.max(HOUR, ...cols.map(c => Math.max(c.v, c.soll || 0)));
@@ -265,7 +270,7 @@ function renderStats() {
   const c = calc(), t = today(), [from, to] = statBounds(), until = to < t ? to : t;
   const all = c.range(from, to), past = all.filter(x => x.d <= t), worked = past.filter(x => x.net > 0);
   const net = sum(past, 'net'), soll = sum(past, 'soll'), diff = net - soll, s = stats(all);
-  const short = to.slice(0, 7) === from.slice(0, 7) || (parseYmd(to) - parseYmd(from)) / 86400000 <= 62;
+  const short = (parseYmd(to) - parseYmd(from)) / 86400000 <= 62;
   const buckets = [];
   for (const x of all) {
     const k = short ? 'KW ' + isoWeek(x.d) : MSHORT[+x.d.slice(5, 7) - 1] + (from.slice(0, 4) !== to.slice(0, 4) ? " '" + x.d.slice(2, 4) : '');
@@ -277,37 +282,44 @@ function renderStats() {
   const wd = [1, 2, 3, 4, 5, 6, 0].map(i => { const ds = worked.filter(x => parseYmd(x.d).getDay() === i); return { label: WD[i].slice(0, 2), v: ds.length ? sum(ds, 'net') / ds.length : 0, color: 'var(--accent)' }; });
   const longest = worked.reduce((a, x) => !a || x.net > a.net ? x : a, null);
   const earliest = worked.reduce((a, x) => !a || minOfDay(x.sess[0].s) < minOfDay(a.sess[0].s) ? x : a, null);
-  const holi = all.filter(x => x.holiday && x.planned).length;
+  const holi = all.filter(x => x.holiday && x.planned).length, year = statRange.preset === 'year';
   const row = (l, v, k = '') => `<div class="row"><span>${l}</span><span class="${k}">${v}</span></div>`;
-  const pill = (p, l) => `<button class="pill sm ${statRange.preset === p ? 'sel' : ''}" onclick="setStat('${p}')">${l}</button>`;
   view.innerHTML = `<h1 class="center">Statistik</h1>
-  <div class="seg">${pill('year', 'Dieses Jahr')}${pill('last', 'Letztes Jahr')}${pill('12m', '12 Monate')}${pill('custom', 'Zeitraum')}</div>
-  ${statRange.preset === 'custom' ? `<div class="group"><label class="row"><span>Von</span><input type="date" value="${from}" onchange="setStat('from', this)"></label><label class="row"><span>Bis</span><input type="date" value="${to}" onchange="setStat('to', this)"></label></div>` : ''}
+  <div class="statbar"><button class="pill sm ${year ? 'sel' : ''}" onclick="setStat('year')">Dieses Jahr</button><button class="pill sm ${year ? '' : 'sel'}" onclick="openRange()">📅 ${year ? 'Zeitraum' : statLabel()} ▾</button></div>
   <p class="center muted small">${dmy(from)} – ${dmy(to)}</p>
+
+  <div class="label">Überblick</div>
   <div class="kpis">
     <div class="kpi"><b>${hours(net)}</b><span>Gearbeitet</span></div>
     <div class="kpi"><b>${hours(soll)}</b><span>Soll bis ${dmy(until).slice(0, 6)}</span></div>
-    <div class="kpi"><b class="${cls(diff)}">${hm(diff, true)}</b><span>Differenz im Zeitraum</span></div>
+    <div class="kpi"><b class="${cls(diff)}">${hm(diff, true)}</b><span>Differenz</span></div>
     <button class="kpi" onclick="openBalance()"><b class="${cls(c.balance(until))}">${hm(c.balance(until), true)}</b><span>Überstundenkonto ›</span></button>
-    <div class="kpi"><b>${worked.length}</b><span>Tage gearbeitet</span></div>
-    <div class="kpi"><b>${worked.length ? hm(net / worked.length) : '–'}</b><span>Ø pro Arbeitstag</span></div>
   </div>
-  <div class="label">${short ? 'Wochen' : 'Monate'}</div>
-  <div class="card">${chart(buckets)}<p class="hint" style="margin:10px 0 0">Balken = gearbeitet (Std.), Strich = Soll. Farbe zeigt, wie viel vom Soll erreicht ist.</p></div>
-  <div class="label">Ø pro Wochentag</div>
-  <div class="card">${chart(wd, 100)}</div>
-  <div class="label">Details</div>
+
+  <div class="label">Verlauf (${short ? 'Wochen' : 'Monate'})</div>
+  <div class="card">${chart(buckets)}<p class="hint" style="margin:10px 0 0">Balken = gearbeitete Stunden, Strich = Soll. Die Farbe zeigt, wie viel vom Soll erreicht ist.</p></div>
+
+  <div class="label">Arbeitszeiten</div>
   <div class="group">
-    ${row('Ø Start', s.start)}${row('Ø Ende', s.end)}
-    ${row('Längster Tag', longest ? `${dur(longest.net)} (${dmy(longest.d)})` : '–')}
-    ${row('Frühester Start', earliest ? `${tod(earliest.sess[0].s)} (${dmy(earliest.d)})` : '–')}
+    ${row('Tage gearbeitet', worked.length)}${row('Ø pro Arbeitstag', worked.length ? dur(net / worked.length) : '–')}
+    ${row('Ø Beginn', s.start)}${row('Ø Ende', s.end)}
+    ${row('Längster Tag', longest ? `${dur(longest.net)} · ${dmy(longest.d).slice(0, 6)}` : '–')}
+    ${row('Frühester Beginn', earliest ? `${tod(earliest.sess[0].s)} · ${dmy(earliest.d).slice(0, 6)}` : '–')}
   </div>
+  <div class="card">${chart(wd, 90)}<p class="hint" style="margin:10px 0 0">Ø Stunden pro Wochentag</p></div>
+
+  <div class="label">Abwesenheiten</div>
   <div class="group">
     ${row('Urlaubstage', countAbs(all, 'urlaub'))}${row('Krankheitstage', countAbs(all, 'krank'))}
     ${row('Kind krank', countAbs(all, 'kindkrank'))}${row('Unbezahlter Urlaub', countAbs(all, 'unbezahlt'))}
     ${row('Feiertage (an Arbeitstagen)', holi)}
   </div>
-  <button class="big" onclick="openExport('${from}', '${to}')">Exportieren</button>`;
+
+  <div class="label">Mehr</div>
+  <div class="group">
+    <button class="row" onclick="openBalance()"><span>Überstunden Tag für Tag</span><span class="muted">›</span></button>
+    <button class="row" onclick="openExport('${from}', '${to}')"><span>Zeitraum exportieren (Excel, CSV, Kalender)</span><span class="muted">›</span></button>
+  </div>`;
 }
 
 // ---------- überstunden-erklärung & korrekturen ----------

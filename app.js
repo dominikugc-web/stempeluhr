@@ -18,7 +18,6 @@ const today = () => ymd(new Date());
 
 let data = normalize({});
 let tab = 'start';
-let weekStart = monday(today());
 let month = { y: new Date().getFullYear(), m: new Date().getMonth() };
 let edit = null;
 
@@ -75,18 +74,18 @@ function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   if (tab === 'login') return renderLogin();
   if (ADMIN_APP && me && !isAdmin()) return renderNoAccess();
-  if (viewing && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'week';
+  if (viewing && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'cal';
   applyTheme();
-  ({ start: renderStart, week: renderWeek, month: renderMonth, stats: renderStats, pay: renderPay, setup: renderSetup, team: renderTeam, admin: renderAdmin })[tab]();
+  ({ start: renderStart, cal: renderCal, stats: renderStats, pay: renderPay, setup: renderSetup, admin: renderAdmin })[tab]();
   view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner());
   maybeOnboard();
 }
-function go(t) { tab = t; render(); scrollTo(0, 0); if (t === 'team') loadTeamStats(); }
+function go(t) { tab = t; render(); scrollTo(0, 0); }
 function sheet(html) {
   $('#sheet').innerHTML = `<div class="backdrop" onclick="closeSheet()"></div><div class="panel"><div class="grab"></div>${html}</div>`;
   $('#sheet').hidden = false;
 }
-function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; }
+function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; currentTopic = null; }
 
 // ---------- start ----------
 function renderStart() {
@@ -131,7 +130,7 @@ function updateStart() {
   $('#toggle').classList.toggle('stop', running);
 }
 function toggle() {
-  if (viewing) return alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du in Woche oder Monat.');
+  if (viewing) return alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du im Kalender.');
   const run = data.sessions.find(x => x.e == null);
   if (run) run.e = Date.now(); else data.sessions.push({ s: Date.now(), e: null });
   save(); updateStart();
@@ -261,50 +260,92 @@ function saveDay() {
   save(); closeSheet(); render();
 }
 
-// ---------- week ----------
+// ---------- kalender (Tag / Woche / Monat) ----------
+// Ein Anker-Datum calDay für alle drei Ansichten: Woche zeigt die Woche von calDay, Monat den Monat von calDay.
+// Tippen auf einen Tag in Woche oder Monat öffnet die Tagesansicht, dort wird bearbeitet.
+let calView = 'week', calDay = today();
 function ring(p) {
   return `<svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="10"/>
   <circle cx="50" cy="50" r="42" fill="none" stroke="${progColor(p)}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${Math.min(p, 100) * 2.639} 264" transform="rotate(-90 50 50)"/>
   <text x="50" y="57" text-anchor="middle" font-size="20" fill="#eee">${p}%</text></svg>`;
 }
-function renderWeek() {
-  const c = calc(), t = today(), days = c.range(weekStart, addDays(weekStart, 6));
-  const net = sum(days, 'net'), soll = sum(days, 'soll'), diff = sum(days.filter(x => x.d <= t), 'diff');
-  view.innerHTML = `
-  <div class="whead">${ring(soll ? Math.round(net / soll * 100) : 0)}
-    <div class="wtitle"><h1>Woche ${isoWeek(weekStart)}</h1><div class="muted">${dmy(weekStart).slice(0, 6)} – ${dmy(addDays(weekStart, 6)).slice(0, 6)}${weekStart.slice(0, 4)}</div></div>
-    <div class="wsum"><b>${dur(net)}</b><div class="${cls(diff)} small">${dur(diff, true)}</div><div class="muted small">bis heute</div></div>
+function dayState(x, t) {
+  const future = x.d > t;
+  return x.absence || x.holiday ? 'abs' : x.soll && x.net >= x.soll ? 'ok' : x.soll && !future && x.d < t ? 'miss' : x.net ? 'ok' : '';
+}
+function setCal(v, d) { calView = v; if (d) calDay = d; render(); scrollTo(0, 0); }
+function moveCal(n) {
+  calDay = calView === 'day' ? addDays(calDay, n) : calView === 'week' ? addDays(calDay, 7 * n)
+    : ymd(new Date(+calDay.slice(0, 4), +calDay.slice(5, 7) - 1 + n, 1));
+  render();
+}
+function renderCal() {
+  const seg = (v, l) => `<button class="${calView === v ? 'on' : ''}" onclick="setCal('${v}')">${l}</button>`;
+  const head = `<div class="segctl">${seg('day', 'Tag')}${seg('week', 'Woche')}${seg('month', 'Monat')}</div>`;
+  const nav = title => `<div class="mhead"><button class="nav" onclick="moveCal(-1)" aria-label="Zurück">‹</button><div class="center">${title}</div><button class="nav" onclick="moveCal(1)" aria-label="Weiter">›</button></div>`;
+  const todayBtn = `<button class="pill sm todaybtn" onclick="setCal(calView, today())">Heute</button>`;
+  ({ day: calDayView, week: calWeekView, month: calMonthView })[calView](head, nav, todayBtn);
+}
+function calDayView(head, nav, todayBtn) {
+  const c = calc(), t = today(), d = calDay, x = c.day(d), past = d <= t;
+  const p = x.soll ? Math.floor(x.net / x.soll * 100) : 0;
+  view.innerHTML = head + nav(`<h1 style="font-size:26px">${WD[parseYmd(d).getDay()]}</h1><div class="muted">${dmy(d)}${d === t ? ' · heute' : ''}</div>`) +
+  (d !== t ? todayBtn : '') + `
+  ${note(x) ? `<p class="badge center">${esc(note(x))}</p>` : ''}
+  <div class="card">
+    <div class="today-top">
+      <div><div class="pct">${p} %</div><div class="muted">vom Soll</div></div>
+      <div class="barwrap"><div class="bar"><div class="fill" style="width:${Math.min(100, p)}%;background:${progColor(p)}"></div></div>
+        <div class="barlabels"><span>${x.sess[0] ? tod(x.sess[0].s) : '–'}</span><span>${x.sess.at(-1)?.e ? tod(x.sess.at(-1).e) : x.sess.length ? 'läuft' : '–'}</span></div></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><b>${hm(x.net)}</b><span>Netto</span></div>
+      <div class="tile"><b>${hm(x.soll)}</b><span>Soll</span></div>
+      <div class="tile"><b class="${past ? cls(x.diff) : ''}">${past || x.net ? hm(x.diff, true) : '–'}</b><span>Differenz</span></div>
+    </div>
   </div>
-  <div class="navrow"><button class="pill sm" onclick="moveWeek(-1)">‹</button><button class="pill sm" onclick="weekStart = monday(today()); render()">Heute</button><button class="pill sm" onclick="moveWeek(1)">›</button></div>
+  <div class="label">Zeiten</div>
+  ${x.sess.length ? `<div class="group">${x.sess.map(s => `<div class="row"><span>${tod(s.s)} – ${s.e ? tod(s.e) : 'läuft'}</span><span>${dur((s.e ?? Date.now()) - s.s)}</span></div>`).join('')}
+    <div class="row"><span class="muted">Pause (pauschal)</span><span class="muted">− ${dur(x.pause)}</span></div></div>`
+    : `<p class="muted center">${d > t ? 'Dieser Tag liegt in der Zukunft.' : 'An diesem Tag ist keine Zeit erfasst.'}</p>`}
+  <div class="two"><button class="pill" onclick="openDay(calDay)">✏️ ${x.sess.length ? 'Bearbeiten' : 'Eintragen'}</button><button class="pill" onclick="absenceForm(calDay)">🏖 Abwesenheit</button></div>
+  ${d >= data.settings.since ? `<div class="group"><div class="row"><span>Überstundenkonto am ${dmy(d < t ? d : t).slice(0, 6)}</span><span class="${cls(c.balance(d < t ? d : t))}">${hm(c.balance(d < t ? d : t), true)}</span></div></div>`
+    : `<p class="hint">Vor deinem Startdatum (${dmy(data.settings.since)}) zählen keine Sollstunden.</p>`}`;
+}
+function calWeekView(head, nav, todayBtn) {
+  const c = calc(), t = today(), ws = monday(calDay), days = c.range(ws, addDays(ws, 6));
+  const net = sum(days, 'net'), soll = sum(days, 'soll'), diff = sum(days.filter(x => x.d <= t), 'diff');
+  view.innerHTML = head + nav(`<h1 style="font-size:26px">Woche ${isoWeek(ws)}</h1><div class="muted">${dmy(ws).slice(0, 6)} – ${dmy(addDays(ws, 6))}</div>`) +
+  (ws !== monday(t) ? todayBtn : '') + `
+  <div class="whead">${ring(soll ? Math.round(net / soll * 100) : 0)}
+    <div class="wtitle"><b>${dur(net)}</b><div class="muted small">von ${dur(soll)} Soll</div></div>
+    <div class="wsum"><b class="${cls(diff)}">${dur(diff, true)}</b><div class="muted small">bis heute</div></div>
+  </div>
   ${days.map(x => dayRow(x, t)).join('')}`;
 }
 function dayRow(x, t) {
   const future = x.d > t;
-  const state = x.d === t ? 'today' : x.absence || x.holiday ? 'abs' : x.soll && x.net >= x.soll ? 'ok' : x.soll && !future ? 'miss' : x.net ? 'ok' : '';
-  return `<button class="day ${x.d === t ? 'is-today' : ''} ${x.soll || x.net || note(x) ? '' : 'off'}" onclick="openDay('${x.d}')">
-    <span class="dot ${state}"></span>
-    <span class="dl"><b>${WD[parseYmd(x.d).getDay()]}</b><span class="muted">${dmy(x.d)}${x.sess.length ? ' · ' + span(x) : ''}</span>${note(x) ? `<span class="tag">${esc(note(x))}</span>` : ''}</span>
+  return `<button class="day ${x.d === t ? 'is-today' : ''} ${x.soll || x.net || note(x) ? '' : 'off'}" onclick="setCal('day', '${x.d}')">
+    <span class="dot ${x.d === t ? 'today' : dayState(x, t)}"></span>
+    <span class="dl"><b>${WD[parseYmd(x.d).getDay()]}</b><span class="muted">${dmy(x.d).slice(0, 6)}${x.sess.length ? ' · ' + span(x) : ''}</span>${note(x) ? `<span class="tag">${esc(note(x))}</span>` : ''}</span>
     <span class="dr"><b>${x.sess.length || (!future && x.soll) ? dur(x.net) : ''}</b>${!future && (x.soll || x.net) ? `<span class="${cls(x.diff)} small">${dur(x.diff, true)}</span>` : ''}</span>
   </button>`;
 }
-function moveWeek(n) { weekStart = addDays(weekStart, 7 * n); render(); }
-
-// ---------- month ----------
 const monthBounds = (y, m) => [`${y}-${pad(m + 1)}-01`, ymd(new Date(y, m + 1, 0))];
-function renderMonth() {
-  const c = calc(), t = today(), { y, m } = month, [first, last] = monthBounds(y, m);
-  const days = c.range(first, last), past = days.filter(x => x.d <= t), stand = last < t ? last : t;
-  const weeks = [];
-  for (const x of days) { const k = isoWeek(x.d), w = weeks.at(-1); if (w && w.k === k) w.net += x.net; else weeks.push({ k, net: x.net }); }
-  const max = Math.max(HOUR, ...weeks.map(w => w.net)), s = stats(days), bal = c.balance(stand);
+function calMonthView(head, nav, todayBtn) {
+  const c = calc(), t = today(), y = +calDay.slice(0, 4), m = +calDay.slice(5, 7) - 1, [first, last] = monthBounds(y, m);
+  const days = c.range(first, last), past = days.filter(x => x.d <= t), stand = last < t ? last : t, bal = c.balance(stand);
+  const lead = (parseYmd(first).getDay() + 6) % 7;
   const row = (label, val, k = '') => `<div class="row"><span>${label}</span><span class="${k}">${val}</span></div>`;
-  view.innerHTML = `
-  <div class="mhead"><button class="nav" onclick="moveMonth(-1)" aria-label="Vorheriger Monat">‹</button><h1>${MONTHS[m]} ${y}</h1><button class="nav" onclick="moveMonth(1)" aria-label="Nächster Monat">›</button></div>
-  <div class="bars">${weeks.map(w => `<div class="bcol"><span class="bval">${w.net ? (w.net / HOUR).toFixed(1).replace('.', ',') : 0}</span><div class="btrack"><div class="b" style="height:${w.net / max * 100}%"></div></div><span class="muted small">KW ${w.k}</span></div>`).join('')}</div>
-  <div class="group">${row('Bisher geleistete Zeit', dur(sum(past, 'net')))}${row('Sollstunden bis jetzt', dur(sum(past, 'soll')))}${row('Differenz', dur(sum(past, 'diff'), true), cls(sum(past, 'diff')))}</div>
-  <div class="group">${row('Geleistete Zeit', dur(sum(days, 'net')))}${row('Sollstunden', dur(sum(days, 'soll')))}${row('Differenz', dur(sum(days, 'diff'), true), cls(sum(days, 'diff')))}</div>
-  <div class="group"><div class="row head">Durchschnittliche Anfangs- und Endzeiten</div>${row('Start', s.start)}${row('Ende', s.end)}</div>
-  <div class="group">${row('Urlaubstage', countAbs(days, 'urlaub'))}${row('Krankheitstage', countAbs(days, 'krank'))}${row(`Überstundenkonto (${dmy(stand)})`, hm(bal, true), cls(bal))}</div>
+  view.innerHTML = head + nav(`<h1 style="font-size:26px">${MONTHS[m]} ${y}</h1>`) + (first.slice(0, 7) !== t.slice(0, 7) ? todayBtn : '') + `
+  <div class="cal">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<span class="wd">${w}</span>`).join('')}
+    ${'<span></span>'.repeat(lead)}${days.map(x => `<button class="cell ${x.d === t ? 'today' : ''} ${x.soll || x.net || note(x) ? '' : 'off'}" onclick="setCal('day', '${x.d}')">
+      <span>${+x.d.slice(8)}</span><i class="cd ${dayState(x, t)}"></i><small>${x.net ? (x.net / HOUR).toFixed(1).replace('.', ',') : ''}</small></button>`).join('')}</div>
+  <p class="hint center"><span class="green">●</span> Soll erreicht · <span class="red">●</span> zu wenig · <span style="color:var(--accent)">●</span> frei / abwesend · Zahl = Stunden</p>
+  <div class="label">Bis heute</div>
+  <div class="group">${row('Gearbeitet', dur(sum(past, 'net')))}${row('Soll', dur(sum(past, 'soll')))}${row('Differenz', dur(sum(past, 'diff'), true), cls(sum(past, 'diff')))}</div>
+  <div class="label">Ganzer Monat</div>
+  <div class="group">${row('Gearbeitet', dur(sum(days, 'net')))}${row('Soll', dur(sum(days, 'soll')))}${row('Urlaubstage', countAbs(days, 'urlaub'))}${row('Krankheitstage', countAbs(days, 'krank'))}${row(`Überstundenkonto (${dmy(stand).slice(0, 6)})`, hm(bal, true), cls(bal))}</div>
   <button class="big" onclick="exportPdf(${y}, ${m})">PDF exportieren</button>`;
 }
 function moveMonth(n) { const d = new Date(month.y, month.m + n, 1); month = { y: d.getFullYear(), m: d.getMonth() }; render(); }
@@ -421,57 +462,108 @@ function renderPay() {
   <p class="hint">Rechnung nach dem amtlichen Lohnsteuer-Programmablaufplan 2026 und den Sozialversicherungswerten 2026. Netto pro Stunde zählt nur abgeschlossene Monate seit Beginn der Aufzeichnung. Einmalzahlungen wie Boni fehlen. Verbindlich ist deine Lohnabrechnung.</p>`;
 }
 
-// ---------- setup ----------
-function renderSetup() {
-  const st = data.settings, now = new Date();
-  view.innerHTML = `<h1 class="center">Einstellungen</h1>
-  ${accountHtml()}
-  <div class="label">Allgemein</div>
-  <div class="group">
-    <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
-    <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-    <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
-    <label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${st.vacation}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label>
-  </div>
-  <div class="label">Sollstunden pro Tag</div>
-  <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
-  ${setupExtrasHtml()}
-  <div class="label">Überstundenkonto</div>
-  <div class="group">
-    <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
-    <label class="row"><span>Startsaldo</span><input value="${hm(st.startBalance * MIN, true)}" onchange="setBalance(this)"></label>
-  </div>
-  <div class="group"><label class="row"><span>Auszahlen ab (Std.)</span><input type="number" inputmode="numeric" min="0" placeholder="nie" value="${st.otCap || ''}" onchange="setS('otCap', Math.max(0, num(this.value)))"></label></div>
-  <p class="hint">Startsaldo = dein Stand vor dem Startdatum, z. B. -26:01 aus deiner alten App. Auszahlen ab: Überstunden über dieser Grenze werden am Monatsende mit dem Stundenlohn über den Hauptjob ausgezahlt, das Konto bleibt bei der Grenze. Leer = nie.</p>
-  ${viewing ? '' : `<div class="label">Jobs</div>
-  ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
-  <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
-  <p class="hint">Brutto pro Monat laut Vertrag. Mit den Angaben rechnet der Tab Verdienst Brutto und Netto aus.</p>
-  <div class="label">Steuer und Sozialversicherung</div>
-  <div class="group">
-    <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}" ${st.stkl === k ? 'selected' : ''}>${['I', 'II', 'III', 'IV', 'V', 'VI'][k - 1]}</option>`).join('')}</select></label>
-    <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${st.zkf}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
-    <label class="row"><span>Kirchensteuer</span><select onchange="setS('kirche', this.value === '1')"><option value="0">Nein</option><option value="1" ${st.kirche ? 'selected' : ''}>Ja</option></select></label>
-    <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${k}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-    <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
-    <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value))); render()"></label>
-  </div>
-  <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25, wer ältere Kinder hat, wählt 1 Kind. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland.</p>`}
-  <div class="label">Export</div>
-  <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
-  <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
-  <div class="label">Sicherung</div>
-  <div class="group">
-    <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
-    <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" onchange="restore(this)"></label>
-  </div>
-  <p class="hint">${viewing ? 'Backup laden ersetzt die Zeiten dieses Mitarbeiters.' : 'Deine Zeiten liegen in deinem Konto und sind auf allen Geräten gleich. Gehalt und Steuerdaten sieht nur du, auch nicht dein Geschäftsführer.'}</p>
-  ${setupHelpHtml()}
-  ${viewing ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
+// ---------- setup: Themenliste, jedes Thema öffnet ein eigenes Fenster ----------
+let currentTopic = null;
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+function setupTopics() {
+  const st = data.settings, week = st.soll.reduce((a, b) => a + (+b || 0), 0), own = !viewing;
+  const firm = !cid ? 'Keine Firma' : isOwner() ? 'Geschäftsführer von ' + (company?.name || '…') : membership?.status === 'active' ? 'Mitarbeiter bei ' + (company?.name || membership.companyName)
+    : membership?.status === 'pending' ? 'Anfrage an ' + membership.companyName + ' offen' : 'Firma';
+  const act = members.filter(m => m.status === 'active').length, pend = members.filter(m => m.status === 'pending').length;
+  return [
+    [
+      own && me && ['account', '👤', 'Konto & Firma', `${me.email || me.displayName || ''} · ${firm}`],
+      own && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} Mitarbeiter${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}`],
+    ],
+    [
+      ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
+      ['balance', '⚖️', 'Überstunden & Urlaub', `seit ${dmy(st.since)} · ${st.vacation} Urlaubstage`],
+      own && ['pay', '💶', 'Verdienst & Steuern', `${st.jobs.length ? st.jobs.length + (st.jobs.length === 1 ? ' Job' : ' Jobs') : 'Kein Job'} · Steuerklasse ${ROMAN[st.stkl - 1]}`],
+    ],
+    [
+      ['export', '📤', 'Export & Sicherung', 'PDF, Excel, CSV, Kalender, Backup'],
+      own && ['look', '🎨', 'Darstellung', `${(BGS[st.theme?.bg] || BGS.kaffee)[0]} · Tipps ${st.tips !== false ? 'an' : 'aus'}`],
+      own && ['help', '❓', 'Hilfe', 'Tutorial, Begriffe, Einführung'],
+    ],
+  ].map(g => g.filter(Boolean)).filter(g => g.length);
 }
+function renderSetup() {
+  view.innerHTML = `<h1 class="center">Setup</h1>
+  ${viewing ? `<p class="hint center">Einstellungen von ${esc(viewing.name)}. Gehalt und Steuerdaten sind privat.</p>` : ''}
+  ${setupTopics().map(g => `<div class="group">${g.map(([id, icon, title, sub]) => `<button class="row topic" onclick="openTopic('${id}')">
+    <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
+  ${viewing && !viewing.preview ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
+}
+const TOPIC_TITLE = { account: 'Konto & Firma', team: 'Team', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
+function openTopic(id, keepStats) {
+  const st = data.settings, now = new Date();
+  const body = {
+    account: () => accountHtml(),
+    team: () => teamHtml(),
+    work: () => `<div class="group">
+        <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
+        <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
+      </div>
+      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Die Pause wird an jedem Arbeitstag pauschal abgezogen.</p>
+      <div class="label">Sollstunden pro Tag</div>
+      <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
+      ${setupExtrasHtml()}`,
+    balance: () => `<div class="group">
+        <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
+        <label class="row"><span>Startsaldo</span><input value="${hm(st.startBalance * MIN, true)}" onchange="setBalance(this)"></label>
+        <label class="row"><span>Auszahlen ab (Std.)</span><input type="number" inputmode="numeric" min="0" placeholder="nie" value="${st.otCap || ''}" onchange="setS('otCap', Math.max(0, num(this.value)))"></label>
+      </div>
+      <p class="hint">Startsaldo = Stand vor dem Startdatum, z. B. -26:01 aus einer alten App. Auszahlen ab: Überstunden über dieser Grenze werden am Monatsende ausgezahlt, das Konto bleibt bei der Grenze. Leer = nie.</p>
+      <button class="pill wide" onclick="openBalance()">Überstunden Tag für Tag & Korrekturen ›</button>
+      <div class="label">Urlaub</div>
+      <div class="group"><label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${st.vacation}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label></div>
+      <button class="pill wide" onclick="openAbsences()">Abwesenheiten, Urlaubsplaner, Schulferien ›</button>`,
+    pay: () => `<div class="label">Jobs</div>
+      ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
+      <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
+      <p class="hint">Brutto pro Monat laut Vertrag. Damit rechnet der Tab Verdienst Brutto und Netto aus.</p>
+      <div class="label">Steuer und Sozialversicherung</div>
+      <div class="group">
+        <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}" ${st.stkl === k ? 'selected' : ''}>${ROMAN[k - 1]}</option>`).join('')}</select></label>
+        <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${st.zkf}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
+        <label class="row"><span>Kirchensteuer</span><select onchange="setS('kirche', this.value === '1')"><option value="0">Nein</option><option value="1" ${st.kirche ? 'selected' : ''}>Ja</option></select></label>
+        <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${k}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
+        <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value)))"></label>
+      </div>
+      <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland. Diese Daten sieht nur du.</p>`,
+    export: () => `<div class="label">PDF-Arbeitszeitnachweis</div>
+      <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
+      <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
+      <div class="label">Tabelle & Kalender</div>
+      <button class="pill wide" onclick="openExport()">Excel, CSV oder Kalender (.ics) ›</button>
+      <div class="label">Sicherung</div>
+      <div class="group">
+        <button class="row" onclick="backup()"><span>Backup speichern</span><span class="muted">›</span></button>
+        <label class="row"><span>Backup oder Einstellungen laden</span><input type="file" class="file" onchange="restore(this)"></label>
+      </div>
+      <p class="hint">${viewing ? 'Backup laden ersetzt die Zeiten dieses Mitarbeiters.' : 'Deine Zeiten liegen in deinem Konto und sind auf allen Geräten gleich. Ein Backup ist trotzdem eine gute Absicherung.'}</p>`,
+    look: () => `<div class="group">
+        <button class="row" onclick="openTheme()"><span>Farben & Hintergrund</span><span class="muted">›</span></button>
+        <label class="row"><span>Tipps auf der Startseite</span><input type="checkbox" ${st.tips !== false ? 'checked' : ''} onchange="setS('tips', this.checked)"></label>
+      </div>`,
+    help: () => `<div class="group">
+        <button class="row" onclick="openTutorial()"><span>Tutorial: So funktioniert die App</span><span class="muted">›</span></button>
+        <button class="row" onclick="openGlossary()"><span>Begriffe erklärt</span><span class="muted">›</span></button>
+        <button class="row" onclick="onboard(0)"><span>Einführung erneut starten</span><span class="muted">›</span></button>
+      </div>`,
+  }[id];
+  if (!body) return;
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet(); render()">‹ Setup</button><h2>${TOPIC_TITLE[id]}</h2></div><div style="height:12px"></div>${body()}`);
+  currentTopic = id;
+  if (id === 'team' && !keepStats) loadTeamStats();
+}
+// Unterfenster (Job, Arbeitsplan, Farben …) kehren zum Thema zurück, aus dem sie geöffnet wurden.
+function backToTopic() { const t = currentTopic; if (t) openTopic(t); else { closeSheet(); render(); } }
 function jobForm(i) {
   const j = i == null ? { name: '', type: 'haupt', brutto: '', since: '', sach: 0, cut: true, rvFrei: true } : data.settings.jobs[i];
-  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet(); render()">Abbrechen</button><button class="pill sm green" onclick="saveJob(${i ?? -1})">Speichern</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="backToTopic()">Abbrechen</button><button class="pill sm green" onclick="saveJob(${i ?? -1})">Speichern</button></div>
   <h2>${i == null ? 'Job hinzufügen' : 'Job bearbeiten'}</h2>
   <div class="group">
     <label class="row"><span>Name</span><input id="jname" value="${esc(j.name)}" placeholder="z. B. Firma"></label>
@@ -504,13 +596,13 @@ function saveJob(i) {
     sach: num($('#jsach').value), cut: $('#jcut').checked, rvFrei: $('#jrv').checked };
   if (!(j.brutto > 0)) return alert('Bitte das Brutto pro Monat eintragen.');
   if (i < 0) data.settings.jobs.push(j); else data.settings.jobs[i] = j;
-  save(); closeSheet(); render();
+  save(); render(); backToTopic();
 }
 function delJob(i) {
   if (!confirm('Job löschen?')) return;
-  data.settings.jobs.splice(i, 1); save(); closeSheet(); render();
+  data.settings.jobs.splice(i, 1); save(); render(); backToTopic();
 }
-function setS(k, v) { data.settings[k] = v; save(); }
+function setS(k, v) { data.settings[k] = v; save(); if ($('#sheet').hidden) render(); }
 function setSoll(i, el) { data.settings.soll[i] = Math.min(24, Math.max(0, +el.value || 0)); el.value = data.settings.soll[i]; save(); }
 function setBalance(el) {
   const r = el.value.trim().replace('−', '-').match(/^([+-]?)(\d+)(?::(\d{1,2}))?$/);
