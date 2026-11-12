@@ -266,8 +266,81 @@ function chart(cols, h = 140) {
     <div class="ctrack" style="height:${h}px"><div class="cbar" style="height:${c.v / max * 100}%;background:${c.color || 'var(--accent)'}"></div>${c.soll ? `<div class="cmark" style="bottom:${c.soll / max * 100}%"></div>` : ''}</div>
     <span class="clab">${c.label}</span></div>`).join('')}</div>`;
 }
+// Geschäftsführer: Auswahl „Ich“, „Ganze Firma“ oder ein einzelner Mitarbeiter
+let statWho = 'me';
+const teamData = {};   // uid -> { d, at } geladene Daten der Mitarbeiter (für Statistik)
+async function teamLoad(uids, force) {
+  await Promise.all(uids.map(async uid => {
+    if (!force && teamData[uid] && Date.now() - teamData[uid].at < 60000) return;
+    try { const s = await ref('data/' + uid).get(); teamData[uid] = { d: s.exists ? merged(s.data(), null) : normalize({}), at: Date.now() }; }
+    catch (e) { teamData[uid] = { err: e.message, at: Date.now() }; }
+  }));
+}
+function setWho(v) { statWho = v; render(); view.scrollTop = 0; }
 function renderStats() {
-  const c = calc(), t = today(), [from, to] = statBounds(), until = to < t ? to : t;
+  const boss = isOwner() && !viewing && company;
+  const people = boss ? teamPeople().filter(p => !p.self) : [];
+  if (boss && statWho !== 'me' && statWho !== 'team' && !people.some(p => p.uid === statWho)) statWho = 'me';
+  const [from, to] = statBounds(), year = statRange.preset === 'year';
+  const head = `<h1 class="center">Statistik</h1>
+  ${boss ? `<div class="group whopick">
+    ${ADMIN_APP ? '' : `<div class="row"><span>Firma</span><span><b>${esc(company.name)}</b></span></div>`}
+    <label class="row"><span>Ansicht</span><select onchange="setWho(this.value)">
+      <option value="me" ${statWho === 'me' ? 'selected' : ''}>Ich</option>
+      <option value="team" ${statWho === 'team' ? 'selected' : ''}>Ganze Firma (${people.length + 1} Personen)</option>
+      ${people.length ? `<optgroup label="Mitarbeiter">${people.map(p => `<option value="${p.uid}" ${statWho === p.uid ? 'selected' : ''}>${esc(p.name)}${p.boss ? ' (GF)' : ''}</option>`).join('')}</optgroup>` : ''}
+    </select></label></div>` : ''}
+  <div class="statbar"><button class="pill sm ${year ? 'sel' : ''}" onclick="setStat('year')">Dieses Jahr</button><button class="pill sm ${year ? '' : 'sel'}" onclick="openRange()">📅 ${year ? 'Zeitraum' : statLabel()} ▾</button></div>
+  <p class="center muted small">${dmy(from)} – ${dmy(to)}</p>`;
+  if (!boss || statWho === 'me') { view.innerHTML = head + statsHtml(data, null); return; }
+  const loading = `<p class="center muted" style="margin-top:20vh">Lädt …</p>`;
+  if (statWho === 'team') {
+    const uids = teamPeople().map(p => p.uid), ready = uids.every(u => teamData[u]);
+    view.innerHTML = head + (ready ? teamStatsHtml(from, to) : loading);
+    teamLoad(uids).then(() => { if (!ready && tab === 'stats' && statWho === 'team') render(); });
+    return;
+  }
+  const p = people.find(x => x.uid === statWho), td = teamData[statWho];
+  view.innerHTML = head + (td?.d ? `<p class="center" style="margin:-4px 0 8px"><b>${esc(p.name)}</b>${p.boss ? ' <span class="badge-gf">GF</span>' : ''}</p>` + statsHtml(td.d, p)
+    : td?.err ? `<p class="center red">Zeiten konnten nicht geladen werden: ${esc(td.err)}</p>` : loading);
+  if (!td?.d) teamLoad([statWho]).then(() => { if (tab === 'stats' && statWho === p.uid) render(); });
+}
+// Übersicht der ganzen Firma: Summen und eine Zeile pro Person
+function teamStatsHtml(from, to) {
+  const t = today(), until = to < t ? to : t;
+  const rows = teamPeople().map(p => {
+    const d = teamData[p.uid]?.d; if (!d) return null;
+    const c = makeCalc(d, Date.now()), all = c.range(from, to), past = all.filter(x => x.d <= t);
+    const y = until.slice(0, 4), yd = c.range(y + '-01-01', y + '-12-31');
+    return { p, net: sum(past, 'net'), soll: sum(past, 'soll'), bal: c.balance(until), days: past.filter(x => x.net > 0).length,
+      vac: countAbs(all, 'urlaub'), vacLeft: (+d.settings.vacation || 0) - countAbs(yd, 'urlaub'), sick: countAbs(all, 'krank'), kid: countAbs(all, 'kindkrank'), unpaid: countAbs(all, 'unbezahlt'),
+      running: d.sessions.some(x => x.e == null) };
+  }).filter(Boolean);
+  const tot = k => rows.reduce((a, r) => a + r[k], 0);
+  const sick = tot('sick'), net = tot('net'), soll = tot('soll');
+  return `<div class="label">Überblick Firma</div>
+  <div class="kpis">
+    <div class="kpi"><b>${hours(net)}</b><span>Gearbeitet gesamt</span></div>
+    <div class="kpi"><b class="${cls(net - soll)}">${hm(net - soll, true)}</b><span>Differenz zum Soll</span></div>
+    <div class="kpi"><b>${tot('vac')}</b><span>Urlaubstage</span></div>
+    <div class="kpi"><b>${sick + tot('kid')}</b><span>Krankheitstage${tot('kid') ? ' inkl. Kind krank' : ''}</span></div>
+  </div>
+  <div class="label">Pro Person</div>
+  ${rows.map(r => `<button class="card teamstat" onclick="setWho('${r.p.self ? 'me' : r.p.uid}')">
+    <div class="ts-head"><b>${r.running ? '<span class="green">●</span> ' : ''}${esc(r.p.name)}${r.p.self ? ' <span class="muted">(du)</span>' : ''}${r.p.boss ? ' <span class="badge-gf">GF</span>' : ''}</b><span class="muted">›</span></div>
+    <div class="ts-grid">
+      <span><b>${hours(r.net)}</b><small>Gearbeitet</small></span>
+      <span><b class="${cls(r.net - r.soll)}">${hm(r.net - r.soll, true)}</b><small>Differenz</small></span>
+      <span><b class="${cls(r.bal)}">${hm(r.bal, true)}</b><small>Konto</small></span>
+      <span><b>${r.days}</b><small>Arbeitstage</small></span>
+      <span><b>${r.vac}</b><small>Urlaub · Rest ${r.vacLeft}</small></span>
+      <span><b>${r.sick}</b><small>Krank${r.kid ? ` · Kind ${r.kid}` : ''}${r.unpaid ? ` · Unbez. ${r.unpaid}` : ''}</small></span>
+    </div></button>`).join('')}
+  <p class="hint">Konto = Überstundenkonto am ${dmy(until)}. Rest = verbleibende Urlaubstage im Jahr ${until.slice(0, 4)}. Tippe auf eine Person für alle Details.</p>
+  <button class="pill wide" onclick="openPayroll()">📤 Zeitraum für die Lohnabrechnung exportieren</button>`;
+}
+function statsHtml(d, who) {  // who: null = eigene Daten, sonst { uid, name } eines Mitarbeiters
+  const c = makeCalc(d, Date.now()), t = today(), [from, to] = statBounds(), until = to < t ? to : t;
   const all = c.range(from, to), past = all.filter(x => x.d <= t), worked = past.filter(x => x.net > 0);
   const net = sum(past, 'net'), soll = sum(past, 'soll'), diff = net - soll, s = stats(all);
   const short = (parseYmd(to) - parseYmd(from)) / 86400000 <= 62;
@@ -284,16 +357,15 @@ function renderStats() {
   const earliest = worked.reduce((a, x) => !a || minOfDay(x.sess[0].s) < minOfDay(a.sess[0].s) ? x : a, null);
   const holi = all.filter(x => x.holiday && x.planned).length, year = statRange.preset === 'year';
   const row = (l, v, k = '') => `<div class="row"><span>${l}</span><span class="${k}">${v}</span></div>`;
-  view.innerHTML = `<h1 class="center">Statistik</h1>
-  <div class="statbar"><button class="pill sm ${year ? 'sel' : ''}" onclick="setStat('year')">Dieses Jahr</button><button class="pill sm ${year ? '' : 'sel'}" onclick="openRange()">📅 ${year ? 'Zeitraum' : statLabel()} ▾</button></div>
-  <p class="center muted small">${dmy(from)} – ${dmy(to)}</p>
-
-  <div class="label">Überblick</div>
+  const bal = who ? `<div class="kpi"><b class="${cls(c.balance(until))}">${hm(c.balance(until), true)}</b><span>Überstundenkonto</span></div>`
+    : `<button class="kpi" onclick="openBalance()"><b class="${cls(c.balance(until))}">${hm(c.balance(until), true)}</b><span>Überstundenkonto ›</span></button>`;
+  const vacYear = (() => { const y = until.slice(0, 4), yd = c.range(y + '-01-01', y + '-12-31'); return { used: countAbs(yd, 'urlaub'), total: +d.settings.vacation || 0, y }; })();
+  return `<div class="label">Überblick</div>
   <div class="kpis">
     <div class="kpi"><b>${hours(net)}</b><span>Gearbeitet</span></div>
     <div class="kpi"><b>${hours(soll)}</b><span>Soll bis ${dmy(until).slice(0, 6)}</span></div>
     <div class="kpi"><b class="${cls(diff)}">${hm(diff, true)}</b><span>Differenz</span></div>
-    <button class="kpi" onclick="openBalance()"><b class="${cls(c.balance(until))}">${hm(c.balance(until), true)}</b><span>Überstundenkonto ›</span></button>
+    ${bal}
   </div>
 
   <div class="label">Verlauf (${short ? 'Wochen' : 'Monate'})</div>
@@ -310,15 +382,16 @@ function renderStats() {
 
   <div class="label">Abwesenheiten</div>
   <div class="group">
-    ${row('Urlaubstage', countAbs(all, 'urlaub'))}${row('Krankheitstage', countAbs(all, 'krank'))}
+    ${row('Urlaubstage', countAbs(all, 'urlaub'))}${row(`Urlaub ${vacYear.y}: genommen / Anspruch`, `${vacYear.used} / ${vacYear.total} · Rest ${vacYear.total - vacYear.used}`)}${row('Krankheitstage', countAbs(all, 'krank'))}
     ${row('Kind krank', countAbs(all, 'kindkrank'))}${row('Unbezahlter Urlaub', countAbs(all, 'unbezahlt'))}
     ${row('Feiertage (an Arbeitstagen)', holi)}
   </div>
 
   <div class="label">Mehr</div>
-  <div class="group">
+  <div class="group">${who ? `
+    <button class="row" onclick="viewMember('${who.uid}')"><span>Kalender von ${esc(who.name)} öffnen (Zeiten ansehen und korrigieren)</span><span class="muted">›</span></button>` : `
     <button class="row" onclick="openBalance()"><span>Überstunden Tag für Tag</span><span class="muted">›</span></button>
-    <button class="row" onclick="openExport('${from}', '${to}')"><span>Zeitraum exportieren (Excel, CSV, Kalender)</span><span class="muted">›</span></button>
+    <button class="row" onclick="openExport('${from}', '${to}')"><span>Zeitraum exportieren (Excel, CSV, Kalender)</span><span class="muted">›</span></button>`}
   </div>`;
 }
 
