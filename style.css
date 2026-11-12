@@ -36,6 +36,8 @@ h2{font-size:30px;margin:8px 0 14px}
 .big.stop{background:linear-gradient(90deg,var(--minus),color-mix(in srgb,var(--minus) 50%,#000))}
 .tabs{position:absolute;left:50%;transform:translateX(-50%);bottom:max(12px,calc(env(safe-area-inset-bottom) - 12px));width:min(calc(100% - 44px),420px);display:flex;padding:5px;border-radius:32px;background:linear-gradient(180deg,rgba(30,26,24,.48),rgba(12,10,9,.56));backdrop-filter:blur(14px) saturate(1.8);-webkit-backdrop-filter:blur(14px) saturate(1.8);box-shadow:inset 0 1px 2px rgba(255,255,255,.12),inset 0 -1px 2px rgba(255,255,255,.06),0 10px 30px rgba(0,0,0,.35);z-index:5;transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
 .tabs.press{transform:translateX(-50%) scale(1.025)}
+.tabs{touch-action:none;user-select:none;-webkit-user-select:none}
+.tabs button.hover{transform:scale(1.15)}
 /* Lichtkante des Glases: heller Rand oben links und unten rechts, an den Seiten fast unsichtbar */
 .tabs::before,.tab-ind::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;background:linear-gradient(160deg,rgba(255,255,255,.55),rgba(255,255,255,.08) 30%,rgba(255,255,255,.03) 60%,rgba(255,255,255,.3));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
 .tab-ind::before{background:linear-gradient(160deg,rgba(255,255,255,.45),rgba(255,255,255,.05) 40%,rgba(255,255,255,.05) 60%,rgba(255,255,255,.25))}
