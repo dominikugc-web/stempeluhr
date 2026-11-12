@@ -57,6 +57,15 @@ const span = (x, dash = ' – ') => x.sess.map(s => tod(s.s) + dash + (s.e ? tod
 const minOfDay = ms => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
 const avgTime = list => { if (!list.length) return '–'; const m = Math.round(list.reduce((a, b) => a + b, 0) / list.length); return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
 const sum = (list, k) => list.reduce((a, x) => a + x[k], 0);
+// Offener Eintrag: „läuft“ nur, wenn er heute bzw. in den letzten 16 Stunden begonnen hat. Ältere offene Einträge
+// sind vergessene Ausstempel-Vorgänge und zählen nicht als „gerade eingestempelt“.
+function openState(sessions, now = Date.now()) {
+  const o = sessions.filter(x => x.e == null).sort((a, b) => b.s - a.s)[0];
+  if (!o) return null;
+  return { since: o.s, stale: o.s > now + 5 * MIN || now - o.s > 16 * HOUR };
+}
+const openLabel = st => !st ? '' : st.stale ? `<span class="near" title="Offener Eintrag seit ${dmy(ymd(new Date(st.since)))}">●</span> ` : '<span class="green">●</span> ';
+const openText = st => !st ? '' : st.stale ? `offen seit ${new Date(st.since).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (vergessen auszustempeln?)` : `eingestempelt seit ${tod(st.since)}`;
 const countAbs = (days, type) => days.filter(x => x.absence?.type === type && x.workday).length;
 const workdays = (c, from, to) => from <= to ? c.range(from, to).filter(x => x.workday).length : 0;
 

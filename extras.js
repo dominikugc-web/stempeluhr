@@ -339,7 +339,7 @@ function teamStatsHtml(from, to) {
     const y = until.slice(0, 4), yd = c.range(y + '-01-01', y + '-12-31');
     return { p, net: sum(past, 'net'), soll: sum(past, 'soll'), bal: c.balance(until), days: past.filter(x => x.net > 0).length,
       vac: countAbs(all, 'urlaub'), vacLeft: (+d.settings.vacation || 0) - countAbs(yd, 'urlaub'), sick: countAbs(all, 'krank'), kid: countAbs(all, 'kindkrank'), unpaid: countAbs(all, 'unbezahlt'),
-      running: d.sessions.some(x => x.e == null) };
+      open: openState(d.sessions) };
   }).filter(Boolean);
   const tot = k => rows.reduce((a, r) => a + r[k], 0);
   const sick = tot('sick'), net = tot('net'), soll = tot('soll');
@@ -352,7 +352,7 @@ function teamStatsHtml(from, to) {
   </div>
   <div class="label">Pro Person</div>
   ${rows.map(r => `<button class="card teamstat" onclick="setWho('${r.p.self ? 'me' : r.p.uid}')">
-    <div class="ts-head"><b>${r.running ? '<span class="green">●</span> ' : ''}${esc(r.p.name)}${r.p.self ? ' <span class="muted">(du)</span>' : ''}${r.p.boss ? ' <span class="badge-gf">GF</span>' : ''}</b><span class="muted">›</span></div>
+    <div class="ts-head"><b>${openLabel(r.open)}${esc(r.p.name)}${r.p.self ? ' <span class="muted">(du)</span>' : ''}${r.p.boss ? ' <span class="badge-gf">GF</span>' : ''}</b><span class="muted">›</span></div>
     <div class="ts-grid">
       <span><b>${hours(r.net)}</b><small>Gearbeitet</small></span>
       <span><b class="${cls(r.net - r.soll)}">${hm(r.net - r.soll, true)}</b><small>Differenz</small></span>

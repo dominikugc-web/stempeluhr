@@ -278,7 +278,7 @@ async function loadTeamStats() {
       const s = await ref('data/' + m.uid).get();
       if (!s.exists) continue;
       const d = merged(s.data(), null), c = makeCalc(d, Date.now()), t = today(), w = monday(t);
-      teamStats[m.uid] = { balance: c.balance(t), week: sum(c.range(w, addDays(w, 6)), 'net'), running: d.sessions.some(x => x.e == null) };
+      teamStats[m.uid] = { balance: c.balance(t), week: sum(c.range(w, addDays(w, 6)), 'net'), open: openState(d.sessions) };
     } catch {}
   }
   refreshTeam();
@@ -528,9 +528,9 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
     <span style="display:flex;gap:6px"><button class="pill sm red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill sm green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
   <div class="label">Team</div>
   <div class="group">${people.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
-    <span>${s?.running ? '<span class="green">●</span> ' : ''}${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${s ? 'Diese Woche ' + dur(s.week) : esc(m.email || '')}</div></span>
+    <span>${openLabel(s?.open)}${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${s ? (s.open ? openText(s.open) + ' · ' : '') + 'Diese Woche ' + dur(s.week) : esc(m.email || '')}</div></span>
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
-  <p class="hint">${active.length ? 'Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt den Kalender, dort kannst du Zeiten korrigieren. GF = Geschäftsführer, die Rolle vergibst du im Setup des jeweiligen Mitarbeiters.' : 'Noch keine Mitarbeiter. Teil den Einladungscode.'}</p>
+  <p class="hint">${active.length ? 'Grüner Punkt = gerade eingestempelt, oranger Punkt = Eintrag seit über 16 Std. offen (vergessen auszustempeln). Rechts das Überstundenkonto. Tippen zeigt den Kalender, dort kannst du Zeiten korrigieren. GF = Geschäftsführer, die Rolle vergibst du im Setup des jeweiligen Mitarbeiters.' : 'Noch keine Mitarbeiter. Teil den Einladungscode.'}</p>
   ${people.length ? `<div class="label">Lohn & Export</div>${payDueHtml()}
     <div class="group">
       <button class="row" onclick="openPayroll()"><span>📤 Lohn-Export<div class="muted small">${payHas() ? PAY_SOFT[payCfg().soft].name + (payCfg().last ? ' · zuletzt ' + ymName(payCfg().last) : '') : 'Lexware, DATEV, CSV oder Excel'}</div></span><span class="muted">›</span></button>
@@ -659,7 +659,7 @@ async function loadAdmin() {
     const users = d.docs.map(x => {
       const v = x.data(), dd = merged(v, null), mm = mem.find(y => y.uid === x.id && y.cid === v.cid);
       return { uid: x.id, name: dd.settings.name || mm?.name || v.email || 'Ohne Namen', email: v.email || mm?.email || '', cid: v.cid || null, status: mm?.status,
-        running: dd.sessions.some(s => s.e == null), last: dd.sessions.reduce((a, s) => Math.max(a, s.e || Date.now()), 0), balance: makeCalc(dd, Date.now()).balance(t) };
+        open: openState(dd.sessions), last: dd.sessions.reduce((a, s) => Math.max(a, s.e || Date.now()), 0), balance: makeCalc(dd, Date.now()).balance(t) };
     });
     const companies = c.docs.map(x => {
       const v = x.data(), ms = mem.filter(y => y.cid === x.id);
@@ -690,7 +690,7 @@ function renderAdmin() {
   if (!a) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
   const wk = Date.now() - 7 * 86400000, kpi = (v, l) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`;
   view.innerHTML = `<h1 class="center">Entwickler</h1>
-  <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.running).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
+  <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.open && !u.open.stale).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
   <div class="label">Firmen</div>
   ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
     <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
@@ -712,7 +712,7 @@ function adminUsers() {
     return own ? `Geschäftsführer von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
   };
   if (!list.length) return '<p class="muted center">Keine Treffer.</p>';
-  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('as', '${u.uid}')"><span>${u.running ? '<span class="green">●</span> ' : ''}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}
-    <div class="muted small">${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
+  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('as', '${u.uid}')"><span>${openLabel(u.open)}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}
+    <div class="muted small">${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.open ? openText(u.open) : u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
     <span class="${cls(u.balance)}">${hm(u.balance, true)} ›</span></button>`).join('')}</div>`;
 }
