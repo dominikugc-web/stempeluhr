@@ -684,14 +684,14 @@ function renderPay() {
 let currentTopic = null;
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 function setupTopics() {
-  const st = data.settings, week = st.soll.reduce((a, b) => a + (+b || 0), 0), own = !viewing;
-  const firm = !cid ? 'Keine Firma' : isOwner() ? 'Geschäftsführer von ' + (company?.name || '…') : membership?.status === 'active' ? 'Mitarbeiter bei ' + (company?.name || membership.companyName)
+  const st = data.settings, week = st.soll.reduce((a, b) => a + (+b || 0), 0), own = !viewing, mine = own || asSelf();   // mine: eigene Sicht (auch Entwickler „als Nutzer“)
+  const firm = !(asSelf() ? company : cid) ? 'Keine Firma' : isOwner() ? 'Geschäftsführer von ' + (company?.name || '…') : membership?.status === 'active' ? 'Mitarbeiter bei ' + (company?.name || membership.companyName)
     : membership?.status === 'pending' ? 'Anfrage an ' + membership.companyName + ' offen' : 'Firma';
   const act = (typeof teamPeople === 'function' ? teamPeople().filter(p => !p.self).length : 0), pend = members.filter(m => m.status === 'pending').length;
   return [
     [
-      own && me && ['account', '👤', 'Konto & Firma', `${me.email || me.displayName || ''} · ${firm}`],
-      own && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} ${act === 1 ? 'Person' : 'Personen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
+      mine && me && ['account', '👤', 'Konto & Firma', `${asSelf() ? asUser.email || asUser.name : me.email || me.displayName || ''} · ${firm}`],
+      mine && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} ${act === 1 ? 'Person' : 'Personen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
     ],
     [
       ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
@@ -702,7 +702,7 @@ function setupTopics() {
     [
       ['export', '📤', 'Export & Sicherung', 'PDF, Excel, CSV, Kalender, Backup'],
       own && ['look', '🎨', 'Darstellung', `${(BGS[st.theme?.bg] || BGS.kaffee)[0]} · Tipps ${st.tips !== false ? 'an' : 'aus'}`],
-      own && ['help', '❓', 'Hilfe', 'Tutorial, Begriffe, Einführung'],
+      mine && ['help', '❓', 'Hilfe', 'Tutorial, Begriffe, Einführung'],
     ],
   ].map(g => g.filter(Boolean)).filter(g => g.length);
 }

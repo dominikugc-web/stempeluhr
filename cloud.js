@@ -27,15 +27,19 @@ let role = 'self', adminCache = null, adminQuery = '';
 const isAdmin = () => !!me && ADMIN_UIDS.includes(me.uid);
 
 // Geschäftsführer = Gründer der Firma oder freigegebenes Mitglied mit Rolle „Geschäftsführer“ (gleiche Rechte)
-const isFounder = () => !!(company && me && company.owner === me.uid);
-const isOwner = () => !!(company && me && (company.owner === me.uid || (membership?.status === 'active' && membership.role === 'boss')
+// Entwickler „als Nutzer“: asUser = der Nutzer, dessen Sicht gerade gezeigt wird (sonst null)
+let asUser = null;
+const actingUid = () => (ADMIN_APP && role === 'as' && asUser) ? asUser.uid : me?.uid;
+const asSelf = () => !!(ADMIN_APP && role === 'as' && asUser && viewing?.uid === asUser.uid);
+const isFounder = () => !!(company && me && company.owner === actingUid());
+const isOwner = () => !!(company && me && (company.owner === actingUid() || (membership?.status === 'active' && membership.role === 'boss')
   || (ADMIN_APP && role === 'boss' && isAdmin())));
 // Alle Personen der Firma: Gründer + freigegebene Mitglieder (Geschäftsführer zuerst, „du“ markiert)
 function teamPeople() {
   if (!company) return [];
   const list = company.ownerTracks === false ? [] : [{ uid: company.owner, name: company.ownerName || 'Gründer', boss: true, founder: true }];
   for (const m of members) if (m.status === 'active' && m.uid !== company.owner) list.push({ uid: m.uid, name: m.name, email: m.email, boss: m.role === 'boss' });
-  return list.map(p => ({ ...p, self: p.uid === me?.uid })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
+  return list.map(p => ({ ...p, self: p.uid === actingUid() })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
 }
 const off = list => { list.forEach(f => f()); list.length = 0; };
 const ref = path => fb.db.doc(path);
@@ -166,6 +170,7 @@ function restoreFirm() {
 }
 // Alle Firmen, zwischen denen ich wechseln kann: gegründete + die eigene Firma (falls ich dort Geschäftsführer bin)
 function myFirms() {
+  if (ADMIN_APP && role === 'as') return [];   // Entwickler-Sicht: keine eigenen Firmen anbieten
   const list = [...myCompanies];
   if (cid && company?.id === cid && isOwner() && !list.some(c => c.id === cid)) list.push({ id: cid, name: company.name });
   if (cid && !list.some(c => c.id === cid) && membership?.role === 'boss') list.push({ id: cid, name: membership.companyName || 'Meine Firma' });
@@ -363,9 +368,10 @@ function cloudError(e) {
 // ---------- konto & firma (Setup) ----------
 function displayName() { return data.settings.name || me.displayName || me.email; }
 function accountHtml() {
-  if (viewing || !me) return '';
+  if ((viewing && !asSelf()) || !me) return '';
   let firm;
-  if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
+  if (asSelf()) firm = `<div class="row"><span>${!company ? 'Keine Firma' : isOwner() ? `Geschäftsführer von <b>${esc(company.name)}</b>` : membership?.status === 'pending' ? `Anfrage an <b>${esc(company.name)}</b> offen` : `Mitarbeiter bei <b>${esc(company.name)}</b>`}</span></div>`;
+  else if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
     <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Geschäftsführer)</span><span class="muted">›</span></button>`;
   else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>
     <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>
@@ -381,11 +387,12 @@ function accountHtml() {
   else firm = '<div class="row muted">Lädt …</div>';
   return `<div class="label">Konto</div>
   <div class="group">
-    <div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>
+    ${asSelf() ? `<div class="row"><span>${esc(asUser.email || asUser.name)}<div class="muted small">Ansicht als dieser Nutzer</div></span></div>`
+      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>`}
   </div>
   <div class="label">Firma</div>
   <div class="group">${firm}</div>
-  ${cid && membership?.status === 'active' ? companyInfoHtml() : ''}`;
+  ${(asSelf() ? company : cid) && membership?.status === 'active' ? companyInfoHtml() : ''}`;
 }
 
 // ---------- Firmendaten (Geschäftsführer) ----------
@@ -508,7 +515,7 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   return `<div class="label">Firma</div>
   <div class="group">${firmSwitchHtml()}<button class="row" onclick="companyEdit()"><span style="text-align:left"><b>${esc(company.name)}</b>
     <div class="muted small">${esc([addr, info.phone, info.email].filter(Boolean).join(' · ') || 'Adresse und Kontaktdaten hinzufügen')}</div></span><span class="muted">Bearbeiten ›</span></button>
-    ${myFirms().length < 2 ? `<button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>` : ''}</div>
+    ${myFirms().length < 2 && !asUser ? `<button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>` : ''}</div>
   ${company.ownerTracks === false && isFounder() ? '<p class="hint">Deine eigenen Zeiten zählen zu deiner Hauptfirma, deshalb stehst du hier nicht in der Team-Liste.</p>' : ''}
   <div class="label">Einladung</div>
   <div class="card center">
@@ -560,7 +567,7 @@ function removeMember(uid) {
 
 function viewMember(uid) {
   closeSheet();
-  if (uid === me.uid) return go('cal');   // eigene Zeiten: einfach den eigenen Kalender öffnen
+  if (uid === actingUid()) return go('cal');   // eigene Zeiten: einfach den eigenen Kalender öffnen
   viewAs(uid, teamPeople().find(x => x.uid === uid)?.name || 'Mitarbeiter');
 }
 // Weiteren Geschäftsführer ernennen bzw. Rechte entziehen (nicht beim Gründer)
@@ -602,6 +609,7 @@ function stopViewing() {
   const preview = viewing.preview;
   viewing = null;
   data = merged(own.shared, own.priv);
+  if (!preview && ADMIN_APP && role === 'as' && asUser) return setRole('as', asUser.uid, 'team');   // zurück zur Sicht des Nutzers
   if (preview) return setRole('dev');
   updateTabs(); closeSheet(); go('setup'); openTopic('team');
 }
@@ -617,9 +625,10 @@ function renderNoAccess() {
     <p class="muted">Dieser Bereich ist nur für Entwickler. Angemeldet als ${esc(me.email || me.uid)}.</p>
     <button class="pill wide" onclick="fb.auth.signOut()">Abmelden</button><a class="pill wide" href="${APP_URL}">Zur Stempeluhr</a></div>`;
 }
-async function setRole(r, id) {
+async function setRole(r, id, then) {
   viewUnsub?.(); viewUnsub = null; viewing = null; closeSheet();
   role = r;
+  if (r !== 'as') asUser = null;
   data = merged(own.shared, own.priv);
   if (r === 'dev') { showTabs(false); tab = 'admin'; render(); view.scrollTop = 0; return loadAdmin(); }
   showTabs(true);
@@ -630,10 +639,16 @@ async function setRole(r, id) {
     if (!c) { alert('Es gibt noch keine Firma.'); return setRole('dev'); }
     watchCompany(c, true); updateTabs(); go('setup'); return openTopic('team');
   }
-  if (r === 'emp') {
+  if (r === 'as') {   // die App genau so sehen wie dieser Nutzer (Geschäftsführer oder Mitarbeiter)
     const u = adminCache.users.find(x => x.uid === id) || adminCache.users.find(x => x.uid !== me.uid) || adminCache.users[0];
     if (!u) return setRole('dev');
-    viewAs(u.uid, u.name, 'start', true);
+    asUser = u;
+    const firm = adminCache.companies.find(c => c.owner === u.uid)?.id || u.cid || null;
+    // Firma des Nutzers wie bei ihm laden; seine Mitgliedschaft (Rolle) kommt aus companies/{cid}/members/{uid}
+    watchCompany(firm, true);
+    if (firm) ref(`companies/${firm}/members/${u.uid}`).get().then(s => { if (asUser?.uid === u.uid) { membership = s.exists ? s.data() : null; refresh(); } }).catch(() => {});
+    viewAs(u.uid, u.name, then === 'team' ? 'setup' : 'start', true);
+    if (then === 'team') setTimeout(() => { if (asUser?.uid === u.uid && isOwner()) openTopic('team'); }, 600);
   }
 }
 async function loadAdmin() {
@@ -664,10 +679,11 @@ function adminBar() {
   let ctx = '';
   if (role === 'boss' && adminCache?.companies.length)
     ctx = `<label class="row"><span>Firma</span><select onchange="setRole('boss', this.value)">${adminCache.companies.map(c => `<option value="${c.id}" ${company?.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
-  if (role === 'emp' && adminCache?.users.length)
-    ctx = `<label class="row"><span>Mitarbeiter</span><select onchange="setRole('emp', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${viewing?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>`;
-  return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Geschäftsführer')}${seg('emp', 'Mitarbeiter')}${seg('self', 'Ich')}</div>
-    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'emp' ? '<p class="hint">Vorschau: So sieht dieser Mitarbeiter die App. Stempeln ist gesperrt, Korrekturen im Kalender werden gespeichert.</p>' : ''}</div>`;
+  if (role === 'as' && adminCache?.users.length)
+    ctx = `<label class="row"><span>Nutzer</span><select onchange="setRole('as', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${asUser?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}${adminCache.companies.some(c => c.owner === u.uid) ? ' (GF)' : ''}</option>`).join('')}</select></label>`;
+  const who = asUser ? (isOwner() ? `Geschäftsführer von ${esc(company?.name || '…')}` : company ? `Mitarbeiter bei ${esc(company.name)}` : 'ohne Firma') : '';
+  return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Firma')}${seg('as', 'Als Nutzer')}${seg('self', 'Ich')}</div>
+    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'as' && asUser ? `<p class="hint">So sieht <b>${esc(asUser.name)}</b> die App (${who}). Stempeln ist gesperrt, Korrekturen werden gespeichert. Gehalt, Steuern, Standorte und Darstellung sind privat und hier nicht sichtbar.</p>` : ''}</div>`;
 }
 function renderAdmin() {
   const a = adminCache;
@@ -696,7 +712,7 @@ function adminUsers() {
     return own ? `Geschäftsführer von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
   };
   if (!list.length) return '<p class="muted center">Keine Treffer.</p>';
-  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('emp', '${u.uid}')"><span>${u.running ? '<span class="green">●</span> ' : ''}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}
+  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('as', '${u.uid}')"><span>${u.running ? '<span class="green">●</span> ' : ''}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}
     <div class="muted small">${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
     <span class="${cls(u.balance)}">${hm(u.balance, true)} ›</span></button>`).join('')}</div>`;
 }

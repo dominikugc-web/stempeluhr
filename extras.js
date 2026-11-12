@@ -303,7 +303,7 @@ async function teamLoad(uids, force) {
 }
 function setWho(v) { statWho = v; render(); view.scrollTop = 0; }
 function renderStats() {
-  const boss = isOwner() && !viewing && company;
+  const boss = isOwner() && (!viewing || asSelf()) && company;
   const people = boss ? teamPeople().filter(p => !p.self) : [];
   if (boss && statWho !== 'me' && statWho !== 'team' && !people.some(p => p.uid === statWho)) statWho = 'me';
   const [from, to] = statBounds(), year = statRange.preset === 'year';
