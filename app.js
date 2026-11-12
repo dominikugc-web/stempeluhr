@@ -70,16 +70,21 @@ function stats(days) {
 }
 
 // ---------- navigation ----------
+let swipeLock = false, renderLater = false;   // während eines Wischers nicht neu zeichnen (sonst verliert iOS den Finger)
 function render() {
+  if (swipeLock) { renderLater = true; return; }
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   requestAnimationFrame(moveTabInd);
   if (tab === 'login') return renderLogin();
   if (ADMIN_APP && me && !isAdmin()) return renderNoAccess();
   if (viewing && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'cal';
+  renderPage();
+  maybeOnboard();
+}
+function renderPage() {
   applyTheme();
   ({ start: renderStart, cal: renderCal, stats: renderStats, pay: renderPay, setup: renderSetup, admin: renderAdmin })[tab]();
   view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner());
-  maybeOnboard();
 }
 function go(t) { tab = t; render(); view.scrollTop = 0; }
 // Gleitende Markierung in der Menüleiste (zieht sich beim Wechsel kurz in die Länge und federt nach).
@@ -165,60 +170,114 @@ const haptic = (() => {
   addEventListener('mouseup', e => { if (start) up(e.clientX, e.timeStamp, false); });
   nav.addEventListener('click', e => { if (eatClick && e.isTrusted) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
-// Wischen nach links/rechts irgendwo auf dem Bildschirm wechselt zum Nachbarfeld der Menüleiste.
+// Wischen nach links/rechts irgendwo auf dem Bildschirm: Alle Menüfelder liegen wie eine lange Seite nebeneinander.
+// Beim Wischen schiebt sich die Nachbarseite mit ihren Kacheln herein, die Pille in der Menüleiste wandert mit.
 (function pageSwipe() {
-  const nav = $('.tabs');
-  let s = null, raf = 0;
+  const nav = $('.tabs'), ind = $('.tab-ind');
+  const peek = document.createElement('main');
+  peek.id = 'peek'; peek.setAttribute('aria-hidden', 'true'); view.after(peek);
+  let s = null, raf = 0, busy = false;
   const tabsList = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden).map(b => b.dataset.tab);
   const blocked = el => el.closest('input,select,textarea,.tabs,[data-noswipe]') || [...(function* () { for (let e = el; e && e !== view; e = e.parentElement) yield e; })()]
     .some(e => e.scrollWidth > e.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(e).overflowX));
-  const setX = x => { view.style.transform = x ? `translate3d(${x}px,0,0)` : ''; };
+  const W = () => view.clientWidth;
+  // Nachbarseite in die Vorschau zeichnen, ohne die aktuelle Seite anzufassen
+  function fillPeek(t) {
+    const keep = document.createDocumentFragment(), st = view.scrollTop, old = tab;
+    while (view.firstChild) keep.appendChild(view.firstChild);
+    tab = t;
+    try { renderPage(); } finally { tab = old; }
+    peek.replaceChildren(...view.childNodes);
+    view.replaceChildren(keep);
+    view.scrollTop = st; peek.scrollTop = 0;
+  }
+  const unlock = () => { swipeLock = false; if (renderLater) { renderLater = false; render(); } };
+  const btnX = t => { const b = nav.querySelector(`[data-tab="${t}"]`); return b ? b.offsetLeft : 0; };
+  function place(x) {
+    view.style.transform = x ? `translate3d(${x}px,0,0)` : '';
+    peek.style.transform = s && s.pd ? `translate3d(${x + s.pd * W()}px,0,0)` : '';
+    if (s && s.pd) {   // Pille anteilig zum Nachbarfeld schieben
+      const p = Math.min(1, Math.abs(x) / W()), x0 = btnX(tab), x1 = btnX(s.nb);
+      const px = x0 + (x1 - x0) * p;
+      ind.style.transform = `translateX(${px}px)`; ind.dataset.x = px;
+    }
+  }
+  function settle(ms, then) {
+    const tr = `transform ${ms}ms cubic-bezier(.22,1,.36,1)`;
+    view.style.transition = peek.style.transition = tr;
+    setTimeout(() => { view.style.transition = peek.style.transition = 'none'; then(); }, ms + 20);
+  }
   view.addEventListener('touchstart', e => {
+    if (busy) return;
+    if (swipeLock) { view.style.transform = peek.style.transform = ''; peek.classList.remove('on'); moveTabInd(); unlock(); }   // hängengebliebenen Wischer aufräumen
     s = null;
     if (e.touches.length !== 1 || nav.hidden || !$('#sheet').hidden || blocked(e.target)) return;
     const t = e.touches[0];
-    view.getAnimations?.().forEach(a => a.finish());
-    s = { x: t.clientX, y: t.clientY, dir: 0, dx: 0, lx: t.clientX, lt: e.timeStamp, v: 0 };
+    s = { x: t.clientX, y: t.clientY, dir: 0, dx: 0, lx: t.clientX, lt: e.timeStamp, v: 0, pd: 0, nb: null };
   }, { passive: true });
   view.addEventListener('touchmove', e => {
-    if (!s) return;
+    if (!s || busy) return;
     const t = e.touches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
     if (!s.dir) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       s.dir = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'h' : 'v';
-      if (s.dir === 'h') { s.x = t.clientX; view.style.transition = 'none'; view.style.willChange = 'transform'; }
+      if (s.dir === 'h') {
+        swipeLock = true;
+        s.x = t.clientX;
+        view.style.transition = peek.style.transition = ind.style.transition = 'none';
+        view.style.willChange = peek.style.willChange = 'transform';
+      }
     }
     if (s.dir !== 'h') return;
     e.preventDefault();
-    // Geschwindigkeit aus den letzten Bewegungen (für schnelle kurze Wischer)
     const dt = e.timeStamp - s.lt;
     if (dt > 0) s.v = 0.6 * ((t.clientX - s.lx) / dt) + 0.4 * s.v;
     s.lx = t.clientX; s.lt = e.timeStamp;
     s.dx = t.clientX - s.x;
-    const list = tabsList(), i = list.indexOf(tab), edge = (s.dx > 0 && i <= 0) || (s.dx < 0 && i >= list.length - 1);
-    // Am Rand gedämpft wie ein Gummiband, sonst folgt die Seite dem Finger
-    const x = edge ? s.dx / (1 + Math.abs(s.dx) / 60) : s.dx * 0.55;
-    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (s) setX(x); });
+    const list = tabsList(), i = list.indexOf(tab), side = s.dx < 0 ? 1 : -1, nb = list[i + side];
+    if (i >= 0 && nb && s.pd !== side) { fillPeek(nb); s.pd = side; s.nb = nb; peek.classList.add('on'); }
+    if (!nb || i < 0) { s.pd = 0; s.nb = null; peek.classList.remove('on'); }
+    const x = s.pd ? s.dx : s.dx / (1 + Math.abs(s.dx) / 60);   // ohne Nachbar: Gummiband
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (s) place(x); });
   }, { passive: false });
   const done = e => {
     if (!s) return;
-    const st = s; s = null;
+    const st = s;
     cancelAnimationFrame(raf); raf = 0;
-    if (st.dir !== 'h') return;
-    const dx = st.dx, list = tabsList(), i = list.indexOf(tab), j = i + (dx < 0 ? 1 : -1);
-    const flick = Math.abs(st.v) > 0.35 && Math.sign(st.v) === Math.sign(dx);
-    const from = view.style.transform;
-    view.style.willChange = '';
-    if (e.type === 'touchcancel' || (Math.abs(dx) < 70 && !flick) || i < 0 || j < 0 || j >= list.length) {
-      setX(0);
-      if (from && view.animate) { const a = view.animate([{ transform: from }, { transform: 'translate3d(0,0,0)' }], { duration: 380, easing: 'cubic-bezier(.25,1.3,.5,1)' }); setTimeout(() => a.finish(), 500); }
-      return;
+    if (st.dir !== 'h') { s = null; return; }
+    view.style.willChange = peek.style.willChange = '';
+    ind.style.transition = '';
+    const flick = Math.abs(st.v) > 0.35 && Math.sign(st.v) === Math.sign(st.dx);
+    const commit = e.type !== 'touchcancel' && st.pd && (Math.abs(st.dx) > W() * 0.3 || flick);
+    busy = true;
+    place(st.dx === 0 ? 0 : (st.pd ? st.dx : st.dx / (1 + Math.abs(st.dx) / 60)));
+    view.offsetWidth;   // aktuelle Position festhalten, damit der Übergang von hier startet
+    if (commit) {
+      const target = st.nb, rest = 1 - Math.abs(st.dx) / W();
+      haptic();
+      nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tab === target));
+      moveTabInd();
+      settle(Math.round(180 + 200 * rest), () => {
+        s = null;
+        view.style.transform = ''; peek.style.transform = '';
+        swipeLock = false; renderLater = false;
+        go(target);
+        peek.classList.remove('on'); peek.replaceChildren();
+        busy = false; unlock();
+      });
+      view.style.transform = `translate3d(${-st.pd * W()}px,0,0)`;
+      peek.style.transform = 'translate3d(0,0,0)';
+    } else {
+      moveTabInd();
+      settle(320, () => {
+        s = null;
+        view.style.transform = ''; peek.style.transform = '';
+        peek.classList.remove('on'); peek.replaceChildren();
+        busy = false; unlock();
+      });
+      view.style.transform = 'translate3d(0,0,0)';
+      if (st.pd) peek.style.transform = `translate3d(${st.pd * W()}px,0,0)`;
     }
-    setX(0);
-    haptic(); go(list[j]);
-    // Neue Seite gleitet aus der Wischrichtung herein
-    const w = Math.min(innerWidth * 0.32, 140) * (dx < 0 ? 1 : -1);
-    if (view.animate) { const a = view.animate([{ transform: `translate3d(${w}px,0,0)`, opacity: 0.5 }, { transform: 'translate3d(0,0,0)', opacity: 1 }], { duration: 340, easing: 'cubic-bezier(.22,1,.36,1)' }); setTimeout(() => a.finish(), 500); }
   };
   view.addEventListener('touchend', done);
   view.addEventListener('touchcancel', done);
