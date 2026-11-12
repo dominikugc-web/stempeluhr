@@ -8,6 +8,7 @@ let fb = null, me = null;
 let own = {};               // letzte Snapshots der eigenen Dokumente: { shared, priv, sharedSeen, privSeen }
 let cid = undefined;        // Firma laut eigenem Datendokument
 let company, membership, members = [], teamStats = {}; // undefined = lädt noch, null = gibt es nicht / kein Zugriff
+let companyAdmin = {};      // companies/{cid}/admin/settings: gemeinsame Einstellungen der Geschäftsführer
 let membersOn = false;
 let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mitarbeiter ansieht
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
@@ -21,7 +22,17 @@ const APP_URL = location.origin + location.pathname.replace(/admin\/(index\.html
 let role = 'self', adminCache = null, adminQuery = '';
 const isAdmin = () => !!me && ADMIN_UIDS.includes(me.uid);
 
-const isOwner = () => !!(company && me && (company.owner === me.uid || (ADMIN_APP && role === 'boss' && isAdmin())));
+// Geschäftsführer = Gründer der Firma oder freigegebenes Mitglied mit Rolle „Geschäftsführer“ (gleiche Rechte)
+const isFounder = () => !!(company && me && company.owner === me.uid);
+const isOwner = () => !!(company && me && (company.owner === me.uid || (membership?.status === 'active' && membership.role === 'boss')
+  || (ADMIN_APP && role === 'boss' && isAdmin())));
+// Alle Personen der Firma: Gründer + freigegebene Mitglieder (Geschäftsführer zuerst, „du“ markiert)
+function teamPeople() {
+  if (!company) return [];
+  const list = [{ uid: company.owner, name: company.ownerName || 'Gründer', boss: true, founder: true }];
+  for (const m of members) if (m.status === 'active' && m.uid !== company.owner) list.push({ uid: m.uid, name: m.name, email: m.email, boss: m.role === 'boss' });
+  return list.map(p => ({ ...p, self: p.uid === me?.uid })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
+}
 const off = list => { list.forEach(f => f()); list.length = 0; };
 const ref = path => fb.db.doc(path);
 
@@ -121,30 +132,41 @@ function refresh() { if ($('#sheet').hidden) render(); }
 function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Firma als Geschäftsführer
   off(companyUnsubs);
   if (!acting) cid = id;
-  company = undefined; membership = undefined; members = []; teamStats = {}; membersOn = false;
+  company = undefined; membership = undefined; members = []; teamStats = {}; membersOn = false; companyAdmin = {};
   if (!id) return updateTabs();
+  // Mitglieder und gemeinsame Einstellungen nur für Geschäftsführer abonnieren
+  const bossFeeds = () => {
+    if (!isOwner() || membersOn) return;
+    membersOn = true;
+    companyUnsubs.push(fb.db.collection(`companies/${id}/members`).onSnapshot(q => {
+      members = q.docs.map(d => ({ uid: d.id, ...d.data() }));
+      loadTeamStats(); updateTabs(); refreshTeam();
+    }, cloudError));
+    companyUnsubs.push(ref(`companies/${id}/admin/settings`).onSnapshot(s => {
+      companyAdmin = s.exists ? s.data() : {};
+      migrateAdminSettings(id);
+      refreshTeam();
+    }, () => {}));
+  };
   const listenCompany = () => companyUnsubs.push(ref('companies/' + id).onSnapshot(s => {
     company = s.exists ? { id, ...s.data() } : null;
-    if (isOwner() && !membersOn) {
-      membersOn = true;
-      companyUnsubs.push(fb.db.collection(`companies/${id}/members`).onSnapshot(q => {
-        members = q.docs.map(d => ({ uid: d.id, ...d.data() }));
-        loadTeamStats(); updateTabs(); refreshTeam();
-      }, cloudError));
-    }
+    bossFeeds();
     updateTabs(); refreshTeam();
   }, () => { company = null; updateTabs(); refresh(); }));
   if (!acting) companyUnsubs.push(ref(`companies/${id}/members/${me.uid}`).onSnapshot(s => {
-    const was = membership?.status;
+    const was = membership?.status, wasRole = membership?.role;
     membership = s.exists ? s.data() : null;
+    // Rolle entzogen: alles neu abonnieren, damit keine Geschäftsführer-Daten mehr geladen werden
+    if (membersOn && wasRole === 'boss' && membership?.role !== 'boss' && !isFounder()) return watchCompany(id);
     if (membership?.status === 'active' && was !== 'active' && !company) listenCompany();
+    bossFeeds();
     refresh();
   }, () => {}));
   listenCompany();
 }
 
 async function loadTeamStats() {
-  for (const m of members.filter(m => m.status === 'active')) {
+  for (const m of teamPeople()) {
     try {
       const s = await ref('data/' + m.uid).get();
       if (!s.exists) continue;
@@ -244,7 +266,8 @@ function accountHtml() {
   if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
     <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Geschäftsführer)</span><span class="muted">›</span></button>`;
   else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>
-    <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>`;
+    <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>${isFounder() ? '' : `
+    <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`}`;
   else if (membership?.status === 'active') firm = `<div class="row"><span>Mitarbeiter bei <b>${esc(company?.name || membership.companyName)}</b></span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`;
   else if (membership?.status === 'pending') firm = `<div class="row"><span>Anfrage an <b>${esc(membership.companyName)}</b> gesendet. Der Geschäftsführer muss dich noch freigeben.</span></div>
@@ -263,7 +286,7 @@ function accountHtml() {
 
 // ---------- Firmendaten (Geschäftsführer) ----------
 // Name, Adresse, Kontakt liegen im Firmen-Dokument (freigegebene Mitarbeiter sehen sie). Steuer- und Lohnnummern
-// liegen in den privaten Daten des Geschäftsführers.
+// liegen in companies/{cid}/admin/settings, das nur Geschäftsführer lesen.
 const COMPANY_FIELDS = [
   ['Firma', [['legal', 'Rechtsform', 'z. B. GmbH, Einzelunternehmen'], ['owner', 'Inhaber / Geschäftsführer', 'Vor- und Nachname']]],
   ['Adresse', [['street', 'Straße und Nr.', 'Musterstraße 1'], ['zip', 'PLZ', '12345', 'numeric'], ['city', 'Ort', 'Musterstadt']]],
@@ -272,13 +295,13 @@ const COMPANY_FIELDS = [
 ];
 function companyEdit() {
   if (!isOwner()) return;
-  const info = { ...(company.info || {}), ...(data.settings.firmPriv || {}) };
+  const info = { ...(company.info || {}), ...(companyAdmin.firmPriv || data.settings.firmPriv || {}) };
   sheet(`<div class="sheet-head"><button class="pill sm" onclick="openTopic('team')">‹ Team</button><button class="pill sm green" onclick="companySave()">Speichern</button></div>
   <h2>Firmendaten</h2>
   <div class="group"><label class="row"><span>Name der Firma</span><input id="cf_name" value="${esc(company.name)}" placeholder="z. B. Muster GmbH"></label></div>
   ${COMPANY_FIELDS.map(([title, fields]) => `<div class="label">${title}</div><div class="group">${fields.map(([k, label, ph, type]) =>
     `<label class="row"><span>${label}</span><input id="cf_${k}" value="${esc(info[k] || '')}" placeholder="${esc(ph)}"${type === 'numeric' ? ' inputmode="numeric"' : type ? ` type="${type}"` : ''}></label>`).join('')}</div>`).join('')}
-  <p class="hint">Name, Adresse und Kontakt sehen deine freigegebenen Mitarbeiter unter Setup → Konto & Firma. Steuernummer, USt-IdNr., Betriebsnummer und Handelsregister sieht nur du.</p>`);
+  <p class="hint">Name, Adresse und Kontakt sehen deine freigegebenen Mitarbeiter unter Setup → Konto & Firma. Steuernummer, USt-IdNr., Betriebsnummer und Handelsregister sehen nur Geschäftsführer.</p>`);
   currentTopic = 'company';
 }
 async function companySave() {
@@ -290,7 +313,7 @@ async function companySave() {
   try {
     const renamed = name !== company.name;
     await ref('companies/' + company.id).update({ name, info });
-    data.settings.firmPriv = priv; save();
+    await saveAdmin({ firmPriv: priv });
     if (renamed) {
       // Einladung und offene Anfragen sollen den neuen Namen zeigen (Einladungen lassen sich nur neu anlegen, nicht ändern)
       await ref('invites/' + company.code).delete();
@@ -373,7 +396,7 @@ async function leaveCompany() {
 // ---------- team (nur Geschäftsführer) ----------
 function teamHtml() {  // Inhalt des Fensters Setup → Team
   if (!isOwner()) return '<p class="center muted">Lädt …</p>';
-  const pending = members.filter(m => m.status === 'pending'), active = members.filter(m => m.status === 'active');
+  const pending = members.filter(m => m.status === 'pending'), people = teamPeople(), active = people.filter(p => !p.self);
   const info = company.info || {}, addr = [info.street, [info.zip, info.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   return `<div class="label">Firma</div>
   <div class="group"><button class="row" onclick="companyEdit()"><span style="text-align:left"><b>${esc(company.name)}</b>
@@ -384,18 +407,17 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
     <div class="code">${esc(company.code)}</div>
     <div class="two" style="margin:14px 0 0"><button class="pill" onclick="shareInvite()">Link teilen</button><button class="pill" onclick="rotateCode()">Neuer Code</button></div>
   </div>
-  <p class="hint" style="margin-top:8px">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig.</p>
+  <p class="hint" style="margin-top:8px">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig. Ein zweiter Geschäftsführer tritt genauso bei, du machst ihn danach zum Geschäftsführer.</p>
   ${pending.length ? `<div class="label">Anfragen</div><div class="group">${pending.map(m => `<div class="row"><span>${esc(m.name)}<div class="muted small">${esc(m.email)}</div></span>
     <span style="display:flex;gap:6px"><button class="pill sm red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill sm green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
-  <div class="label">Mitarbeiter</div>
-  ${active.length ? `<div class="group">${active.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
-    <span>${s?.running ? '<span class="green">●</span> ' : ''}${esc(m.name)}<div class="muted small">${s ? 'Diese Woche ' + dur(s.week) : esc(m.email)}</div></span>
+  <div class="label">Team</div>
+  <div class="group">${people.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
+    <span>${s?.running ? '<span class="green">●</span> ' : ''}${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${s ? 'Diese Woche ' + dur(s.week) : esc(m.email || '')}</div></span>
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
-    <p class="hint">Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt den Kalender des Mitarbeiters, dort kannst du auch Zeiten korrigieren.</p>`
-    : '<p class="muted center">Noch keine Mitarbeiter. Teil den Einladungscode.</p>'}
-  ${active.length ? `<div class="label">Lohn & Export</div>${payDueHtml()}
+  <p class="hint">${active.length ? 'Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt den Kalender, dort kannst du Zeiten korrigieren. GF = Geschäftsführer, die Rolle vergibst du im Setup des jeweiligen Mitarbeiters.' : 'Noch keine Mitarbeiter. Teil den Einladungscode.'}</p>
+  ${people.length ? `<div class="label">Lohn & Export</div>${payDueHtml()}
     <div class="group">
-      <button class="row" onclick="openPayroll()"><span>📤 Lohn-Export<div class="muted small">${data.settings.payroll?.soft ? PAY_SOFT[data.settings.payroll.soft].name + (data.settings.payroll.last ? ' · zuletzt ' + ymName(data.settings.payroll.last) : '') : 'Lexware, DATEV, CSV oder Excel'}</div></span><span class="muted">›</span></button>
+      <button class="row" onclick="openPayroll()"><span>📤 Lohn-Export<div class="muted small">${payHas() ? PAY_SOFT[payCfg().soft].name + (payCfg().last ? ' · zuletzt ' + ymName(payCfg().last) : '') : 'Lexware, DATEV, CSV oder Excel'}</div></span><span class="muted">›</span></button>
       <button class="row" onclick="openPaySettings()"><span>⚙︎ Schnittstelle einrichten<div class="muted small">Lohnsoftware, Stichtag, Lohnarten, Personalnummern</div></span><span class="muted">›</span></button>
     </div>` : ''}`;
 }
@@ -421,12 +443,38 @@ function rejectMember(uid) {
 }
 function removeMember(uid) {
   const m = members.find(x => x.uid === uid);
+  if (!m) return;
   if (!confirm(`${m.name} aus der Firma entfernen? Du siehst die Zeiten dann nicht mehr. Die Daten bleiben beim Mitarbeiter.`)) return;
   stopViewing();
   ref(`companies/${company.id}/members/${uid}`).delete().catch(cloudError);
 }
 
-function viewMember(uid) { closeSheet(); viewAs(uid, members.find(x => x.uid === uid).name); }
+function viewMember(uid) {
+  closeSheet();
+  if (uid === me.uid) return go('cal');   // eigene Zeiten: einfach den eigenen Kalender öffnen
+  viewAs(uid, teamPeople().find(x => x.uid === uid)?.name || 'Mitarbeiter');
+}
+// Weiteren Geschäftsführer ernennen bzw. Rechte entziehen (nicht beim Gründer)
+async function setBoss(uid, on) {
+  const m = members.find(x => x.uid === uid); if (!m) return;
+  if (!confirm(on ? `${m.name} zum Geschäftsführer machen?\n\n${m.name} bekommt dieselben Rechte wie du: Mitarbeiter freigeben und entfernen, alle Zeiten sehen und korrigieren, Firmendaten und Lohn-Export. Gehalt und Steuerdaten bleiben privat.`
+    : `${m.name} die Geschäftsführer-Rechte entziehen? ${m.name} bleibt als Mitarbeiter in der Firma.`)) return;
+  try {
+    await ref(`companies/${company.id}/members/${uid}`).update({ role: on ? 'boss' : firebase.firestore.FieldValue.delete() });
+    toast(on ? `${m.name} ist jetzt Geschäftsführer` : `${m.name} ist jetzt Mitarbeiter`);
+    if (uid === me.uid) { stopViewing(); }
+  } catch (e) { cloudError(e); }
+}
+// Gemeinsame Einstellungen: früher privat beim Gründer gespeichert, jetzt für alle Geschäftsführer
+function migrateAdminSettings(id) {
+  if (!isFounder() || migrateAdminSettings.done) return;
+  migrateAdminSettings.done = true;
+  const up = {};
+  if (!companyAdmin.payroll && data.settings.payroll) up.payroll = data.settings.payroll;
+  if (!companyAdmin.firmPriv && data.settings.firmPriv) up.firmPriv = data.settings.firmPriv;
+  if (Object.keys(up).length) ref(`companies/${id}/admin/settings`).set(up, { merge: true }).catch(() => {});
+}
+const saveAdmin = patch => { Object.assign(companyAdmin, patch); return ref(`companies/${company.id}/admin/settings`).set(patch, { merge: true }); };
 function viewAs(uid, name, startTab = 'cal', preview = false) {  // preview: Entwickler sieht die App wie dieser Mitarbeiter
   viewUnsub?.(); viewUnsub = null;
   viewing = { uid, name, preview };

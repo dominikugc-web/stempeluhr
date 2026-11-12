@@ -5,8 +5,9 @@ rules_version = '2';
 // data/{uid}      Zeiten, Abwesenheiten, Arbeitszeit-Einstellungen. Lesen/ändern: der Nutzer selbst
 //                 und der Chef seiner Firma, sobald er den Mitarbeiter freigegeben hat.
 // private/{uid}   Gehalt, Steuerklasse usw. Nur der Nutzer selbst.
-// companies/{cid} Firma (Name, Chef, Einladungscode). Lesen: Chef und freigegebene Mitarbeiter.
-//   members/{uid} Beitrittsanfrage bzw. Mitgliedschaft (status: pending | active).
+// companies/{cid} Firma (Name, Gründer, Einladungscode, Kontakt). Lesen: Geschäftsführer und freigegebene Mitarbeiter.
+//   members/{uid} Beitrittsanfrage bzw. Mitgliedschaft (status: pending | active, role: 'boss' = weiterer Geschäftsführer).
+//   admin/{doc}   Gemeinsame Einstellungen der Geschäftsführer (Lohn-Schnittstelle, Steuernummern). Nur Geschäftsführer.
 // invites/{code}  Einladungscode → Firma. Jeder Angemeldete darf einen Code nachschlagen.
 // Entwickler (isAdmin): sieht und korrigiert alles außer private/{uid}. Neue Entwickler-UID unten eintragen
 // (Firebase-Konsole → Authentication → Nutzer-UID) und mit `firebase deploy --only firestore:rules` einspielen.
@@ -16,13 +17,17 @@ service cloud.firestore {
     function isAdmin() { return signedIn() && request.auth.uid in ['Pb3LEKsVdveCrDdWyhuqOkoNcc63']; }
     function companyPath(cid) { return /databases/$(db)/documents/companies/$(cid); }
     function memberPath(cid, uid) { return /databases/$(db)/documents/companies/$(cid)/members/$(uid); }
-    function isOwner(cid) {
-      return cid is string && exists(companyPath(cid)) && (get(companyPath(cid)).data.owner == request.auth.uid || isAdmin());
-    }
     function isActive(cid, uid) {
       return exists(memberPath(cid, uid)) && get(memberPath(cid, uid)).data.status == 'active';
     }
-    function bossOf(cid, uid) { return isOwner(cid) && isActive(cid, uid); }
+    // Geschäftsführer: Gründer der Firma, freigegebenes Mitglied mit role 'boss' oder Entwickler
+    function isOwner(cid) {
+      return cid is string && exists(companyPath(cid)) && (get(companyPath(cid)).data.owner == request.auth.uid || isAdmin()
+        || (isActive(cid, request.auth.uid) && get(memberPath(cid, request.auth.uid)).data.get('role', '') == 'boss'));
+    }
+    // Gehört uid zur Firma? (freigegebenes Mitglied oder Gründer)
+    function inCompany(cid, uid) { return isActive(cid, uid) || get(companyPath(cid)).data.owner == uid; }
+    function bossOf(cid, uid) { return isOwner(cid) && inCompany(cid, uid); }
 
     match /data/{uid} {
       allow read: if isAdmin() || (signedIn() && (request.auth.uid == uid || bossOf(resource.data.cid, uid)));
@@ -49,13 +54,16 @@ service cloud.firestore {
     match /companies/{cid} {
       allow read: if isAdmin() || (signedIn() && (resource.data.owner == request.auth.uid || isActive(cid, request.auth.uid)));
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
-      allow update: if signedIn() && (resource.data.owner == request.auth.uid || isAdmin())
-        && request.resource.data.owner == resource.data.owner;
+      allow update: if signedIn() && isOwner(cid) && request.resource.data.owner == resource.data.owner;
+
+      match /admin/{doc} {
+        allow read, write: if signedIn() && isOwner(cid);
+      }
 
       match /members/{uid} {
         allow read: if signedIn() && (request.auth.uid == uid || isOwner(cid));
         allow create: if signedIn() && request.auth.uid == uid
-          && request.resource.data.status == 'pending'
+          && request.resource.data.status == 'pending' && !('role' in request.resource.data)
           && get(/databases/$(db)/documents/invites/$(request.resource.data.code)).data.cid == cid;
         allow update: if signedIn() && isOwner(cid);
         allow delete: if signedIn() && (request.auth.uid == uid || isOwner(cid));

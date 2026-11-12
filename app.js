@@ -686,11 +686,11 @@ function setupTopics() {
   const st = data.settings, week = st.soll.reduce((a, b) => a + (+b || 0), 0), own = !viewing;
   const firm = !cid ? 'Keine Firma' : isOwner() ? 'Geschäftsführer von ' + (company?.name || '…') : membership?.status === 'active' ? 'Mitarbeiter bei ' + (company?.name || membership.companyName)
     : membership?.status === 'pending' ? 'Anfrage an ' + membership.companyName + ' offen' : 'Firma';
-  const act = members.filter(m => m.status === 'active').length, pend = members.filter(m => m.status === 'pending').length;
+  const act = (typeof teamPeople === 'function' ? teamPeople().filter(p => !p.self).length : 0), pend = members.filter(m => m.status === 'pending').length;
   return [
     [
       own && me && ['account', '👤', 'Konto & Firma', `${me.email || me.displayName || ''} · ${firm}`],
-      own && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} Mitarbeiter${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
+      own && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} ${act === 1 ? 'Person' : 'Personen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
     ],
     [
       ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
@@ -710,7 +710,11 @@ function renderSetup() {
   ${viewing ? `<p class="hint center">Einstellungen von ${esc(viewing.name)}. Gehalt und Steuerdaten sind privat.</p>` : ''}
   ${setupTopics().map(g => `<div class="group">${g.map(([id, icon, title, sub]) => `<button class="row topic" onclick="openTopic('${id}')">
     <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
-  ${viewing && !viewing.preview ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
+  ${viewing && !viewing.preview && viewing.uid !== company?.owner ? (() => { const m = members.find(x => x.uid === viewing.uid), boss = m?.role === 'boss';
+    return `<div class="label">Rolle in der Firma</div><div class="group"><div class="row"><span>${boss ? 'Geschäftsführer' : 'Mitarbeiter'}<div class="muted small">${boss ? 'Gleiche Rechte wie du' : 'Sieht nur die eigenen Zeiten'}</div></span>
+      <button class="pill sm" onclick="setBoss('${viewing.uid}', ${!boss})">${boss ? 'Rechte entziehen' : 'Zum Geschäftsführer machen'}</button></div></div>
+      <button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
+  ${viewing && !viewing.preview && viewing.uid === company?.owner ? '<p class="hint center">Gründer der Firma. Geschäftsführer-Rechte und Mitgliedschaft lassen sich hier nicht ändern.</p>' : ''}`;
 }
 const TOPIC_TITLE = { account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {

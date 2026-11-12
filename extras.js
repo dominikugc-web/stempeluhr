@@ -474,7 +474,7 @@ async function doTeamExport() {
   try {
     await loadScript(XLSX_SRC);
     const wb = XLSX.utils.book_new(), over = [['Name', 'Soll', 'Gearbeitet', 'Differenz', `Überstundenkonto (${dmy(stand)})`, 'Urlaubstage', 'Krankheitstage']], sheets = [];
-    for (const mem of members.filter(x => x.status === 'active')) {
+    for (const mem of teamPeople()) {
       const s = await ref('data/' + mem.uid).get();
       if (!s.exists) continue;
       const d = merged(s.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
@@ -491,15 +491,17 @@ async function doTeamExport() {
 
 // ---------- Lohn-Export / Schnittstellen (Geschäftsführer) ----------
 // Lexware & Co. haben für Arbeitszeiten keine Online-Schnittstelle. Die App erzeugt eine Importdatei,
-// die die Lohnsoftware einliest. Einstellungen liegen in den privaten Daten des Geschäftsführers (private/{uid}),
-// damit Mitarbeiter keine Personalnummern der Kollegen sehen.
+// die die Lohnsoftware einliest. Einstellungen liegen in companies/{cid}/admin/settings: alle Geschäftsführer
+// teilen sie, Mitarbeiter sehen keine Personalnummern der Kollegen.
 const PAY_SOFT = {
   lexware: { name: 'Lexware lohn+gehalt', enc: 'win', hint: 'In Lexware lohn+gehalt: Datei → Import → Lohndaten (Bewegungsdaten). Beim ersten Mal ordnest du die Spalten zu, Lexware merkt sich das.' },
   datev: { name: 'DATEV Lohn (Bewegungsdaten)', enc: 'win', hint: 'Für DATEV LODAS bzw. Lohn und Gehalt über den ASCII-Import. Personalnummern und Lohnarten mit dem Steuerbüro abstimmen.' },
   other: { name: 'Andere Lohnsoftware (CSV)', enc: 'utf8', hint: 'Allgemeine CSV-Datei mit Semikolon, die fast jede Lohnsoftware einlesen kann.' },
 };
 const PAY_LA = [['work', 'Arbeitsstunden', 'Std.', '1000'], ['over', 'Überstunden', 'Std.', '1100'], ['vac', 'Urlaub', 'Tage', '1200'], ['sick', 'Krankheit', 'Tage', '1300']];
-const payCfg = () => ({ soft: 'lexware', day: 'last', content: 'sum', la: {}, pnr: {}, last: '', ...(data.settings.payroll || {}) });
+const payStored = () => companyAdmin.payroll || data.settings.payroll;
+const payHas = () => !!payStored()?.soft;
+const payCfg = () => ({ soft: 'lexware', day: 'last', content: 'sum', la: {}, pnr: {}, last: '', ...(payStored() || {}) });
 const ymKey = (y, m) => `${y}-${pad(m + 1)}`;
 const ymName = k => { const [y, m] = k.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }); };
 // Für welchen Monat ist der Export zuletzt fällig geworden?
@@ -509,14 +511,14 @@ function payDueMonth(cfg = payCfg(), now = new Date()) {
   const back = d >= +cfg.day ? 1 : 2, t = new Date(y, m - back, 1);
   return ymKey(t.getFullYear(), t.getMonth());
 }
-function payDue() { const p = data.settings.payroll; if (!isOwner() || viewing || !p?.soft) return null; const k = payDueMonth(); return (p.last || '') >= k ? null : k; }
+function payDue() { if (!isOwner() || viewing || !payHas()) return null; const k = payDueMonth(); return (payCfg().last || '') >= k ? null : k; }
 function payDueHtml() {
   const k = payDue(); if (!k) return '';
   return `<div class="card paydue"><b>📤 Lohn-Export für ${ymName(k)} ist fällig</b><div class="muted small">${PAY_SOFT[payCfg().soft].name}</div>
     <button class="pill wide sel" onclick="openPayroll('${k}')">Jetzt exportieren</button></div>`;
 }
 function openPayroll(month) {
-  const cfg = payCfg(), act = members.filter(m => m.status === 'active');
+  const cfg = payCfg(), act = teamPeople();
   const k = month || payDueMonth(cfg);
   sheet(`<div class="sheet-head"><button class="pill sm" onclick="openTopic('team')">‹ Team</button><button class="pill sm" onclick="openPaySettings()">⚙︎ Schnittstelle</button></div>
   <h2>Lohn-Export</h2>
@@ -529,7 +531,7 @@ function openPayroll(month) {
   <div class="label">Mitarbeiter</div>
   <div class="group">
     <label class="row"><span><b>Alle Mitarbeiter</b></span><input type="checkbox" switch id="pall" checked onchange="document.querySelectorAll('.pmem').forEach(c => c.checked = this.checked)"></label>
-    ${act.map(m => `<label class="row"><span>${esc(m.name)}<div class="muted small">${cfg.pnr[m.uid] ? 'Personalnr. ' + esc(cfg.pnr[m.uid]) : '<span class="red">Keine Personalnummer</span>'}</div></span><input type="checkbox" class="pmem" value="${m.uid}" checked onchange="$('#pall').checked = [...document.querySelectorAll('.pmem')].every(c => c.checked)"></label>`).join('')}
+    ${act.map(m => `<label class="row"><span>${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${cfg.pnr[m.uid] ? 'Personalnr. ' + esc(cfg.pnr[m.uid]) : '<span class="red">Keine Personalnummer</span>'}</div></span><input type="checkbox" class="pmem" value="${m.uid}" checked onchange="$('#pall').checked = [...document.querySelectorAll('.pmem')].every(c => c.checked)"></label>`).join('')}
   </div>
   <div class="label">Format</div>
   <div class="group">
@@ -541,7 +543,7 @@ function openPayroll(month) {
   currentTopic = 'payroll';   // Firmen-Updates sollen dieses Fenster nicht durch die Team-Ansicht ersetzen
 }
 function openPaySettings() {
-  const cfg = payCfg(), act = members.filter(m => m.status === 'active');
+  const cfg = payCfg(), act = teamPeople();
   sheet(`<div class="sheet-head"><button class="pill sm" onclick="openPayroll()">‹ Lohn-Export</button><button class="pill sm green" onclick="savePaySettings()">Speichern</button></div>
   <h2>Schnittstelle</h2>
   <div class="group">
@@ -563,7 +565,7 @@ async function savePaySettings() {
   const payroll = { soft: $('#ssoft').value, day: $('#sday').value, content: $('#scontent').value, last: cfg.last || '',
     la: Object.fromEntries(PAY_LA.map(([k]) => [k, $('#sla_' + k).value.trim()])),
     pnr: { ...cfg.pnr, ...Object.fromEntries([...document.querySelectorAll('.spnr')].map(e => [e.dataset.uid, e.value.trim()])) } };
-  data.settings.payroll = payroll; save(); openPayroll();
+  try { await saveAdmin({ payroll }); openPayroll(); } catch (e) { cloudError(e); }
 }
 // Windows-Zeichensatz (für Lexware/DATEV, die Umlaute sonst falsch anzeigen)
 function cp1252(str) {
@@ -577,7 +579,7 @@ async function doPayroll() {
   else { if (!mk) return alert('Bitte einen Monat wählen.'); const [y, m] = mk.split('-').map(Number); [from, to] = monthBounds(y, m - 1); }
   const uids = [...document.querySelectorAll('.pmem:checked')].map(c => c.value);
   if (!uids.length) return alert('Bitte mindestens einen Mitarbeiter auswählen.');
-  const missing = members.filter(m => uids.includes(m.uid) && !cfg.pnr[m.uid]);
+  const missing = teamPeople().filter(m => uids.includes(m.uid) && !cfg.pnr[m.uid]);
   if (soft !== 'xlsx' && soft !== 'other' && missing.length && !confirm(`Ohne Personalnummer: ${missing.map(m => m.name).join(', ')}.\nDie Lohnsoftware kann diese Zeilen nicht zuordnen. Trotzdem exportieren?\n(Personalnummern trägst du unter ⚙︎ Schnittstelle ein.)`)) return;
   const fname = `${company.name.replace(/[^\wäöüÄÖÜß-]+/g, '_')}_Lohn_${mk || from + '_bis_' + to}`;
   try {
@@ -589,7 +591,7 @@ async function doPayroll() {
       const rows = content === 'sum'
         ? [['Personalnummer', 'Name', 'Lohnart', 'Bezeichnung', 'Menge', 'Einheit', 'Von', 'Bis']]
         : [['Personalnummer', 'Name', 'Datum', 'Beginn', 'Ende', 'Pause (Std.)', 'Stunden', 'Lohnart', 'Abwesenheit']];
-      for (const mem of members.filter(m => uids.includes(m.uid))) {
+      for (const mem of teamPeople().filter(m => uids.includes(m.uid))) {
         const snap = await ref('data/' + mem.uid).get(); if (!snap.exists) continue;
         const d = merged(snap.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
         const pnr = cfg.pnr[mem.uid] || '';
@@ -608,14 +610,14 @@ async function doPayroll() {
       const win = PAY_SOFT[soft].enc === 'win';
       await deliver(new Blob([win ? cp1252(text) : '﻿' + text], { type: 'text/csv' }), fname + '.csv');
     }
-    if (mk && (!cfg.last || mk > cfg.last)) { data.settings.payroll = { ...cfg, last: mk }; save(); }
+    if (mk && (!cfg.last || mk > cfg.last)) await saveAdmin({ payroll: { ...cfg, last: mk } });
   } catch (e) { alert('Export fehlgeschlagen: ' + e.message); }
 }
 async function doTeamExportRange(from, to, uids, fname) {
   const t = today(), stand = to < t ? to : t, cols = DEF_COLS, dec = exportPrefs().dec, cfg = payCfg();
   await loadScript(XLSX_SRC);
   const wb = XLSX.utils.book_new(), over = [['Personalnr.', 'Name', 'Soll', 'Gearbeitet', 'Differenz', `Überstundenkonto (${dmy(stand)})`, 'Urlaubstage', 'Krankheitstage']], sheets = [];
-  for (const mem of members.filter(m => uids.includes(m.uid))) {
+  for (const mem of teamPeople().filter(m => uids.includes(m.uid))) {
     const s = await ref('data/' + mem.uid).get(); if (!s.exists) continue;
     const d = merged(s.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
     over.push([cfg.pnr[mem.uid] || '', mem.name, hm(sum(days, 'soll')), hm(sum(days, 'net')), hm(sum(past, 'diff'), true), hm(c.balance(stand), true), countAbs(days, 'urlaub'), countAbs(days, 'krank')]);
