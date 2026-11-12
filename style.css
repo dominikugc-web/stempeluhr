@@ -234,3 +234,13 @@ html.light .toast,html.light .askcard{background:linear-gradient(180deg,rgba(255
 html.light .viewing{color:var(--txt)}
 html.light .locdot{box-shadow:0 0 0 2px rgba(0,0,0,.1)}
 html.light .dot.today{background:color-mix(in srgb,var(--minus) 35%,#fff)}
+
+/* Installations-Anleitung (Handy-Browser) */
+.install{padding-top:4vh}
+.appicon{display:block;width:96px;height:96px;border-radius:22px;margin:0 auto 14px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.isteps{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+.istep{display:flex;gap:12px;align-items:flex-start;line-height:1.4}
+.inum{flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+.ico{width:20px;height:20px;vertical-align:-4px;color:var(--accent)}
+.install-arrow{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom) + 6px);transform:translateX(-50%);font-size:34px;color:var(--accent);animation:bob 1.2s ease-in-out infinite}
+@keyframes bob{50%{transform:translate(-50%,8px)}}

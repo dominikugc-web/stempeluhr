@@ -40,8 +40,69 @@ function teamPeople() {
 const off = list => { list.forEach(f => f()); list.length = 0; };
 const ref = path => fb.db.doc(path);
 
+// ---------- nur als App (Handy) ----------
+// Auf dem Handy läuft die Stempeluhr nur als installierte App vom Home-Bildschirm. Im Browser erscheint stattdessen
+// eine Anleitung. So meldet man sich gleich in der App an (Safari und Home-Bildschirm-App teilen keine Anmeldung).
+// Zum Testen im Handy-Browser: ?web anhängen.
+const UA = navigator.userAgent;
+const IS_ANDROID = /Android/.test(UA);
+const IS_IOS = !IS_ANDROID && (/iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 && !/Chrome\//.test(UA)));
+const IS_STANDALONE = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+let installEvt = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if ($('#instbtn')) $('#instbtn').hidden = false; });
+addEventListener('appinstalled', () => { if ($('#instdone')) { $('#instdone').hidden = false; $('#instbtn').hidden = true; } });
+function needInstall() {
+  const q = new URLSearchParams(location.search);
+  if (q.has('emu') || q.has('web') || IS_STANDALONE) return false;
+  return IS_IOS || IS_ANDROID;
+}
+function renderInstall() {
+  showTabs(false);
+  const code = new URLSearchParams(location.search).get('join');
+  const inApp = /FBAN|FBAV|Instagram|Line\/|WhatsApp|GSA\/|LinkedInApp|Snapchat|TikTok/.test(UA) || (IS_IOS && !/Safari\//.test(UA));
+  const crios = /CriOS|FxiOS|EdgiOS/.test(UA);
+  const share = '<svg viewBox="0 0 24 24" class="ico"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const plus = '<svg viewBox="0 0 24 24" class="ico"><rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  const step = (n, html) => `<div class="istep"><span class="inum">${n}</span><span>${html}</span></div>`;
+  let steps;
+  if (inApp) steps = `<p class="center">Du hast den Link in einer anderen App geöffnet. Öffne ihn bitte in ${IS_IOS ? '<b>Safari</b>' : '<b>Chrome</b>'}:</p>
+    ${step(1, `Tippe oben rechts auf <b>•••</b> bzw. das Menü`)}${step(2, `Wähle <b>„In ${IS_IOS ? 'Safari' : 'Browser'} öffnen“</b>`)}
+    <button class="pill wide" onclick="copyAppLink()">Link kopieren</button>`;
+  else if (IS_IOS) steps = `
+    ${step(1, `Tippe ${crios ? 'oben in der Adressleiste' : 'unten'} auf ${share} <b>Teilen</b>.<div class="muted small">Neues iOS: erst auf <b>•••</b> tippen, dann auf Teilen.</div>`)}
+    ${step(2, `Scrolle nach unten und tippe auf ${plus} <b>„Zum Home-Bildschirm“</b>.`)}
+    ${step(3, `„Als Web-App öffnen“ eingeschaltet lassen und auf <b>Hinzufügen</b> tippen.`)}
+    ${step(4, `Öffne die <b>Stempeluhr</b> auf deinem Home-Bildschirm und melde dich dort an.`)}`;
+  else steps = `<button class="big" id="instbtn" ${installEvt ? '' : 'hidden'} onclick="doInstall()">App installieren</button>
+    <p class="center green" id="instdone" hidden>Installiert! Öffne jetzt die Stempeluhr auf deinem Startbildschirm.</p>
+    ${step(1, `Tippe oben rechts auf <b>⋮</b> (Menü).`)}
+    ${step(2, `Wähle <b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b>.`)}
+    ${step(3, `Öffne die <b>Stempeluhr</b> auf deinem Startbildschirm und melde dich dort an.`)}`;
+  view.innerHTML = `<div class="install">
+    <img src="icon-192.png" alt="" class="appicon">
+    <h1 class="center">Stempeluhr als App</h1>
+    <p class="center muted">Die Stempeluhr läuft auf dem Handy als App. So legst du sie in wenigen Sekunden auf deinen ${IS_IOS ? 'Home-Bildschirm' : 'Startbildschirm'}:</p>
+    <div class="card isteps">${steps}</div>
+    ${code ? `<p class="hint center">Dein Einladungscode <b>${esc(code)}</b> wird mitgenommen. Falls die App ihn nicht vorschlägt, gib ihn nach der Anmeldung unter Setup → Konto & Firma ein.</p>` : ''}
+    <p class="hint center">Die Anmeldung passiert danach in der App. Im Browser kannst du nicht weitermachen, damit deine Zeiten immer am selben Ort landen.</p>
+    ${IS_IOS && !inApp && !crios ? '<div class="install-arrow">↓</div>' : ''}
+  </div>`;
+}
+async function doInstall() {
+  if (!installEvt) return;
+  installEvt.prompt();
+  const r = await installEvt.userChoice.catch(() => null);
+  if (r?.outcome === 'accepted') { $('#instdone').hidden = false; $('#instbtn').hidden = true; }
+  installEvt = null;
+}
+async function copyAppLink() {
+  try { await navigator.clipboard.writeText(location.href); toast('Link kopiert. In Safari einfügen und öffnen.'); }
+  catch { prompt('Link kopieren:', location.href); }
+}
+
 // ---------- start ----------
 function startCloud() {
+  if (needInstall()) return renderInstall();
   // Lokal testen: http://localhost:8765/?emu nutzt die Firebase-Emulatoren (firebase emulators:start).
   const emu = ['localhost', '127.0.0.1'].includes(location.hostname) && new URLSearchParams(location.search).has('emu');
   const c = emu ? { apiKey: 'demo-key', authDomain: 'localhost', projectId: 'demo-stempeluhr' } : window.FIREBASE_CONFIG;
