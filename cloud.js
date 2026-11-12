@@ -1,4 +1,6 @@
 // Login (Google oder E-Mail), Speichern in Firestore und Firmenverwaltung. Die Zeit-Oberfläche liegt in app.js.
+// Webseite mit Datenschutz und Impressum (aus der Admin-App eine Ebene höher)
+const WEB = location.pathname.includes("/admin/") ? "../web/" : "web/";
 // Gehalts- und Steuerangaben liegen getrennt in private/{uid}: der Geschäftsführer sieht sie nie, der Entwickler-Support nur lesend.
 const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips', 'locs', 'payroll', 'firmPriv'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -311,7 +313,8 @@ function renderLogin(mode = 'login') {
     <button class="pill sm" onclick="renderLogin('${signup ? 'login' : 'signup'}')">${signup ? 'Ich habe schon ein Konto' : 'Neues Konto erstellen'}</button>
     ${signup ? '' : '<p><button class="muted small" onclick="resetPassword()">Passwort vergessen?</button></p>'}
   </div>
-  ${joinCode ? `<p class="hint center">Nach der Anmeldung trittst du der Firma mit dem Code ${esc(joinCode)} bei.</p>` : ''}`;
+  ${joinCode ? `<p class="hint center">Nach der Anmeldung trittst du der Firma mit dem Code ${esc(joinCode)} bei.</p>` : ''}
+  <p class="hint center">${signup ? 'Mit dem Erstellen des Kontos gilt unsere ' : ''}<a class="link" href="${WEB}datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> · <a class="link" href="${WEB}impressum.html" target="_blank" rel="noopener">Impressum</a></p>`;
   $('#lpass').addEventListener('keydown', e => e.key === 'Enter' && (signup ? emailSignup() : emailLogin()));
 }
 const AUTH_MSG = {

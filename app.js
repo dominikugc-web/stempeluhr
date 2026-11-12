@@ -785,6 +785,10 @@ function openTopic(id, keepStats) {
         <button class="row" onclick="openTutorial()"><span>Tutorial: So funktioniert die App</span><span class="muted">›</span></button>
         <button class="row" onclick="openGlossary()"><span>Begriffe erklärt</span><span class="muted">›</span></button>
         <button class="row" onclick="onboard(0)"><span>Einführung erneut starten</span><span class="muted">›</span></button>
+      </div>
+      <div class="group">
+        <a class="row" href="${WEB}datenschutz.html" target="_blank" rel="noopener"><span>Datenschutzerklärung</span><span class="muted">↗</span></a>
+        <a class="row" href="${WEB}impressum.html" target="_blank" rel="noopener"><span>Impressum</span><span class="muted">↗</span></a>
       </div>`,
   }[id];
   if (!body) return;

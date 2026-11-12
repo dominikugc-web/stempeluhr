@@ -267,3 +267,4 @@ html.light .chatbar textarea{background:rgba(0,0,0,.06)}
 .dotnew{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:1px}
 .fbprev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62vw}
 .near{color:var(--near)}
+a.row{color:inherit;text-decoration:none}
