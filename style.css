@@ -189,3 +189,4 @@ input[type=checkbox][switch]{width:auto;height:auto;accent-color:var(--accent)}
 .mappin{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#8cc63f;box-shadow:0 0 0 3px rgba(255,255,255,.85);z-index:500;pointer-events:none}
 .radrow{display:flex;align-items:center;gap:12px;margin:0 4px 10px}.radrow input[type=range]{flex:1;max-width:none;padding:0;background:none;accent-color:var(--accent)}
 .paydue{margin:0 0 12px;padding:16px;display:flex;flex-direction:column;gap:4px;box-shadow:inset 0 0 0 1px rgba(59,141,255,.5)}.paydue .pill{margin:10px 0 0}
+a.link{color:var(--accent);text-decoration:none}

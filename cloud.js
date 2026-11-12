@@ -1,6 +1,6 @@
 // Login (Google oder E-Mail), Speichern in Firestore und Firmenverwaltung. Die Zeit-Oberfläche liegt in app.js.
 // Gehalts- und Steuerangaben liegen getrennt in private/{uid}, damit der Geschäftsführer sie nie sieht.
-const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips', 'locs', 'payroll'];
+const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips', 'locs', 'payroll', 'firmPriv'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const G_ICON = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.8h3.6c2-1.9 3.2-4.7 3.2-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.9A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 10l3.7-2.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7l3.7 2.9C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
 
@@ -243,7 +243,8 @@ function accountHtml() {
   let firm;
   if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
     <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Geschäftsführer)</span><span class="muted">›</span></button>`;
-  else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>`;
+  else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>
+    <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>`;
   else if (membership?.status === 'active') firm = `<div class="row"><span>Mitarbeiter bei <b>${esc(company?.name || membership.companyName)}</b></span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`;
   else if (membership?.status === 'pending') firm = `<div class="row"><span>Anfrage an <b>${esc(membership.companyName)}</b> gesendet. Der Geschäftsführer muss dich noch freigeben.</span></div>
@@ -256,7 +257,58 @@ function accountHtml() {
     <div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>
   </div>
   <div class="label">Firma</div>
-  <div class="group">${firm}</div>`;
+  <div class="group">${firm}</div>
+  ${cid && membership?.status === 'active' ? companyInfoHtml() : ''}`;
+}
+
+// ---------- Firmendaten (Geschäftsführer) ----------
+// Name, Adresse, Kontakt liegen im Firmen-Dokument (freigegebene Mitarbeiter sehen sie). Steuer- und Lohnnummern
+// liegen in den privaten Daten des Geschäftsführers.
+const COMPANY_FIELDS = [
+  ['Firma', [['legal', 'Rechtsform', 'z. B. GmbH, Einzelunternehmen'], ['owner', 'Inhaber / Geschäftsführer', 'Vor- und Nachname']]],
+  ['Adresse', [['street', 'Straße und Nr.', 'Musterstraße 1'], ['zip', 'PLZ', '12345', 'numeric'], ['city', 'Ort', 'Musterstadt']]],
+  ['Kontakt', [['contact', 'Ansprechpartner', 'Name'], ['phone', 'Telefon', '0123 456789', 'tel'], ['mobile', 'Mobil', '0170 1234567', 'tel'], ['email', 'E-Mail', 'info@firma.de', 'email'], ['web', 'Website', 'www.firma.de', 'url']]],
+  ['Steuer & Lohn', [['taxno', 'Steuernummer', '12/345/67890'], ['vat', 'USt-IdNr.', 'DE123456789'], ['bnr', 'Betriebsnummer', '8-stellig', 'numeric'], ['hrb', 'Handelsregister', 'z. B. HRB 12345, AG Musterstadt']]],
+];
+function companyEdit() {
+  if (!isOwner()) return;
+  const info = { ...(company.info || {}), ...(data.settings.firmPriv || {}) };
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openTopic('team')">‹ Team</button><button class="pill sm green" onclick="companySave()">Speichern</button></div>
+  <h2>Firmendaten</h2>
+  <div class="group"><label class="row"><span>Name der Firma</span><input id="cf_name" value="${esc(company.name)}" placeholder="z. B. Muster GmbH"></label></div>
+  ${COMPANY_FIELDS.map(([title, fields]) => `<div class="label">${title}</div><div class="group">${fields.map(([k, label, ph, type]) =>
+    `<label class="row"><span>${label}</span><input id="cf_${k}" value="${esc(info[k] || '')}" placeholder="${esc(ph)}"${type === 'numeric' ? ' inputmode="numeric"' : type ? ` type="${type}"` : ''}></label>`).join('')}</div>`).join('')}
+  <p class="hint">Name, Adresse und Kontakt sehen deine freigegebenen Mitarbeiter unter Setup → Konto & Firma. Steuernummer, USt-IdNr., Betriebsnummer und Handelsregister sieht nur du.</p>`);
+  currentTopic = 'company';
+}
+async function companySave() {
+  const name = $('#cf_name').value.trim();
+  if (!name) return alert('Bitte einen Namen für die Firma eintragen.');
+  const info = {}, priv = {}, PRIV = ['taxno', 'vat', 'bnr', 'hrb'];
+  for (const [, fields] of COMPANY_FIELDS) for (const [k] of fields) { const v = $('#cf_' + k).value.trim(); if (v) (PRIV.includes(k) ? priv : info)[k] = v; }
+  if (info.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(info.email)) return alert('Die E-Mail-Adresse sieht nicht richtig aus.');
+  try {
+    const renamed = name !== company.name;
+    await ref('companies/' + company.id).update({ name, info });
+    data.settings.firmPriv = priv; save();
+    if (renamed) {
+      // Einladung und offene Anfragen sollen den neuen Namen zeigen (Einladungen lassen sich nur neu anlegen, nicht ändern)
+      await ref('invites/' + company.code).delete();
+      await ref('invites/' + company.code).set({ cid: company.id, name });
+      await Promise.all(members.map(m => ref(`companies/${company.id}/members/${m.uid}`).update({ companyName: name }).catch(() => {})));
+    }
+    company.name = name; company.info = info;
+    toast('Firmendaten gespeichert');
+    openTopic('team');
+  } catch (e) { cloudError(e); }
+}
+function companyInfoHtml() {  // für Mitarbeiter: Firmendaten nur lesen
+  const i = company?.info || {}, row = (l, v, href) => v ? `<div class="row"><span>${l}</span><span>${href ? `<a href="${href}" class="link">${esc(v)}</a>` : esc(v)}</span></div>` : '';
+  const addr = [i.street, [i.zip, i.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const rows = row('Adresse', addr) + row('Ansprechpartner', i.contact) + row('Telefon', i.phone, 'tel:' + (i.phone || '').replace(/[^\d+]/g, ''))
+    + row('Mobil', i.mobile, 'tel:' + (i.mobile || '').replace(/[^\d+]/g, '')) + row('E-Mail', i.email, 'mailto:' + i.email)
+    + row('Website', i.web, /^https?:/.test(i.web || '') ? i.web : 'https://' + i.web);
+  return rows ? `<div class="label">Kontakt der Firma</div><div class="group">${rows}</div>` : '';
 }
 
 function newCode() { return Array.from(crypto.getRandomValues(new Uint8Array(6)), b => CODE_CHARS[b % CODE_CHARS.length]).join(''); }
@@ -322,7 +374,10 @@ async function leaveCompany() {
 function teamHtml() {  // Inhalt des Fensters Setup → Team
   if (!isOwner()) return '<p class="center muted">Lädt …</p>';
   const pending = members.filter(m => m.status === 'pending'), active = members.filter(m => m.status === 'active');
-  return `<p class="center"><b>${esc(company.name)}</b></p>
+  const info = company.info || {}, addr = [info.street, [info.zip, info.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return `<div class="label">Firma</div>
+  <div class="group"><button class="row" onclick="companyEdit()"><span style="text-align:left"><b>${esc(company.name)}</b>
+    <div class="muted small">${esc([addr, info.phone, info.email].filter(Boolean).join(' · ') || 'Adresse und Kontaktdaten hinzufügen')}</div></span><span class="muted">Bearbeiten ›</span></button></div>
   <div class="label">Einladung</div>
   <div class="card center">
     <div class="muted small">Einladungscode</div>
