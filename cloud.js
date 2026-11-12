@@ -9,6 +9,10 @@ let own = {};               // letzte Snapshots der eigenen Dokumente: { shared,
 let cid = undefined;        // Firma laut eigenem Datendokument
 let company, membership, members = [], teamStats = {}; // undefined = lädt noch, null = gibt es nicht / kein Zugriff
 let companyAdmin = {};      // companies/{cid}/admin/settings: gemeinsame Einstellungen der Geschäftsführer
+// Mehrere Firmen: myCompanies = alle Firmen, die ich gegründet habe. Meine eigenen Zeiten gehören zu cid (eigene Firma),
+// angezeigt wird die gewählte Firma (company). Andere Firmen werden wie beim Entwickler „acting“ beobachtet.
+let myCompanies = [];
+const firmKey = () => 'stempeluhr-firm-' + (me?.uid || '');
 let membersOn = false;
 let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mitarbeiter ansieht
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
@@ -29,7 +33,7 @@ const isOwner = () => !!(company && me && (company.owner === me.uid || (membersh
 // Alle Personen der Firma: Gründer + freigegebene Mitglieder (Geschäftsführer zuerst, „du“ markiert)
 function teamPeople() {
   if (!company) return [];
-  const list = [{ uid: company.owner, name: company.ownerName || 'Gründer', boss: true, founder: true }];
+  const list = company.ownerTracks === false ? [] : [{ uid: company.owner, name: company.ownerName || 'Gründer', boss: true, founder: true }];
   for (const m of members) if (m.status === 'active' && m.uid !== company.owner) list.push({ uid: m.uid, name: m.name, email: m.email, boss: m.role === 'boss' });
   return list.map(p => ({ ...p, self: p.uid === me?.uid })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
 }
@@ -61,6 +65,10 @@ function startCloud() {
     unsubs.push(
       ref('data/' + u.uid).onSnapshot(s => onOwn('shared', s), cloudError),
       ref('private/' + u.uid).onSnapshot(s => onOwn('priv', s), cloudError),
+      fb.db.collection('companies').where('owner', '==', u.uid).onSnapshot(q => {
+        myCompanies = q.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+        restoreFirm(); refreshTeam();
+      }, () => {}),
     );
   });
 }
@@ -85,6 +93,37 @@ function onOwn(kind, s) {
   if (tab === 'login') tab = 'start';
   refresh();
   if (joinCode && !cid) { const c = joinCode; joinCode = null; history.replaceState(null, '', location.pathname); joinForm(c); }
+  restoreFirm();
+}
+// Zuletzt gewählte Firma wieder öffnen
+function restoreFirm() {
+  if (!own.ready || (ADMIN_APP && role !== 'self')) return;
+  let want = null; try { want = localStorage.getItem(firmKey()); } catch {}
+  if (want && want !== company?.id && myCompanies.some(c => c.id === want)) switchFirm(want, true);
+}
+// Alle Firmen, zwischen denen ich wechseln kann: gegründete + die eigene Firma (falls ich dort Geschäftsführer bin)
+function myFirms() {
+  const list = [...myCompanies];
+  if (cid && company?.id === cid && isOwner() && !list.some(c => c.id === cid)) list.push({ id: cid, name: company.name });
+  if (cid && !list.some(c => c.id === cid) && membership?.role === 'boss') list.push({ id: cid, name: membership.companyName || 'Meine Firma' });
+  return list;
+}
+function switchFirm(id, quiet) {
+  if (id === '__new') return companyForm(true);
+  if (!id || id === company?.id) return;
+  if (ADMIN_APP && role !== 'self') return setRole('boss', id);
+  if (id === cid) watchCompany(id); else watchCompany(id, true);
+  try { localStorage.setItem(firmKey(), id); } catch {}
+  if (typeof statWho !== 'undefined') statWho = 'me';
+  if (quiet) return;
+  const name = myFirms().find(c => c.id === id)?.name;
+  if (name) toast('Firma: ' + name);
+  if (currentTopic === 'team') openTopic('team'); else refresh();
+}
+function firmSwitchHtml() {
+  const firms = myFirms();
+  if (!company || firms.length < 2) return '';
+  return `<label class="row"><span>Firma</span><select onchange="switchFirm(this.value)">${firms.map(c => `<option value="${c.id}" ${c.id === company.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Weitere Firma anlegen</option></select></label>`;
 }
 
 // Beim ersten Login: Zeiten, die bisher nur auf diesem Gerät lagen, in die Cloud übernehmen.
@@ -266,7 +305,9 @@ function accountHtml() {
   if (!cid) firm = `<button class="row" onclick="companyForm()"><span>Firma anlegen (ich bin Geschäftsführer)</span><span class="muted">›</span></button>
     <button class="row" onclick="joinForm()"><span>Firma beitreten (Code vom Geschäftsführer)</span><span class="muted">›</span></button>`;
   else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>
-    <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>${isFounder() ? '' : `
+    <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>
+    ${myFirms().length > 1 ? `<div class="row"><span>Deine Firmen<div class="muted small">${myFirms().map(c => esc(c.name)).join(', ')}</div></span></div>` : ''}
+    <button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>${isFounder() ? '' : `
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`}`;
   else if (membership?.status === 'active') firm = `<div class="row"><span>Mitarbeiter bei <b>${esc(company?.name || membership.companyName)}</b></span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`;
@@ -339,19 +380,22 @@ async function freeCode() {
   for (;;) { const c = newCode(); if (!(await ref('invites/' + c).get()).exists) return c; }
 }
 
-function companyForm() {
-  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet()">Abbrechen</button><button class="pill sm green" onclick="createCompany()">Anlegen</button></div>
-  <h2>Firma anlegen</h2>
+function companyForm(extra) {
+  extra = extra === true || !!cid;
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="${extra && company ? "openTopic('team')" : 'closeSheet()'}">Abbrechen</button><button class="pill sm green" onclick="createCompany(${extra})">Anlegen</button></div>
+  <h2>${extra ? 'Weitere Firma anlegen' : 'Firma anlegen'}</h2>
   <div class="group"><label class="row"><span>Name der Firma</span><input id="cname" placeholder="z. B. Muster GmbH"></label></div>
-  <p class="hint">Du bekommst einen Einladungscode. Mitarbeiter geben ihn in ihrer App ein, du gibst sie dann frei und siehst ihre Zeiten.</p>`);
+  <p class="hint">${extra ? 'Die neue Firma bekommt einen eigenen Einladungscode, eigene Mitarbeiter, eigene Firmendaten und einen eigenen Lohn-Export. Zwischen deinen Firmen wechselst du oben im Team-Bereich. Deine eigenen Zeiten bleiben bei deiner bisherigen Firma.'
+    : 'Du bekommst einen Einladungscode. Mitarbeiter geben ihn in ihrer App ein, du gibst sie dann frei und siehst ihre Zeiten.'}</p>`);
 }
-async function createCompany() {
+async function createCompany(extra) {
   const name = $('#cname').value.trim();
   if (!name) return alert('Bitte einen Namen eintragen.');
   try {
     const code = await freeCode(), c = fb.db.collection('companies').doc();
-    await c.set({ name, owner: me.uid, ownerName: displayName(), code, created: firebase.firestore.FieldValue.serverTimestamp() });
+    await c.set({ name, owner: me.uid, ownerName: displayName(), code, created: firebase.firestore.FieldValue.serverTimestamp(), ...(extra ? { ownerTracks: false } : {}) });
     await ref('invites/' + code).set({ cid: c.id, name });
+    if (extra) { closeSheet(); go('setup'); switchFirm(c.id, true); openTopic('team'); toast(`${name} angelegt`); return true; }
     await ref('data/' + me.uid).update({ cid: c.id });
     closeSheet();
     if (data.settings.onboarded !== false) { go('setup'); openTopic('team'); }  // in der Einführung geht es dort weiter
@@ -399,8 +443,10 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   const pending = members.filter(m => m.status === 'pending'), people = teamPeople(), active = people.filter(p => !p.self);
   const info = company.info || {}, addr = [info.street, [info.zip, info.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   return `<div class="label">Firma</div>
-  <div class="group"><button class="row" onclick="companyEdit()"><span style="text-align:left"><b>${esc(company.name)}</b>
-    <div class="muted small">${esc([addr, info.phone, info.email].filter(Boolean).join(' · ') || 'Adresse und Kontaktdaten hinzufügen')}</div></span><span class="muted">Bearbeiten ›</span></button></div>
+  <div class="group">${firmSwitchHtml()}<button class="row" onclick="companyEdit()"><span style="text-align:left"><b>${esc(company.name)}</b>
+    <div class="muted small">${esc([addr, info.phone, info.email].filter(Boolean).join(' · ') || 'Adresse und Kontaktdaten hinzufügen')}</div></span><span class="muted">Bearbeiten ›</span></button>
+    ${myFirms().length < 2 ? `<button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>` : ''}</div>
+  ${company.ownerTracks === false && isFounder() ? '<p class="hint">Deine eigenen Zeiten zählen zu deiner Hauptfirma, deshalb stehst du hier nicht in der Team-Liste.</p>' : ''}
   <div class="label">Einladung</div>
   <div class="card center">
     <div class="muted small">Einladungscode</div>

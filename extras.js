@@ -284,10 +284,10 @@ function renderStats() {
   const [from, to] = statBounds(), year = statRange.preset === 'year';
   const head = `<h1 class="center">Statistik</h1>
   ${boss ? `<div class="group whopick">
-    ${ADMIN_APP ? '' : `<div class="row"><span>Firma</span><span><b>${esc(company.name)}</b></span></div>`}
+    ${ADMIN_APP ? '' : firmSwitchHtml() || `<div class="row"><span>Firma</span><span><b>${esc(company.name)}</b></span></div>`}
     <label class="row"><span>Ansicht</span><select onchange="setWho(this.value)">
       <option value="me" ${statWho === 'me' ? 'selected' : ''}>Ich</option>
-      <option value="team" ${statWho === 'team' ? 'selected' : ''}>Ganze Firma (${people.length + 1} Personen)</option>
+      <option value="team" ${statWho === 'team' ? 'selected' : ''}>Ganze Firma (${teamPeople().length} ${teamPeople().length === 1 ? 'Person' : 'Personen'})</option>
       ${people.length ? `<optgroup label="Mitarbeiter">${people.map(p => `<option value="${p.uid}" ${statWho === p.uid ? 'selected' : ''}>${esc(p.name)}${p.boss ? ' (GF)' : ''}</option>`).join('')}</optgroup>` : ''}
     </select></label></div>` : ''}
   <div class="statbar"><button class="pill sm ${year ? 'sel' : ''}" onclick="setStat('year')">Dieses Jahr</button><button class="pill sm ${year ? '' : 'sel'}" onclick="openRange()">📅 ${year ? 'Zeitraum' : statLabel()} ▾</button></div>
