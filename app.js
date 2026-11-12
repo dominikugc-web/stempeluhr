@@ -97,13 +97,13 @@ function moveTabInd() {
   }
   ind.dataset.x = x;
 }
-// iOS-Web-App: Manchmal endet der sichtbare Bereich über der Home-Leiste. Dann Hintergrund und Menüleiste bis an den echten Bildschirmrand ziehen.
+// iOS-Web-App: Der Layout-Bereich endet manchmal über der Home-Leiste, obwohl der Bildschirm weiter geht.
+// Dann wird die App auf die echte Bildschirmhöhe gezogen, damit nichts unten abgeschnitten wird.
 function fixGap() {
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  const gap = standalone && innerHeight > innerWidth ? screen.height - innerHeight : 0;
-  const r = document.documentElement.style;
-  if (gap > 0 && gap < 120) { r.setProperty('--vgap', gap + 'px'); r.setProperty('--tabb', (22 - gap) + 'px'); }
-  else { r.removeProperty('--vgap'); r.removeProperty('--tabb'); }
+  const h = standalone && innerHeight > innerWidth ? screen.height : 0;
+  if (h > innerHeight && h - innerHeight < 120) document.documentElement.style.setProperty('--appH', h + 'px');
+  else document.documentElement.style.removeProperty('--appH');
 }
 fixGap();
 addEventListener('resize', () => { fixGap(); const i = $('.tab-ind'); if (i) { i.style.transition = 'none'; moveTabInd(); i.offsetWidth; i.style.transition = ''; } });
