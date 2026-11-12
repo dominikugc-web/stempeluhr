@@ -12,6 +12,8 @@ const BGS = {
   meer: ['Meer', '#051214', 'radial-gradient(90% 45% at 65% 5%,#0f5257 0,rgba(15,82,87,0) 70%),radial-gradient(70% 40% at 5% 45%,#0d3338 0,rgba(13,51,56,0) 70%),radial-gradient(80% 45% at 95% 78%,#123c52 0,rgba(18,60,82,0) 70%)'],
   stein: ['Stein', '#0e0f10', 'radial-gradient(90% 45% at 65% 5%,#3a3d42 0,rgba(58,61,66,0) 70%),radial-gradient(70% 40% at 5% 45%,#24272b 0,rgba(36,39,43,0) 70%)'],
   schwarz: ['Schwarz', '#000000', 'none'],
+  dunkel: ['Dark', '#1c1c1e', 'radial-gradient(90% 45% at 65% 5%,#2c2c30 0,rgba(44,44,48,0) 70%)'],
+  hell: ['Light', '#f2f2f7', 'radial-gradient(90% 45% at 65% 5%,#ffffff 0,rgba(255,255,255,0) 70%),radial-gradient(80% 45% at 5% 70%,#e6e9f2 0,rgba(230,233,242,0) 70%)', 'light'],
 };
 function myTheme() { return (viewing ? own.priv?.settings?.theme : data.settings.theme) || {}; }
 function applyTheme() {
@@ -19,6 +21,7 @@ function applyTheme() {
   for (const k in COLOR_DEF) r.setProperty('--' + k, t[k] || COLOR_DEF[k]);
   r.setProperty('--bg', bg[1]);
   r.setProperty('--bgimg', bg[2]);
+  document.documentElement.classList.toggle('light', bg[3] === 'light');   // Light-Modus: helle Flächen, dunkle Schrift
   $('meta[name=theme-color]').content = bg[1];
 }
 const progColor = p => p >= 110 ? 'var(--over)' : p >= 100 ? 'var(--ok)' : p >= 80 ? 'var(--near)' : 'var(--minus)';
@@ -27,16 +30,19 @@ function openTheme() {
   const t = data.settings.theme || {};
   sheet(`<div class="sheet-head"><h2>Farben</h2><button class="pill sm" onclick="backToTopic()">Fertig</button></div>
   <div class="label">Hintergrund</div>
-  <div class="swatches">${Object.entries(BGS).map(([k, b]) => `<button class="swatch ${(t.bg || 'kaffee') === k ? 'on' : ''}" onclick="setTheme('bg', '${k}')" style="background:${b[2] === 'none' ? '' : b[2] + ','}${b[1]}"><span>${b[0]}</span></button>`).join('')}</div>
+  ${swatchesHtml(t.bg)}
   <div class="label">Farben</div>
   <div class="scale"><div style="background:linear-gradient(90deg,var(--minus) 0 60%,var(--near) 66% 84%,var(--ok) 88% 92%,var(--over) 96%)"></div><span>0 %</span><span>80 %</span><span>100 %</span><span>110 %</span></div>
   <div class="group">${Object.entries(COLOR_LABEL).map(([k, l]) => `<label class="row"><span>${l}</span><input type="color" value="${t[k] || COLOR_DEF[k]}" oninput="setTheme('${k}', this.value)"></label>`).join('')}</div>
   <button class="pill wide" onclick="setTheme(); openTheme()">Standard wiederherstellen</button>`);
 }
+function swatchesHtml(cur, fn = 'setTheme') {
+  return `<div class="swatches">${Object.entries(BGS).map(([k, b]) => `<button class="swatch ${(cur || 'kaffee') === k ? 'on' : ''} ${b[3] === 'light' ? 'lightsw' : ''}" data-bg="${k}" onclick="${fn}('bg', '${k}')" style="background:${b[2] === 'none' ? '' : b[2] + ','}${b[1]}"><span>${b[0]}</span></button>`).join('')}</div>`;
+}
 function setTheme(k, v) {
   data.settings.theme = k ? { ...data.settings.theme, [k]: v } : {};
   applyTheme();
-  if (k === 'bg') { document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.getAttribute('onclick').includes(`'${v}'`))); }
+  if (k === 'bg') { document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.bg === v)); }
   clearTimeout(setTheme.t); setTheme.t = setTimeout(save, 400);
 }
 
@@ -62,7 +68,26 @@ function tipHtml() {
 // Sollzeit, Überstundenkonto, fertig. Wer per Einladungslink schon beigetreten ist, überspringt Schritt 0.
 let onboardStep = 0, onboardRole = '';
 function maybeOnboard() {
-  if (!ADMIN_APP && !viewing && me && data.settings.onboarded === false && $('#sheet').hidden) onboard(onboardStep);
+  if (ADMIN_APP || viewing || !me || data.settings.onboarded !== false || !$('#sheet').hidden) return;
+  if (!data.settings.theme?.bg) return onboardLook();   // ganz am Anfang: Aussehen wählen
+  onboard(onboardStep);
+}
+// Aussehen wählen: kleines Fenster unten, darüber sieht man die App sofort im gewählten Hintergrund
+function onboardLook() {
+  if (tab !== 'start') { tab = 'start'; render(); }
+  const cur = data.settings.theme?.bg || 'kaffee';
+  sheet(`<h2>Wie soll deine App aussehen?</h2>
+    <p class="muted small" style="margin:-6px 0 12px">Tippe auf einen Hintergrund, oben siehst du sofort, wie es wirkt.</p>
+    ${swatchesHtml(cur, 'lookPick')}
+    <button class="big" style="margin-top:16px" onclick="lookPick('bg', document.querySelector('.swatch.on')?.dataset.bg || 'kaffee', true)">Weiter</button>
+    <p class="hint center" style="margin-top:10px">Später änderbar unter Setup → Darstellung.</p>`);
+  $('#sheet').classList.add('preview');
+}
+function lookPick(k, v, done) {
+  data.settings.theme = { ...data.settings.theme, bg: v };
+  applyTheme();
+  document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.bg === v));
+  if (done) { save(); $('#sheet').classList.remove('preview'); onboard(onboardStep); }
 }
 function onboard(step) {
   if (step === 0 && cid) step = 1;
@@ -351,7 +376,7 @@ function statsHtml(d, who) {  // who: null = eigene Daten, sonst { uid, name } e
     if (!b || b.label !== k) buckets.push(b = { label: k, v: 0, soll: 0, future: true });
     b.v += x.net; if (x.d <= t) { b.soll += x.soll; b.future = false; }
   }
-  buckets.forEach(b => b.color = b.future ? 'rgba(255,255,255,.15)' : progColor(b.soll ? Math.round(b.v / b.soll * 100) : 100));
+  buckets.forEach(b => b.color = b.future ? 'var(--future)' : progColor(b.soll ? Math.round(b.v / b.soll * 100) : 100));
   const wd = [1, 2, 3, 4, 5, 6, 0].map(i => { const ds = worked.filter(x => parseYmd(x.d).getDay() === i); return { label: WD[i].slice(0, 2), v: ds.length ? sum(ds, 'net') / ds.length : 0, color: 'var(--accent)' }; });
   const longest = worked.reduce((a, x) => !a || x.net > a.net ? x : a, null);
   const earliest = worked.reduce((a, x) => !a || minOfDay(x.sess[0].s) < minOfDay(a.sess[0].s) ? x : a, null);

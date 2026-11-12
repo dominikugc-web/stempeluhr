@@ -298,10 +298,11 @@ document.addEventListener('focusout', () => setTimeout(() => {
   if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0);
 }, 60));
 function sheet(html) {
+  $('#sheet').classList.remove('preview');
   $('#sheet').innerHTML = `<div class="backdrop" onclick="closeSheet()"></div><div class="panel"><div class="grab"></div>${html}</div>`;
   $('#sheet').hidden = false;
 }
-function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; currentTopic = null; }
+function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $('#sheet').classList.remove('preview'); currentTopic = null; }
 
 // ---------- start ----------
 function renderStart() {
@@ -482,7 +483,7 @@ function saveDay() {
 // Tippen auf einen Tag in Woche oder Monat öffnet die Tagesansicht, dort wird bearbeitet.
 let calView = 'week', calDay = today();
 function ring(p) {
-  return `<svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="10"/>
+  return `<svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--track)" stroke-width="10"/>
   <circle cx="50" cy="50" r="42" fill="none" stroke="${progColor(p)}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${Math.min(p, 100) * 2.639} 264" transform="rotate(-90 50 50)"/>
   <text x="50" y="57" text-anchor="middle" font-size="20" fill="#eee">${p}%</text></svg>`;
 }

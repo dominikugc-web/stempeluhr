@@ -1,5 +1,5 @@
 /* Gemeinsames Design der Stempeluhr (index.html und admin/index.html). */
-:root{--txt:#f3ede7;--mut:rgba(243,237,231,.58);--card:rgba(10,7,5,.5);--line:rgba(255,255,255,.08);--accent:#3b8dff;--minus:#e8667e;--near:#f0a03c;--ok:#8cc63f;--over:#3b8dff;--green:var(--ok);--red:var(--minus);--blue:var(--accent);--bg:#140d09;--bgimg:radial-gradient(90% 45% at 65% 5%,#6b3d1c 0,rgba(107,61,28,0) 70%),radial-gradient(70% 40% at 5% 45%,#3d2615 0,rgba(61,38,21,0) 70%),radial-gradient(80% 45% at 95% 78%,#40230f 0,rgba(64,35,15,0) 70%);color-scheme:dark}
+:root{--track:rgba(0,0,0,.45);--future:rgba(255,255,255,.15);--txt:#f3ede7;--mut:rgba(243,237,231,.58);--card:rgba(10,7,5,.5);--line:rgba(255,255,255,.08);--accent:#3b8dff;--minus:#e8667e;--near:#f0a03c;--ok:#8cc63f;--over:#3b8dff;--green:var(--ok);--red:var(--minus);--blue:var(--accent);--bg:#140d09;--bgimg:radial-gradient(90% 45% at 65% 5%,#6b3d1c 0,rgba(107,61,28,0) 70%),radial-gradient(70% 40% at 5% 45%,#3d2615 0,rgba(61,38,21,0) 70%),radial-gradient(80% 45% at 95% 78%,#40230f 0,rgba(64,35,15,0) 70%);color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html,body{margin:0;overflow:hidden}
@@ -195,3 +195,42 @@ a.link{color:var(--accent);text-decoration:none}
 .teamstat{display:block;width:100%;text-align:left;margin:0 0 10px;padding:14px 16px}
 .ts-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .ts-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 8px}.ts-grid span{display:flex;flex-direction:column}.ts-grid b{font-size:17px;font-variant-numeric:tabular-nums}.ts-grid small{color:var(--mut);font-size:12px}
+
+/* Aussehen-Auswahl in der Einführung: Fenster kompakt, Hintergrund nicht abgedunkelt */
+#sheet.preview .backdrop{background:transparent}
+#sheet.preview .panel{max-height:62%}
+.swatch span{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}.swatch.lightsw span{color:#1c1c1e;text-shadow:none}
+#sheet.preview .swatch{height:58px}
+html.light .swatch.on{border-color:var(--accent)}
+
+/* ---------- Light-Modus ---------- */
+html.light{color-scheme:light;--track:rgba(0,0,0,.08);--future:rgba(0,0,0,.1);--txt:#1c1c1e;--mut:rgba(28,28,30,.55);--card:rgba(255,255,255,.7);--line:rgba(0,0,0,.08)}
+html.light .clock{color:#2c2c2e}
+html.light .tile{background:rgba(0,0,0,.05)}
+html.light .bar{background:rgba(0,0,0,.08)}
+html.light input,html.light select{background:rgba(0,0,0,.06)}
+html.light .card,html.light .group,html.light .day,html.light .tip,html.light .kpi,html.light details.month,html.light .choice,html.light .ot,html.light .cell{background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,.65));box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06)}
+html.light .pill:not(.sel):not(.gbtn),html.light .segctl{background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,255,255,.7));box-shadow:0 1px 2px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.06)}
+html.light .segctl button.on{background:rgba(0,0,0,.07);box-shadow:none}
+html.light .card::before,html.light .group::before,html.light .day::before,html.light .tip::before,html.light .kpi::before,html.light details.month::before,html.light .choice::before,html.light .ot::before,html.light .pill::before,html.light .segctl::before,html.light .viewing::before,html.light .tabs::before,html.light .tab-ind::before{background:linear-gradient(160deg,rgba(255,255,255,1),rgba(0,0,0,.06) 40%,rgba(0,0,0,.04) 60%,rgba(0,0,0,.1))}
+html.light .panel{background:linear-gradient(180deg,rgba(250,250,252,.92),rgba(242,242,247,.96));box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 -10px 40px rgba(0,0,0,.12)}
+html.light .backdrop{background:rgba(0,0,0,.25)}
+html.light .grab{background:rgba(0,0,0,.2)}
+html.light .tabs{background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(245,245,250,.72));box-shadow:0 10px 30px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.9)}
+html.light .tabs button{color:#3a3a3c}
+html.light .tabs button.on{color:var(--accent)}
+html.light .tab-ind{background:rgba(0,0,0,.07);box-shadow:none}
+html.light .day.is-today{border-color:rgba(0,0,0,.25)}
+html.light .cell.today{border-color:rgba(0,0,0,.45)}
+html.light .dot{border-color:rgba(0,0,0,.08)}
+html.light .ctrack{background:rgba(0,0,0,.07)}
+html.light .cmark{background:rgba(0,0,0,.55)}
+html.light .btrack{border-bottom-color:rgba(0,0,0,.12)}
+html.light .dbox{border-color:rgba(0,0,0,.15)}
+html.light .badge2{background:rgba(0,0,0,.06)}
+html.light .dots span{background:rgba(0,0,0,.2)}
+html.light .dots span.on{background:var(--txt)}
+html.light .toast,html.light .askcard{background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(242,242,247,.97));color:var(--txt);box-shadow:0 10px 40px rgba(0,0,0,.18)}
+html.light .viewing{color:var(--txt)}
+html.light .locdot{box-shadow:0 0 0 2px rgba(0,0,0,.1)}
+html.light .dot.today{background:color-mix(in srgb,var(--minus) 35%,#fff)}
