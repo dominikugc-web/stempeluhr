@@ -97,7 +97,16 @@ function moveTabInd() {
   }
   ind.dataset.x = x;
 }
-addEventListener('resize', () => { const i = $('.tab-ind'); if (i) { i.style.transition = 'none'; moveTabInd(); i.offsetWidth; i.style.transition = ''; } });
+// iOS-Web-App: Manchmal endet der sichtbare Bereich über der Home-Leiste. Dann Hintergrund und Menüleiste bis an den echten Bildschirmrand ziehen.
+function fixGap() {
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const gap = standalone && innerHeight > innerWidth ? screen.height - innerHeight : 0;
+  const r = document.documentElement.style;
+  if (gap > 0 && gap < 120) { r.setProperty('--vgap', gap + 'px'); r.setProperty('--tabb', (22 - gap) + 'px'); }
+  else { r.removeProperty('--vgap'); r.removeProperty('--tabb'); }
+}
+fixGap();
+addEventListener('resize', () => { fixGap(); const i = $('.tab-ind'); if (i) { i.style.transition = 'none'; moveTabInd(); i.offsetWidth; i.style.transition = ''; } });
 // iOS: nach dem Schließen der Tastatur bleibt die Seite manchmal verschoben, die Menüleiste rutscht dann nach oben.
 document.addEventListener('focusout', () => setTimeout(() => {
   const a = document.activeElement;
