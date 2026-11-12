@@ -69,6 +69,7 @@ function renderInstall() {
     ${step(1, `Tippe oben rechts auf <b>•••</b> bzw. das Menü`)}${step(2, `Wähle <b>„In ${IS_IOS ? 'Safari' : 'Browser'} öffnen“</b>`)}
     <button class="pill wide" onclick="copyAppLink()">Link kopieren</button>`;
   else if (IS_IOS) steps = `
+    ${crios ? '' : `<p class="small muted" style="margin:0">Aus Telegram, WhatsApp o. Ä. geöffnet? Dann zuerst unten rechts auf das Kompass-Symbol tippen, damit der Link in Safari aufgeht.</p>`}
     ${step(1, `Tippe ${crios ? 'oben in der Adressleiste' : 'unten'} auf ${share} <b>Teilen</b>.<div class="muted small">Neues iOS: erst auf <b>•••</b> tippen, dann auf Teilen.</div>`)}
     ${step(2, `Scrolle nach unten und tippe auf ${plus} <b>„Zum Home-Bildschirm“</b>.`)}
     ${step(3, `„Als Web-App öffnen“ eingeschaltet lassen und auf <b>Hinzufügen</b> tippen.`)}
