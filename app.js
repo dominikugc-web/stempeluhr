@@ -298,11 +298,11 @@ document.addEventListener('focusout', () => setTimeout(() => {
   if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0);
 }, 60));
 function sheet(html) {
-  $('#sheet').classList.remove('preview');
+  $('#sheet').classList.remove('preview', 'chatsheet');
   $('#sheet').innerHTML = `<div class="backdrop" onclick="closeSheet()"></div><div class="panel"><div class="grab"></div>${html}</div>`;
   $('#sheet').hidden = false;
 }
-function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $('#sheet').classList.remove('preview'); currentTopic = null; }
+function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $('#sheet').classList.remove('preview', 'chatsheet'); currentTopic = null; fbUnsub?.(); fbUnsub = null; }
 
 // ---------- start ----------
 function renderStart() {

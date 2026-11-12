@@ -51,6 +51,17 @@ service cloud.firestore {
       allow read: if isAdmin();   // Entwickler-Übersicht: alle Mitgliedschaften auf einmal
     }
 
+    // Feedback-Chat: jeder Nutzer mit dem Entwickler. Nutzer schreiben als 'user', der Entwickler als 'admin'.
+    match /feedback/{uid} {
+      allow read, write: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      match /msgs/{mid} {
+        allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn() && request.resource.data.text is string && request.resource.data.text.size() <= 4000
+          && ((request.auth.uid == uid && request.resource.data.from == 'user') || (isAdmin() && request.resource.data.from == 'admin'));
+        allow delete: if isAdmin();
+      }
+    }
+
     match /companies/{cid} {
       allow read: if isAdmin() || (signedIn() && (resource.data.owner == request.auth.uid || isActive(cid, request.auth.uid)));
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid;

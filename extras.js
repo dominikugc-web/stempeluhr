@@ -1030,3 +1030,82 @@ function toast(msg) {
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(locCheck, 800); });
 setInterval(locCheck, 120000);
+
+// ---------- Feedback (Lampe über der Menüleiste) ----------
+// Jeder Nutzer hat einen Chat mit dem Entwickler: feedback/{uid} (Übersicht) und feedback/{uid}/msgs (Nachrichten).
+// Der Entwickler sieht alle Chats im Admin-Bereich und kann antworten.
+const FB_TYPES = { idee: ['💡', 'Idee'], fehler: ['🐞', 'Fehler'], beschwerde: ['😕', 'Beschwerde'], frage: ['❓', 'Frage'] };
+let fbUnsub = null, fbThread = null, fbMsgs = [], fbType = 'idee', fbMeta = null, fbMetaUnsub = null;
+// Rote Markierung an der Lampe, wenn eine Antwort ungelesen ist
+function feedbackWatch() {
+  fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
+  if (!me) return feedbackBadge();
+  fbMetaUnsub = ref('feedback/' + me.uid).onSnapshot(s => { fbMeta = s.exists ? s.data() : null; feedbackBadge(); }, () => {});
+}
+function feedbackBadge() { const b = $('#fbbtn'); if (b) b.classList.toggle('unread', !!fbMeta?.unreadUser); }
+function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eines Nutzers
+  const admin = !!uid && isAdmin();
+  fbThread = uid || me.uid;
+  fbUnsub?.();
+  fbMsgs = [];
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeFeedback(${admin})">${admin ? '‹ Feedback' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px"></span></div>
+    <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
+    ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
+    <div class="chatbar"><textarea id="fbtext" rows="1" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+      <button class="sendbtn" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
+  $('#sheet').classList.add('chatsheet');
+  fbUnsub = fb.db.collection(`feedback/${fbThread}/msgs`).orderBy('at').onSnapshot(q => {
+    fbMsgs = q.docs.map(d => ({ id: d.id, ...d.data() }));
+    fbRender(admin);
+    // gelesen markieren
+    const field = admin ? 'unreadAdmin' : 'unreadUser';
+    if (fbMsgs.length) ref('feedback/' + fbThread).set({ [field]: false }, { merge: true }).catch(() => {});
+  }, e => { $('#chat').innerHTML = `<p class="hint center red">Feedback konnte nicht geladen werden: ${esc(e.message)}</p>`; });
+}
+function fbRender(admin) {
+  const el = $('#chat'); if (!el) return;
+  const mine = m => admin ? m.from === 'admin' : m.from === 'user';
+  el.innerHTML = (fbMsgs.length ? '' : `<div class="bubble them"><b>Hallo${admin ? '' : ' ' + esc((displayName() || '').split(' ')[0])}!</b> 👋<br>Hast du eine Idee für eine neue Funktion, stört dich etwas oder ist ein Fehler aufgetreten? Schreib es einfach hier rein. Wir lesen alles und antworten hier im Chat.</div>`)
+    + fbMsgs.map(m => `<div class="bubble ${mine(m) ? 'me' : 'them'}">${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
+      <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}</span></div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+function fbSetType(k) { fbType = k; document.querySelectorAll('.fbtypes .pill').forEach(b => b.classList.toggle('sel', b.dataset.t === k)); }
+async function sendFeedback(admin) {
+  const ta = $('#fbtext'), text = ta.value.trim();
+  if (!text) return;
+  if (text.length > 4000) return alert('Bitte etwas kürzer fassen (max. 4000 Zeichen).');
+  ta.value = ''; ta.style.height = 'auto';
+  const at = firebase.firestore.FieldValue.serverTimestamp();
+  try {
+    if (admin) {
+      await fb.db.collection(`feedback/${fbThread}/msgs`).add({ text, from: 'admin', at });
+      await ref('feedback/' + fbThread).set({ last: at, lastText: text.slice(0, 120), unreadUser: true, unreadAdmin: false }, { merge: true });
+    } else {
+      await fb.db.collection(`feedback/${me.uid}/msgs`).add({ text, from: 'user', type: fbType, at, name: displayName() || '', ver: document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] || '', device: navigator.userAgent.slice(0, 160) });
+      await ref('feedback/' + me.uid).set({ name: displayName() || '', email: me.email || '', company: company?.name || '', last: at, lastText: text.slice(0, 120), lastType: fbType, unreadAdmin: true, unreadUser: false }, { merge: true });
+    }
+  } catch (e) { ta.value = text; alert('Senden fehlgeschlagen: ' + e.message); }
+}
+function closeFeedback(admin) {
+  fbUnsub?.(); fbUnsub = null;
+  if (admin) { closeSheet(); render(); loadFeedbackAdmin(); } else closeSheet();
+}
+// Admin: Liste aller Chats
+let fbAdmin = null;
+const fbAdminName = uid => fbAdmin?.find(t => t.uid === uid)?.name || 'Nutzer';
+async function loadFeedbackAdmin() {
+  try {
+    const q = await fb.db.collection('feedback').orderBy('last', 'desc').limit(200).get();
+    fbAdmin = q.docs.map(d => ({ uid: d.id, ...d.data() }));
+  } catch (e) { fbAdmin = []; }
+  if (tab === 'admin' && $('#fblist')) $('#fblist').innerHTML = feedbackAdminHtml();
+}
+function feedbackAdminHtml() {
+  if (!fbAdmin) return '<p class="muted center">Lädt …</p>';
+  if (!fbAdmin.length) return '<p class="muted center">Noch kein Feedback.</p>';
+  return `<div class="group">${fbAdmin.map(t => `<button class="row" onclick="openFeedback('${t.uid}')">
+    <span style="text-align:left;min-width:0">${t.unreadAdmin ? '<span class="dotnew"></span>' : ''}<b>${esc(t.name || t.email || 'Nutzer')}</b>${t.company ? ` <span class="muted small">· ${esc(t.company)}</span>` : ''}
+      <div class="muted small fbprev">${t.lastType && FB_TYPES[t.lastType] ? FB_TYPES[t.lastType][0] + ' ' : ''}${esc(t.lastText || '')}</div></span>
+    <span class="muted small">${t.last?.toDate ? t.last.toDate().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : ''} ›</span></button>`).join('')}</div>`;
+}

@@ -122,6 +122,7 @@ function startCloud() {
   showTabs(false);
   fb.auth.onAuthStateChanged(u => {
     off(unsubs); off(companyUnsubs); viewUnsub?.(); viewUnsub = null;
+    fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
     me = u; own = {}; cid = undefined; company = undefined; membership = undefined; members = []; viewing = null; membersOn = false;
     if (!u) { data = normalize({}); showTabs(false); renderLogin(); return; }
     unsubs.push(
@@ -280,7 +281,7 @@ async function loadTeamStats() {
 function refreshTeam() { if (currentTopic === 'team') openTopic('team', true); else refresh(); }
 
 // ---------- tabs ----------
-function showTabs(on) { $('.tabs').hidden = !on; if (on) { updateTabs(); requestAnimationFrame(moveTabInd); } }
+function showTabs(on) { $('.tabs').hidden = !on; $('#fbbtn').hidden = !on; if (on) { updateTabs(); requestAnimationFrame(moveTabInd); if (!fbMetaUnsub) feedbackWatch(); } }
 function updateTabs() {
   const show = { start: !viewing || viewing.preview, pay: !viewing };
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab in show) b.hidden = !show[b.dataset.tab]; });
@@ -636,6 +637,7 @@ async function setRole(r, id) {
   }
 }
 async function loadAdmin() {
+  loadFeedbackAdmin();
   try {
     const [d, c, m] = await Promise.all([fb.db.collection('data').get(), fb.db.collection('companies').get(), fb.db.collectionGroup('members').get()]);
     const t = today(), mem = m.docs.map(x => ({ uid: x.id, cid: x.ref.parent.parent.id, ...x.data() }));
@@ -676,6 +678,8 @@ function renderAdmin() {
   <div class="label">Firmen</div>
   ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
     <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
+  <div class="label">Feedback ${fbAdmin?.some(t => t.unreadAdmin) ? `<span class="badge-gf">${fbAdmin.filter(t => t.unreadAdmin).length} neu</span>` : ''}</div>
+  <div id="fblist">${feedbackAdminHtml()}</div>
   <div class="label">Nutzer</div>
   <div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
   <div id="ulist">${adminUsers()}</div>
