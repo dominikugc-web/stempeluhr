@@ -8,6 +8,9 @@ body{position:relative;height:var(--appH,100%)}
 body{background:var(--bg);color:var(--txt);font:17px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 body::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--bgimg),var(--bg)}
 main{position:absolute;inset:0;top:env(safe-area-inset-top);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px max(16px,calc(50% - 264px)) calc(env(safe-area-inset-bottom) + 96px)}
+/* Beim Wischen: jede Seite ist eine eigene Karte mit runden Ecken, dazwischen ein schwarzer Spalt (wie Instagram) */
+body.swiping::before{background:#000}
+body.swiping main{top:0;padding-top:calc(env(safe-area-inset-top) + 16px);border-radius:44px;background:var(--bgimg),var(--bg);overflow:hidden}
 #peek{pointer-events:none;visibility:hidden;overflow:hidden}#peek.on{visibility:visible}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
 h1{font-size:30px;font-weight:600;margin:0}

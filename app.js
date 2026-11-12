@@ -180,7 +180,7 @@ const haptic = (() => {
   const tabsList = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden).map(b => b.dataset.tab);
   const blocked = el => el.closest('input,select,textarea,.tabs,[data-noswipe]') || [...(function* () { for (let e = el; e && e !== view; e = e.parentElement) yield e; })()]
     .some(e => e.scrollWidth > e.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(e).overflowX));
-  const W = () => view.clientWidth;
+  const GAP = 10, W = () => view.clientWidth + GAP;   // Seitenbreite plus schwarzer Spalt
   // Nachbarseite in die Vorschau zeichnen, ohne die aktuelle Seite anzufassen
   function fillPeek(t) {
     const keep = document.createDocumentFragment(), st = view.scrollTop, old = tab;
@@ -192,15 +192,9 @@ const haptic = (() => {
     view.scrollTop = st; peek.scrollTop = 0;
   }
   const unlock = () => { swipeLock = false; if (renderLater) { renderLater = false; render(); } };
-  const btnX = t => { const b = nav.querySelector(`[data-tab="${t}"]`); return b ? b.offsetLeft : 0; };
-  function place(x) {
+    function place(x) {
     view.style.transform = x ? `translate3d(${x}px,0,0)` : '';
     peek.style.transform = s && s.pd ? `translate3d(${x + s.pd * W()}px,0,0)` : '';
-    if (s && s.pd) {   // Pille anteilig zum Nachbarfeld schieben
-      const p = Math.min(1, Math.abs(x) / W()), x0 = btnX(tab), x1 = btnX(s.nb);
-      const px = x0 + (x1 - x0) * p;
-      ind.style.transform = `translateX(${px}px)`; ind.dataset.x = px;
-    }
   }
   function settle(ms, then) {
     const tr = `transform ${ms}ms cubic-bezier(.22,1,.36,1)`;
@@ -209,11 +203,11 @@ const haptic = (() => {
   }
   view.addEventListener('touchstart', e => {
     if (busy) return;
-    if (swipeLock) { view.style.transform = peek.style.transform = ''; peek.classList.remove('on'); moveTabInd(); unlock(); }   // hängengebliebenen Wischer aufräumen
+    if (swipeLock) { view.style.transform = peek.style.transform = ''; peek.classList.remove('on'); document.body.classList.remove('swiping'); moveTabInd(); unlock(); }   // hängengebliebenen Wischer aufräumen
     s = null;
     if (e.touches.length !== 1 || nav.hidden || !$('#sheet').hidden || blocked(e.target)) return;
     const t = e.touches[0];
-    s = { x: t.clientX, y: t.clientY, dir: 0, dx: 0, lx: t.clientX, lt: e.timeStamp, v: 0, pd: 0, nb: null };
+    s = { x: t.clientX, y: t.clientY, dir: 0, dx: 0, hist: [], pd: 0, nb: null };
   }, { passive: true });
   view.addEventListener('touchmove', e => {
     if (!s || busy) return;
@@ -223,6 +217,8 @@ const haptic = (() => {
       s.dir = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'h' : 'v';
       if (s.dir === 'h') {
         swipeLock = true;
+        s.hist = [];
+        document.body.classList.add('swiping');
         s.x = t.clientX;
         view.style.transition = peek.style.transition = ind.style.transition = 'none';
         view.style.willChange = peek.style.willChange = 'transform';
@@ -230,9 +226,9 @@ const haptic = (() => {
     }
     if (s.dir !== 'h') return;
     e.preventDefault();
-    const dt = e.timeStamp - s.lt;
-    if (dt > 0) s.v = 0.6 * ((t.clientX - s.lx) / dt) + 0.4 * s.v;
-    s.lx = t.clientX; s.lt = e.timeStamp;
+    // Schwung aus den letzten 100 ms der Bewegung
+    s.hist.push([e.timeStamp, t.clientX]);
+    while (s.hist.length > 2 && e.timeStamp - s.hist[0][0] > 100) s.hist.shift();
     s.dx = t.clientX - s.x;
     const list = tabsList(), i = list.indexOf(tab), side = s.dx < 0 ? 1 : -1, nb = list[i + side];
     if (i >= 0 && nb && s.pd !== side) { fillPeek(nb); s.pd = side; s.nb = nb; peek.classList.add('on'); }
@@ -247,7 +243,9 @@ const haptic = (() => {
     if (st.dir !== 'h') { s = null; return; }
     view.style.willChange = peek.style.willChange = '';
     ind.style.transition = '';
-    const flick = Math.abs(st.v) > 0.35 && Math.sign(st.v) === Math.sign(st.dx);
+    const h = st.hist || [], last = h[h.length - 1], first = h[0];
+    const v = last && first && last[0] > first[0] && e.timeStamp - last[0] < 80 ? (last[1] - first[1]) / (last[0] - first[0]) : 0;
+    const flick = Math.abs(v) > 0.4 && Math.sign(v) === Math.sign(st.dx);
     const commit = e.type !== 'touchcancel' && st.pd && (Math.abs(st.dx) > W() * 0.3 || flick);
     busy = true;
     place(st.dx === 0 ? 0 : (st.pd ? st.dx : st.dx / (1 + Math.abs(st.dx) / 60)));
@@ -261,6 +259,7 @@ const haptic = (() => {
         s = null;
         view.style.transform = ''; peek.style.transform = '';
         swipeLock = false; renderLater = false;
+        document.body.classList.remove('swiping');
         go(target);
         peek.classList.remove('on'); peek.replaceChildren();
         busy = false; unlock();
@@ -272,6 +271,7 @@ const haptic = (() => {
       settle(320, () => {
         s = null;
         view.style.transform = ''; peek.style.transform = '';
+        document.body.classList.remove('swiping');
         peek.classList.remove('on'); peek.replaceChildren();
         busy = false; unlock();
       });
