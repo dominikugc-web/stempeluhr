@@ -98,7 +98,7 @@ function moveTabInd() {
   ind.dataset.x = x;
 }
 // Wischen über die Menüleiste: Die Pille folgt dem Finger, beim Loslassen öffnet sich das Feld darunter.
-// Ein schneller kurzer Wisch springt ein Feld weiter.
+// Ein schneller kurzer Wisch springt ein Feld weiter. Auf dem iPhone über Touch-Events, am Computer mit der Maus.
 (function tabSwipe() {
   const nav = $('.tabs'), ind = $('.tab-ind');
   if (!nav || !ind) return;
@@ -108,38 +108,40 @@ function moveTabInd() {
     const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - x);
     return !best || d < best.d ? { b, d } : best;
   }, null)?.b;
-  nav.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    start = { x: e.clientX, t: e.timeStamp, id: e.pointerId };
-    dragging = false;
-  });
-  nav.addEventListener('pointermove', e => {
-    if (!start || e.pointerId !== start.id) return;
-    const dx = e.clientX - start.x;
-    if (!dragging && Math.abs(dx) < 8) return;
-    if (!dragging) { dragging = true; nav.setPointerCapture?.(e.pointerId); nav.classList.add('press'); ind.style.transition = 'width .2s'; }
-    const r = nav.getBoundingClientRect(), w = ind.offsetWidth, x = e.clientX - r.left;
-    const left = Math.max(5, Math.min(r.width - 5 - w, x - w / 2));
+  const down = (x, t) => { start = { x, t }; dragging = false; };
+  const move = x => {
+    if (!start) return false;
+    if (!dragging && Math.abs(x - start.x) < 8) return false;
+    if (!dragging) { dragging = true; nav.classList.add('press'); ind.style.transition = 'width .2s'; }
+    const r = nav.getBoundingClientRect(), w = ind.offsetWidth, rx = x - r.left;
+    const left = Math.max(5, Math.min(r.width - 5 - w, rx - w / 2));
     ind.style.transform = `translateX(${left}px) scale(1.12)`;
     ind.dataset.x = left;
-    btns().forEach(b => b.classList.toggle('hover', b === under(x)));
-  });
-  const end = e => {
-    if (!start || e.pointerId !== start.id) return;
+    const u = under(rx);
+    btns().forEach(b => b.classList.toggle('hover', b === u));
+    return true;
+  };
+  const up = (x, t, cancel) => {
     const s = start; start = null;
-    if (!dragging) return;
+    if (!s || !dragging) return;
     dragging = false; eatClick = true; setTimeout(() => { eatClick = false; }, 400);
     nav.classList.remove('press'); ind.style.transition = '';
     btns().forEach(b => b.classList.remove('hover'));
     const r = nav.getBoundingClientRect(), list = btns(), cur = list.findIndex(b => b.dataset.tab === tab);
-    let target = under(e.clientX - r.left);
-    const dx = e.clientX - s.x, v = Math.abs(dx) / Math.max(1, e.timeStamp - s.t);
-    if (target === list[cur] && v > 0.5 && e.type !== 'pointercancel') target = list[Math.max(0, Math.min(list.length - 1, cur + Math.sign(dx)))];
-    if (e.type === 'pointercancel' || !target || target.dataset.tab === tab) { moveTabInd(); return; }
-    target.click(); eatClick = true;
+    let target = under(x - r.left);
+    const dx = x - s.x, v = Math.abs(dx) / Math.max(1, t - s.t);
+    if (!cancel && target === list[cur] && v > 0.5) target = list[Math.max(0, Math.min(list.length - 1, cur + Math.sign(dx)))];
+    if (cancel || !target || target.dataset.tab === tab) { moveTabInd(); return; }
+    target.click();
   };
-  nav.addEventListener('pointerup', end);
-  nav.addEventListener('pointercancel', end);
+  nav.addEventListener('touchstart', e => down(e.touches[0].clientX, e.timeStamp), { passive: true });
+  nav.addEventListener('touchmove', e => { if (move(e.touches[0].clientX)) e.preventDefault(); }, { passive: false });
+  nav.addEventListener('touchend', e => up(e.changedTouches[0].clientX, e.timeStamp, false));
+  nav.addEventListener('touchcancel', e => up(e.changedTouches[0]?.clientX ?? 0, e.timeStamp, true));
+  // Maus (Computer)
+  nav.addEventListener('mousedown', e => { if (e.button === 0) down(e.clientX, e.timeStamp); });
+  addEventListener('mousemove', e => { if (start) move(e.clientX); });
+  addEventListener('mouseup', e => { if (start) up(e.clientX, e.timeStamp, false); });
   nav.addEventListener('click', e => { if (eatClick && e.isTrusted) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
 // iOS-Web-App: Der Layout-Bereich endet manchmal über der Home-Leiste, obwohl der Bildschirm weiter geht.
