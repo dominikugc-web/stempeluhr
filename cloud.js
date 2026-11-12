@@ -1,6 +1,6 @@
 // Login (Google oder E-Mail), Speichern in Firestore und Firmenverwaltung. Die Zeit-Oberfläche liegt in app.js.
 // Gehalts- und Steuerangaben liegen getrennt in private/{uid}, damit der Geschäftsführer sie nie sieht.
-const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips', 'locs'];
+const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips', 'locs', 'payroll'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const G_ICON = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.8h3.6c2-1.9 3.2-4.7 3.2-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.9A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 10l3.7-2.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7l3.7 2.9C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
 
@@ -338,7 +338,11 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
     <p class="hint">Grüner Punkt = gerade eingestempelt. Rechts das Überstundenkonto. Tippen zeigt den Kalender des Mitarbeiters, dort kannst du auch Zeiten korrigieren.</p>`
     : '<p class="muted center">Noch keine Mitarbeiter. Teil den Einladungscode.</p>'}
-  ${active.length ? '<button class="big" onclick="openTeamExport()">Team als Excel exportieren</button>' : ''}`;
+  ${active.length ? `<div class="label">Lohn & Export</div>${payDueHtml()}
+    <div class="group">
+      <button class="row" onclick="openPayroll()"><span>📤 Lohn-Export<div class="muted small">${data.settings.payroll?.soft ? PAY_SOFT[data.settings.payroll.soft].name + (data.settings.payroll.last ? ' · zuletzt ' + ymName(data.settings.payroll.last) : '') : 'Lexware, DATEV, CSV oder Excel'}</div></span><span class="muted">›</span></button>
+      <button class="row" onclick="openPaySettings()"><span>⚙︎ Schnittstelle einrichten<div class="muted small">Lohnsoftware, Stichtag, Lohnarten, Personalnummern</div></span><span class="muted">›</span></button>
+    </div>` : ''}`;
 }
 async function shareInvite() {
   const link = APP_URL + '?join=' + company.code;

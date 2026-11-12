@@ -489,6 +489,144 @@ async function doTeamExport() {
   } catch (e) { alert('Export fehlgeschlagen: ' + e.message); }
 }
 
+// ---------- Lohn-Export / Schnittstellen (Geschäftsführer) ----------
+// Lexware & Co. haben für Arbeitszeiten keine Online-Schnittstelle. Die App erzeugt eine Importdatei,
+// die die Lohnsoftware einliest. Einstellungen liegen in den privaten Daten des Geschäftsführers (private/{uid}),
+// damit Mitarbeiter keine Personalnummern der Kollegen sehen.
+const PAY_SOFT = {
+  lexware: { name: 'Lexware lohn+gehalt', enc: 'win', hint: 'In Lexware lohn+gehalt: Datei → Import → Lohndaten (Bewegungsdaten). Beim ersten Mal ordnest du die Spalten zu, Lexware merkt sich das.' },
+  datev: { name: 'DATEV Lohn (Bewegungsdaten)', enc: 'win', hint: 'Für DATEV LODAS bzw. Lohn und Gehalt über den ASCII-Import. Personalnummern und Lohnarten mit dem Steuerbüro abstimmen.' },
+  other: { name: 'Andere Lohnsoftware (CSV)', enc: 'utf8', hint: 'Allgemeine CSV-Datei mit Semikolon, die fast jede Lohnsoftware einlesen kann.' },
+};
+const PAY_LA = [['work', 'Arbeitsstunden', 'Std.', '1000'], ['over', 'Überstunden', 'Std.', '1100'], ['vac', 'Urlaub', 'Tage', '1200'], ['sick', 'Krankheit', 'Tage', '1300']];
+const payCfg = () => ({ soft: 'lexware', day: 'last', content: 'sum', la: {}, pnr: {}, last: '', ...(data.settings.payroll || {}) });
+const ymKey = (y, m) => `${y}-${pad(m + 1)}`;
+const ymName = k => { const [y, m] = k.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }); };
+// Für welchen Monat ist der Export zuletzt fällig geworden?
+function payDueMonth(cfg = payCfg(), now = new Date()) {
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate(), lastDay = new Date(y, m + 1, 0).getDate();
+  if (cfg.day === 'last') return d === lastDay ? ymKey(y, m) : ymKey(new Date(y, m - 1, 1).getFullYear(), new Date(y, m - 1, 1).getMonth());
+  const back = d >= +cfg.day ? 1 : 2, t = new Date(y, m - back, 1);
+  return ymKey(t.getFullYear(), t.getMonth());
+}
+function payDue() { const p = data.settings.payroll; if (!isOwner() || viewing || !p?.soft) return null; const k = payDueMonth(); return (p.last || '') >= k ? null : k; }
+function payDueHtml() {
+  const k = payDue(); if (!k) return '';
+  return `<div class="card paydue"><b>📤 Lohn-Export für ${ymName(k)} ist fällig</b><div class="muted small">${PAY_SOFT[payCfg().soft].name}</div>
+    <button class="pill wide sel" onclick="openPayroll('${k}')">Jetzt exportieren</button></div>`;
+}
+function openPayroll(month) {
+  const cfg = payCfg(), act = members.filter(m => m.status === 'active');
+  const k = month || payDueMonth(cfg);
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openTopic('team')">‹ Team</button><button class="pill sm" onclick="openPaySettings()">⚙︎ Schnittstelle</button></div>
+  <h2>Lohn-Export</h2>
+  <div class="label">Zeitraum</div>
+  <div class="group">
+    <label class="row"><span>Monat</span><input type="month" id="pmonth" value="${k}" onchange="$('#pfrom').value=''; $('#pto').value=''"></label>
+    <label class="row"><span>oder von</span><input type="date" id="pfrom"></label>
+    <label class="row"><span>bis</span><input type="date" id="pto"></label>
+  </div>
+  <div class="label">Mitarbeiter</div>
+  <div class="group">
+    <label class="row"><span><b>Alle Mitarbeiter</b></span><input type="checkbox" switch id="pall" checked onchange="document.querySelectorAll('.pmem').forEach(c => c.checked = this.checked)"></label>
+    ${act.map(m => `<label class="row"><span>${esc(m.name)}<div class="muted small">${cfg.pnr[m.uid] ? 'Personalnr. ' + esc(cfg.pnr[m.uid]) : '<span class="red">Keine Personalnummer</span>'}</div></span><input type="checkbox" class="pmem" value="${m.uid}" checked onchange="$('#pall').checked = [...document.querySelectorAll('.pmem')].every(c => c.checked)"></label>`).join('')}
+  </div>
+  <div class="label">Format</div>
+  <div class="group">
+    <label class="row"><span>Für</span><select id="psoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${v}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}<option value="xlsx">Excel (Übersicht und alle Tage)</option></select></label>
+    <label class="row"><span>Inhalt</span><select id="pcontent"><option value="sum" ${cfg.content === 'sum' ? 'selected' : ''}>Monatssummen je Lohnart</option><option value="days" ${cfg.content === 'days' ? 'selected' : ''}>Jeden Arbeitstag einzeln</option></select></label>
+  </div>
+  <p class="hint">${PAY_SOFT[cfg.soft]?.hint || ''}</p>
+  <button class="big" onclick="doPayroll()">Exportieren</button>`);
+  currentTopic = 'payroll';   // Firmen-Updates sollen dieses Fenster nicht durch die Team-Ansicht ersetzen
+}
+function openPaySettings() {
+  const cfg = payCfg(), act = members.filter(m => m.status === 'active');
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openPayroll()">‹ Lohn-Export</button><button class="pill sm green" onclick="savePaySettings()">Speichern</button></div>
+  <h2>Schnittstelle</h2>
+  <div class="group">
+    <label class="row"><span>Lohnsoftware</span><select id="ssoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${v}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>
+    <label class="row"><span>Export fällig</span><select id="sday"><option value="last" ${cfg.day === 'last' ? 'selected' : ''}>Am letzten Tag des Monats</option>${Array.from({ length: 28 }, (_, i) => i + 1).map(d => `<option value="${d}" ${+cfg.day === d ? 'selected' : ''}>Am ${d}. des Folgemonats</option>`).join('')}</select></label>
+    <label class="row"><span>Inhalt</span><select id="scontent"><option value="sum" ${cfg.content === 'sum' ? 'selected' : ''}>Monatssummen je Lohnart</option><option value="days" ${cfg.content === 'days' ? 'selected' : ''}>Jeden Arbeitstag einzeln</option></select></label>
+  </div>
+  <p class="hint">Am Stichtag erinnert dich die App im Team-Bereich und beim Öffnen. Später kann die Datei auch automatisch per E-Mail kommen.</p>
+  <div class="label">Lohnarten</div>
+  <div class="group">${PAY_LA.map(([k, n, u, ex]) => `<label class="row"><span>${n} <span class="muted small">(${u})</span></span><input class="short" id="sla_${k}" inputmode="numeric" placeholder="z. B. ${ex}" value="${esc(cfg.la[k] || '')}"></label>`).join('')}</div>
+  <p class="hint">Die Nummern stehen in deiner Lohnsoftware bei den Lohnarten. Leer = diese Zeile wird nicht exportiert.</p>
+  <div class="label">Personalnummern</div>
+  ${act.length ? `<div class="group">${act.map(m => `<label class="row"><span>${esc(m.name)}</span><input class="short spnr" data-uid="${m.uid}" inputmode="numeric" placeholder="Nr." value="${esc(cfg.pnr[m.uid] || '')}"></label>`).join('')}</div>` : '<p class="muted center">Noch keine Mitarbeiter.</p>'}
+  <p class="hint">So findet die Lohnsoftware den richtigen Mitarbeiter. Die Nummer steht in der Lohnsoftware beim Mitarbeiter.</p>`);
+  currentTopic = 'payroll';
+}
+async function savePaySettings() {
+  const cfg = payCfg();
+  const payroll = { soft: $('#ssoft').value, day: $('#sday').value, content: $('#scontent').value, last: cfg.last || '',
+    la: Object.fromEntries(PAY_LA.map(([k]) => [k, $('#sla_' + k).value.trim()])),
+    pnr: { ...cfg.pnr, ...Object.fromEntries([...document.querySelectorAll('.spnr')].map(e => [e.dataset.uid, e.value.trim()])) } };
+  data.settings.payroll = payroll; save(); openPayroll();
+}
+// Windows-Zeichensatz (für Lexware/DATEV, die Umlaute sonst falsch anzeigen)
+function cp1252(str) {
+  const map = { '€': 0x80, '‚': 0x82, '„': 0x84, '…': 0x85, '–': 0x96, '—': 0x97, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94 };
+  return Uint8Array.from([...str].map(ch => { const c = ch.charCodeAt(0); return c < 256 ? c : map[ch] ?? 63; }));
+}
+async function doPayroll() {
+  const cfg = payCfg(), soft = $('#psoft').value, content = $('#pcontent').value;
+  let from = $('#pfrom').value, to = $('#pto').value, mk = $('#pmonth').value;
+  if (from || to) { if (!from || !to || to < from) return alert('Bitte einen gültigen Zeitraum wählen.'); mk = ''; }
+  else { if (!mk) return alert('Bitte einen Monat wählen.'); const [y, m] = mk.split('-').map(Number); [from, to] = monthBounds(y, m - 1); }
+  const uids = [...document.querySelectorAll('.pmem:checked')].map(c => c.value);
+  if (!uids.length) return alert('Bitte mindestens einen Mitarbeiter auswählen.');
+  const missing = members.filter(m => uids.includes(m.uid) && !cfg.pnr[m.uid]);
+  if (soft !== 'xlsx' && soft !== 'other' && missing.length && !confirm(`Ohne Personalnummer: ${missing.map(m => m.name).join(', ')}.\nDie Lohnsoftware kann diese Zeilen nicht zuordnen. Trotzdem exportieren?\n(Personalnummern trägst du unter ⚙︎ Schnittstelle ein.)`)) return;
+  const fname = `${company.name.replace(/[^\wäöüÄÖÜß-]+/g, '_')}_Lohn_${mk || from + '_bis_' + to}`;
+  try {
+    if (soft === 'xlsx') {
+      await doTeamExportRange(from, to, uids, fname);
+    } else {
+      const dec = v => (Math.round(v * 100) / 100).toFixed(2).replace('.', ','), t = today(), stand = to < t ? to : t;
+      const q = v => /[;"\n]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : v;
+      const rows = content === 'sum'
+        ? [['Personalnummer', 'Name', 'Lohnart', 'Bezeichnung', 'Menge', 'Einheit', 'Von', 'Bis']]
+        : [['Personalnummer', 'Name', 'Datum', 'Beginn', 'Ende', 'Pause (Std.)', 'Stunden', 'Lohnart', 'Abwesenheit']];
+      for (const mem of members.filter(m => uids.includes(m.uid))) {
+        const snap = await ref('data/' + mem.uid).get(); if (!snap.exists) continue;
+        const d = merged(snap.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
+        const pnr = cfg.pnr[mem.uid] || '';
+        if (content === 'sum') {
+          const val = { work: sum(days, 'net') / HOUR, over: Math.max(0, sum(past, 'diff')) / HOUR, vac: countAbs(days, 'urlaub'), sick: countAbs(days, 'krank') };
+          for (const [k, n, u] of PAY_LA) if ((cfg.la[k] || soft === 'other') && val[k]) rows.push([pnr, mem.name, cfg.la[k] || '', n, u === 'Tage' ? String(val[k]) : dec(val[k]), u === 'Tage' ? 'Tage' : 'Stunden', dmy(from), dmy(to)]);
+        } else {
+          for (const x of days) {
+            if (!x.gross && !x.absence) continue;
+            const first = x.sess[0], last = x.sess[x.sess.length - 1];
+            rows.push([pnr, mem.name, dmy(x.d), first ? tod(first.s) : '', last?.e ? tod(last.e) : '', x.gross ? dec(x.pause / HOUR) : '', x.gross ? dec(x.net / HOUR) : '', x.gross ? cfg.la.work || '' : '', x.absence ? TYPES[x.absence.type] || x.absence.type : (x.holiday || '')]);
+          }
+        }
+      }
+      const text = rows.map(r => r.map(v => q(String(v))).join(';')).join('\r\n') + '\r\n';
+      const win = PAY_SOFT[soft].enc === 'win';
+      await deliver(new Blob([win ? cp1252(text) : '﻿' + text], { type: 'text/csv' }), fname + '.csv');
+    }
+    if (mk && (!cfg.last || mk > cfg.last)) { data.settings.payroll = { ...cfg, last: mk }; save(); }
+  } catch (e) { alert('Export fehlgeschlagen: ' + e.message); }
+}
+async function doTeamExportRange(from, to, uids, fname) {
+  const t = today(), stand = to < t ? to : t, cols = DEF_COLS, dec = exportPrefs().dec, cfg = payCfg();
+  await loadScript(XLSX_SRC);
+  const wb = XLSX.utils.book_new(), over = [['Personalnr.', 'Name', 'Soll', 'Gearbeitet', 'Differenz', `Überstundenkonto (${dmy(stand)})`, 'Urlaubstage', 'Krankheitstage']], sheets = [];
+  for (const mem of members.filter(m => uids.includes(m.uid))) {
+    const s = await ref('data/' + mem.uid).get(); if (!s.exists) continue;
+    const d = merged(s.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
+    over.push([cfg.pnr[mem.uid] || '', mem.name, hm(sum(days, 'soll')), hm(sum(days, 'net')), hm(sum(past, 'diff'), true), hm(c.balance(stand), true), countAbs(days, 'urlaub'), countAbs(days, 'krank')]);
+    sheets.push([mem.name.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31) || 'Mitarbeiter', [cols.map(k => COLS[k]), ...rowsFor(d, from, to, cols, dec)]]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(over), 'Übersicht');
+  const used = new Set(['Übersicht']);
+  for (let [n, aoa] of sheets) { let k = n, i = 2; while (used.has(k)) k = n.slice(0, 28) + ' ' + i++; used.add(k); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), k); }
+  await deliver(new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fname + '.xlsx');
+}
+
 // ---------- urlaubsplaner ----------
 let planYear = null;
 function openPlanner(y) {

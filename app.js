@@ -690,7 +690,7 @@ function setupTopics() {
   return [
     [
       own && me && ['account', '👤', 'Konto & Firma', `${me.email || me.displayName || ''} · ${firm}`],
-      own && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} Mitarbeiter${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}`],
+      own && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} Mitarbeiter${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
     ],
     [
       ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
