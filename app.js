@@ -72,6 +72,7 @@ function stats(days) {
 // ---------- navigation ----------
 function render() {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  requestAnimationFrame(moveTabInd);
   if (tab === 'login') return renderLogin();
   if (ADMIN_APP && me && !isAdmin()) return renderNoAccess();
   if (viewing && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'cal';
@@ -80,7 +81,28 @@ function render() {
   view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner());
   maybeOnboard();
 }
-function go(t) { tab = t; render(); scrollTo(0, 0); }
+function go(t) { tab = t; render(); view.scrollTop = 0; }
+// Gleitende Markierung in der Menüleiste (zieht sich beim Wechsel kurz in die Länge und federt nach).
+function moveTabInd() {
+  const nav = $('.tabs'), ind = $('.tab-ind'), b = $('.tabs button.on');
+  if (!nav || !ind) return;
+  if (!b || b.hidden || nav.hidden) { ind.style.opacity = 0; return; }
+  const x = b.offsetLeft, w = b.offsetWidth, from = parseFloat(ind.dataset.x);
+  ind.style.opacity = 1;
+  ind.style.transform = `translateX(${x}px)`; ind.style.width = w + 'px';
+  if (!isNaN(from) && from !== x && ind.animate) {
+    const k = Math.min(1.45, 1 + Math.abs(x - from) / 500);
+    ind.animate([{ scale: '1 1' }, { scale: `${k} .86`, offset: .35 }, { scale: '.96 1.04', offset: .7 }, { scale: '1 1' }], { duration: 500, easing: 'ease-out' });
+    nav.classList.add('press'); setTimeout(() => nav.classList.remove('press'), 180);
+  }
+  ind.dataset.x = x;
+}
+addEventListener('resize', () => { const i = $('.tab-ind'); if (i) { i.style.transition = 'none'; moveTabInd(); i.offsetWidth; i.style.transition = ''; } });
+// iOS: nach dem Schließen der Tastatur bleibt die Seite manchmal verschoben, die Menüleiste rutscht dann nach oben.
+document.addEventListener('focusout', () => setTimeout(() => {
+  const a = document.activeElement;
+  if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0);
+}, 60));
 function sheet(html) {
   $('#sheet').innerHTML = `<div class="backdrop" onclick="closeSheet()"></div><div class="panel"><div class="grab"></div>${html}</div>`;
   $('#sheet').hidden = false;
@@ -273,7 +295,7 @@ function dayState(x, t) {
   const future = x.d > t;
   return x.absence || x.holiday ? 'abs' : x.soll && x.net >= x.soll ? 'ok' : x.soll && !future && x.d < t ? 'miss' : x.net ? 'ok' : '';
 }
-function setCal(v, d) { calView = v; if (d) calDay = d; render(); scrollTo(0, 0); }
+function setCal(v, d) { calView = v; if (d) calDay = d; render(); view.scrollTop = 0; }
 function moveCal(n) {
   calDay = calView === 'day' ? addDays(calDay, n) : calView === 'week' ? addDays(calDay, 7 * n)
     : ymd(new Date(+calDay.slice(0, 4), +calDay.slice(5, 7) - 1 + n, 1));

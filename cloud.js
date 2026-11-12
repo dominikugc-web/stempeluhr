@@ -157,7 +157,7 @@ async function loadTeamStats() {
 function refreshTeam() { if (currentTopic === 'team') openTopic('team', true); else refresh(); }
 
 // ---------- tabs ----------
-function showTabs(on) { $('.tabs').hidden = !on; if (on) updateTabs(); }
+function showTabs(on) { $('.tabs').hidden = !on; if (on) { updateTabs(); requestAnimationFrame(moveTabInd); } }
 function updateTabs() {
   const show = { start: !viewing || viewing.preview, pay: !viewing };
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab in show) b.hidden = !show[b.dataset.tab]; });
@@ -405,7 +405,7 @@ async function setRole(r, id) {
   viewUnsub?.(); viewUnsub = null; viewing = null; closeSheet();
   role = r;
   data = merged(own.shared, own.priv);
-  if (r === 'dev') { showTabs(false); tab = 'admin'; render(); scrollTo(0, 0); return loadAdmin(); }
+  if (r === 'dev') { showTabs(false); tab = 'admin'; render(); view.scrollTop = 0; return loadAdmin(); }
   showTabs(true);
   if (r === 'self') { watchCompany(own.shared.cid || null); return go('start'); }
   if (!adminCache) await loadAdmin();
