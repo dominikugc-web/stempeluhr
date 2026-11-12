@@ -15,7 +15,7 @@ const BGS = {
   dunkel: ['Dark', '#1c1c1e', 'radial-gradient(90% 45% at 65% 5%,#2c2c30 0,rgba(44,44,48,0) 70%)'],
   hell: ['Light', '#f2f2f7', 'radial-gradient(90% 45% at 65% 5%,#ffffff 0,rgba(255,255,255,0) 70%),radial-gradient(80% 45% at 5% 70%,#e6e9f2 0,rgba(230,233,242,0) 70%)', 'light'],
 };
-function myTheme() { return (viewing ? own.priv?.settings?.theme : data.settings.theme) || {}; }
+function myTheme() { return (viewing && !asSelf() ? own.priv?.settings?.theme : data.settings.theme) || {}; }
 function applyTheme() {
   const t = myTheme(), r = document.documentElement.style, bg = BGS[t.bg] || BGS.kaffee;
   for (const k in COLOR_DEF) r.setProperty('--' + k, t[k] || COLOR_DEF[k]);
@@ -40,6 +40,7 @@ function swatchesHtml(cur, fn = 'setTheme') {
   return `<div class="swatches">${Object.entries(BGS).map(([k, b]) => `<button class="swatch ${(cur || 'kaffee') === k ? 'on' : ''} ${b[3] === 'light' ? 'lightsw' : ''}" data-bg="${k}" onclick="${fn}('bg', '${k}')" style="background:${b[2] === 'none' ? '' : b[2] + ','}${b[1]}"><span>${b[0]}</span></button>`).join('')}</div>`;
 }
 function setTheme(k, v) {
+  if (supportReadOnly()) return;
   data.settings.theme = k ? { ...data.settings.theme, [k]: v } : {};
   applyTheme();
   if (k === 'bg') { document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.bg === v)); }
@@ -57,7 +58,7 @@ const TIPS = [
 ];
 let tipIdx = Math.floor(Date.now() / 86400000) % TIPS.length;
 function tipHtml() {
-  if (viewing || data.settings.tips === false) return '';
+  if ((viewing && !asSelf()) || data.settings.tips === false) return '';
   const [t, x] = TIPS[tipIdx % TIPS.length];
   return `<div class="tip"><div><b>💡 ${t}</b><div class="muted small">${x}</div></div>
     <div class="tipbtns"><button class="small" onclick="tipIdx++; render()">Nächster Tipp</button><button class="small muted" onclick="setS('tips', false); render()">Tipps ausblenden</button></div></div>`;
@@ -800,7 +801,7 @@ function locListHtml() {
       <span>${esc(l.name || 'Ohne Namen')}${l.def ? ' <span class="muted small">· Standard</span>' : ''}<div class="muted small">${l.arch ? 'Archiviert' : l.lat == null ? 'Kein Ort gewählt' : locSummary(l)}</div></span></span>
       <span class="muted">›</span></button>`).join('')}</div>` : ''}
     <button class="pill wide" onclick="locForm()">+ Ort hinzufügen</button>
-    <p class="hint">Kommst du an einem Ort an, kann die Zeiterfassung automatisch starten, beim Verlassen stoppt sie. Wichtig: Als Web-App sieht die Stempeluhr deinen Standort nur, solange sie geöffnet ist. Öffne die App also kurz, wenn du ankommst oder gehst. Mit dem Zeitversatz kannst du die Zeit dann passend vor- oder zurückstellen. Deine Orte sieht nur du.</p>`;
+    <p class="hint">Kommst du an einem Ort an, kann die Zeiterfassung automatisch starten, beim Verlassen stoppt sie. Wichtig: Als Web-App sieht die Stempeluhr deinen Standort nur, solange sie geöffnet ist. Öffne die App also kurz, wenn du ankommst oder gehst. Mit dem Zeitversatz kannst du die Zeit dann passend vor- oder zurückstellen. Deine Orte sieht nur du, dein Geschäftsführer nicht. Der App-Support kann sie bei Problemen nur lesen.</p>`;
 }
 function locSummary(l) {
   const a = { start: 'startet', none: '' }[l.enter.act], b = { stop: 'stoppt', none: '' }[l.leave.act];
@@ -859,6 +860,7 @@ function locCollect() {
   l.leave = { act: $('#lleaveact').value, off: $('#lleaveoff').checked, shift: Math.round(num($('#lleaveshift').value)) };
 }
 function locSave() {
+  if (supportReadOnly()) return;
   const l = locDraft, i = l._i;
   locCollect();
   if (!l.name) return alert('Bitte einen Namen für den Ort eintragen.');
@@ -871,6 +873,7 @@ function locSave() {
   if (l.enter.act !== 'none' || l.leave.act !== 'none') locAsk(() => locCheck(true));
 }
 function locDel(i) {
+  if (supportReadOnly()) return;
   if (!confirm('Diesen Ort löschen?')) return;
   data.settings.locs.splice(i, 1); save(); backToTopic();
 }

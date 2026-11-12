@@ -4,12 +4,13 @@ rules_version = '2';
 //
 // data/{uid}      Zeiten, Abwesenheiten, Arbeitszeit-Einstellungen. Lesen/ändern: der Nutzer selbst
 //                 und der Chef seiner Firma, sobald er den Mitarbeiter freigegeben hat.
-// private/{uid}   Gehalt, Steuerklasse usw. Nur der Nutzer selbst.
+// private/{uid}   Gehalt, Steuerklasse, Standorte, Aussehen. Schreiben nur der Nutzer selbst, lesen zusätzlich der
+//                 Entwickler-Support (isAdmin), damit er die App 1:1 wie der Nutzer sieht. Geschäftsführer nie.
 // companies/{cid} Firma (Name, Gründer, Einladungscode, Kontakt). Lesen: Geschäftsführer und freigegebene Mitarbeiter.
 //   members/{uid} Beitrittsanfrage bzw. Mitgliedschaft (status: pending | active, role: 'boss' = weiterer Geschäftsführer).
 //   admin/{doc}   Gemeinsame Einstellungen der Geschäftsführer (Lohn-Schnittstelle, Steuernummern). Nur Geschäftsführer.
 // invites/{code}  Einladungscode → Firma. Jeder Angemeldete darf einen Code nachschlagen.
-// Entwickler (isAdmin): sieht und korrigiert alles außer private/{uid}. Neue Entwickler-UID unten eintragen
+// Entwickler (isAdmin): sieht und korrigiert alles; private/{uid} nur lesen. Neue Entwickler-UID unten eintragen
 // (Firebase-Konsole → Authentication → Nutzer-UID) und mit `firebase deploy --only firestore:rules` einspielen.
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -38,7 +39,8 @@ service cloud.firestore {
     }
 
     match /private/{uid} {
-      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if signedIn() && request.auth.uid == uid;
     }
 
     match /invites/{code} {

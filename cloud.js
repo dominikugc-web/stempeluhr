@@ -1,5 +1,5 @@
 // Login (Google oder E-Mail), Speichern in Firestore und Firmenverwaltung. Die Zeit-Oberfläche liegt in app.js.
-// Gehalts- und Steuerangaben liegen getrennt in private/{uid}, damit der Geschäftsführer sie nie sieht.
+// Gehalts- und Steuerangaben liegen getrennt in private/{uid}: der Geschäftsführer sieht sie nie, der Entwickler-Support nur lesend.
 const PRIVATE = ['jobs', 'stkl', 'zkf', 'kirche', 'kvz', 'pv', 'hourly', 'theme', 'tips', 'locs', 'payroll', 'firmPriv'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const G_ICON = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.8h3.6c2-1.9 3.2-4.7 3.2-8.1z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.8c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.9A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7H2.1a11 11 0 0 0 0 10l3.7-2.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7l3.7 2.9C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
@@ -288,7 +288,7 @@ function refreshTeam() { if (currentTopic === 'team') openTopic('team', true); e
 // ---------- tabs ----------
 function showTabs(on) { $('.tabs').hidden = !on; $('#fbbtn').hidden = !on; if (on) { updateTabs(); requestAnimationFrame(moveTabInd); if (!fbMetaUnsub) feedbackWatch(); } }
 function updateTabs() {
-  const show = { start: !viewing || viewing.preview, pay: !viewing };
+  const show = { start: !viewing || viewing.preview, pay: !viewing || asSelf() };
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab in show) b.hidden = !show[b.dataset.tab]; });
 }
 
@@ -591,17 +591,22 @@ function migrateAdminSettings(id) {
   if (Object.keys(up).length) ref(`companies/${id}/admin/settings`).set(up, { merge: true }).catch(() => {});
 }
 const saveAdmin = patch => { Object.assign(companyAdmin, patch); return ref(`companies/${company.id}/admin/settings`).set(patch, { merge: true }); };
-function viewAs(uid, name, startTab = 'cal', preview = false) {  // preview: Entwickler sieht die App wie dieser Mitarbeiter
+function viewAs(uid, name, startTab = 'cal', preview = false) {  // preview: Entwickler sieht die App wie dieser Nutzer
   viewUnsub?.(); viewUnsub = null;
   viewing = { uid, name, preview };
   tab = startTab; calView = 'week'; calDay = today();
   view.innerHTML = '<p class="center muted" style="margin-top:40vh">Lädt …</p>';
   updateTabs();
-  viewUnsub = ref('data/' + uid).onSnapshot(s => {
+  // Support-Ansicht (Entwickler „als Nutzer“): auch die privaten Einstellungen lesen, damit alles 1:1 aussieht
+  const support = preview && ADMIN_APP && isAdmin();
+  let shared, priv = null, privSeen = !support;
+  const apply = () => { if (!viewing || shared === undefined || !privSeen) return; data = shared ? merged(shared, priv) : normalize({}); refresh(); };
+  const u1 = ref('data/' + uid).onSnapshot(s => {
     if (s.metadata.hasPendingWrites || !viewing) return;
-    data = s.exists ? merged(s.data(), null) : normalize({});
-    refresh();
+    shared = s.exists ? s.data() : null; apply();
   }, e => { alert('Zeiten konnten nicht geladen werden: ' + e.message); stopViewing(); });
+  const u2 = support ? ref('private/' + uid).onSnapshot(s => { priv = s.exists ? s.data() : null; privSeen = true; apply(); }, () => { privSeen = true; apply(); }) : null;
+  viewUnsub = () => { u1(); u2?.(); };
 }
 function stopViewing() {
   viewUnsub?.(); viewUnsub = null;
@@ -683,7 +688,7 @@ function adminBar() {
     ctx = `<label class="row"><span>Nutzer</span><select onchange="setRole('as', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${asUser?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}${adminCache.companies.some(c => c.owner === u.uid) ? ' (GF)' : ''}</option>`).join('')}</select></label>`;
   const who = asUser ? (isOwner() ? `Geschäftsführer von ${esc(company?.name || '…')}` : company ? `Mitarbeiter bei ${esc(company.name)}` : 'ohne Firma') : '';
   return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Firma')}${seg('as', 'Als Nutzer')}${seg('self', 'Ich')}</div>
-    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'as' && asUser ? `<p class="hint">So sieht <b>${esc(asUser.name)}</b> die App (${who}). Stempeln ist gesperrt, Korrekturen werden gespeichert. Gehalt, Steuern, Standorte und Darstellung sind privat und hier nicht sichtbar.</p>` : ''}</div>`;
+    ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'as' && asUser ? `<p class="hint">So sieht <b>${esc(asUser.name)}</b> die App (${who}). Stempeln ist gesperrt, Korrekturen an Zeiten werden gespeichert. Private Daten (Gehalt, Steuern, Standorte, Aussehen) siehst du nur zum Lesen.</p>` : ''}</div>`;
 }
 function renderAdmin() {
   const a = adminCache;
@@ -700,7 +705,7 @@ function renderAdmin() {
   <div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
   <div id="ulist">${adminUsers()}</div>
   <button class="pill wide" onclick="adminCache = null; render(); loadAdmin()">Aktualisieren</button>
-  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Geschäftsführer zu sehen, oder auf einen Nutzer für seine Mitarbeiter-Ansicht. Gehalts- und Steuerdaten der Nutzer sind auch für Entwickler gesperrt.</p>
+  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Geschäftsführer zu sehen, oder auf einen Nutzer für seine Mitarbeiter-Ansicht. Private Daten (Gehalt, Steuern, Standorte) kannst du zur Hilfe nur lesen, nicht ändern.</p>
   <div class="group"><div class="row"><span>${esc(me.email)}</span><button class="pill sm" onclick="logout()">Abmelden</button></div></div>
   <a class="pill wide" href="${APP_URL}">Normale App öffnen</a>`;
 }

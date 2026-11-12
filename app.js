@@ -86,7 +86,7 @@ function render() {
   requestAnimationFrame(moveTabInd);
   if (tab === 'login') return renderLogin();
   if (ADMIN_APP && me && !isAdmin()) return renderNoAccess();
-  if (viewing && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'cal';
+  if (viewing && !asSelf() && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'cal';
   renderPage();
   maybeOnboard();
 }
@@ -705,19 +705,19 @@ function setupTopics() {
     [
       ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
       ['balance', '⚖️', 'Überstunden & Urlaub', `seit ${dmy(st.since)} · ${st.vacation} Urlaubstage`],
-      own && ['loc', '📍', 'Standort', (st.locs || []).filter(l => !l.arch).length ? (st.locs || []).filter(l => !l.arch).map(l => esc(l.name)).join(', ') + ' · automatisch starten/stoppen' : 'Orte für automatischen Start und Stopp'],
-      own && ['pay', '💶', 'Verdienst & Steuern', `${st.jobs.length ? st.jobs.length + (st.jobs.length === 1 ? ' Job' : ' Jobs') : 'Kein Job'} · Steuerklasse ${ROMAN[st.stkl - 1]}`],
+      mine && ['loc', '📍', 'Standort', (st.locs || []).filter(l => !l.arch).length ? (st.locs || []).filter(l => !l.arch).map(l => esc(l.name)).join(', ') + ' · automatisch starten/stoppen' : 'Orte für automatischen Start und Stopp'],
+      mine && ['pay', '💶', 'Verdienst & Steuern', `${st.jobs.length ? st.jobs.length + (st.jobs.length === 1 ? ' Job' : ' Jobs') : 'Kein Job'} · Steuerklasse ${ROMAN[st.stkl - 1]}`],
     ],
     [
       ['export', '📤', 'Export & Sicherung', 'PDF, Excel, CSV, Kalender, Backup'],
-      own && ['look', '🎨', 'Darstellung', `${(BGS[st.theme?.bg] || BGS.kaffee)[0]} · Tipps ${st.tips !== false ? 'an' : 'aus'}`],
+      mine && ['look', '🎨', 'Darstellung', `${(BGS[st.theme?.bg] || BGS.kaffee)[0]} · Tipps ${st.tips !== false ? 'an' : 'aus'}`],
       mine && ['help', '❓', 'Hilfe', 'Tutorial, Begriffe, Einführung'],
     ],
   ].map(g => g.filter(Boolean)).filter(g => g.length);
 }
 function renderSetup() {
   view.innerHTML = `<h1 class="center">Setup</h1>
-  ${viewing ? `<p class="hint center">Einstellungen von ${esc(viewing.name)}. Gehalt und Steuerdaten sind privat.</p>` : ''}
+  ${viewing && !asSelf() ? `<p class="hint center">Einstellungen von ${esc(viewing.name)}. Gehalt und Steuerdaten sind privat.</p>` : ''}
   ${setupTopics().map(g => `<div class="group">${g.map(([id, icon, title, sub]) => `<button class="row topic" onclick="openTopic('${id}')">
     <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
   ${viewing && !viewing.preview && viewing.uid !== company?.owner ? (() => { const m = members.find(x => x.uid === viewing.uid), boss = m?.role === 'boss';
@@ -765,7 +765,7 @@ function openTopic(id, keepStats) {
         <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
         <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value)))"></label>
       </div>
-      <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland. Diese Daten sieht nur du.</p>`,
+      <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland. Diese Daten sieht nur du, dein Geschäftsführer nicht. Bei Problemen kann der App-Support sie zur Hilfe einsehen, aber nicht ändern.</p>`,
     export: () => `<div class="label">PDF-Arbeitszeitnachweis</div>
       <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
       <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
@@ -825,6 +825,7 @@ function jobUpdate(typeChanged) {
   if (t === 'mini' && b > 603) $('#jhint').textContent += ` Achtung: ${eur(b)} liegt über der Minijob-Grenze.`;
 }
 function saveJob(i) {
+  if (supportReadOnly()) return;
   const j = { name: $('#jname').value.trim(), type: $('#jtype').value, brutto: num($('#jbrutto').value), since: $('#jsince').value,
     sach: num($('#jsach').value), cut: $('#jcut').checked, rvFrei: $('#jrv').checked };
   if (!(j.brutto > 0)) return alert('Bitte das Brutto pro Monat eintragen.');
@@ -832,10 +833,19 @@ function saveJob(i) {
   save(); render(); backToTopic();
 }
 function delJob(i) {
+  if (supportReadOnly()) return;
   if (!confirm('Job löschen?')) return;
   data.settings.jobs.splice(i, 1); save(); render(); backToTopic();
 }
-function setS(k, v) { data.settings[k] = v; save(); if ($('#sheet').hidden) render(); }
+function setS(k, v) {
+  if (supportReadOnly(k)) return;
+  data.settings[k] = v; save(); if ($('#sheet').hidden) render();
+}
+// Support-Ansicht: private Einstellungen nur lesen
+function supportReadOnly(k) {
+  if (!asSelf() || (k && !PRIVATE.includes(k))) return false;
+  toast('Nur lesen: private Einstellungen kann nur der Nutzer selbst ändern.'); render(); if (currentTopic) openTopic(currentTopic); return true;
+}
 function setSoll(i, el) { data.settings.soll[i] = Math.min(24, Math.max(0, +el.value || 0)); el.value = data.settings.soll[i]; save(); }
 function setBalance(el) {
   const r = el.value.trim().replace('−', '-').match(/^([+-]?)(\d+)(?::(\d{1,2}))?$/);
