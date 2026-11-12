@@ -168,15 +168,17 @@ const haptic = (() => {
 // Wischen nach links/rechts irgendwo auf dem Bildschirm wechselt zum Nachbarfeld der Menüleiste.
 (function pageSwipe() {
   const nav = $('.tabs');
-  let s = null;
+  let s = null, raf = 0;
   const tabsList = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden).map(b => b.dataset.tab);
   const blocked = el => el.closest('input,select,textarea,.tabs,[data-noswipe]') || [...(function* () { for (let e = el; e && e !== view; e = e.parentElement) yield e; })()]
     .some(e => e.scrollWidth > e.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(e).overflowX));
+  const setX = x => { view.style.transform = x ? `translate3d(${x}px,0,0)` : ''; };
   view.addEventListener('touchstart', e => {
     s = null;
     if (e.touches.length !== 1 || nav.hidden || !$('#sheet').hidden || blocked(e.target)) return;
     const t = e.touches[0];
-    s = { x: t.clientX, y: t.clientY, t: e.timeStamp, dir: 0 };
+    view.getAnimations?.().forEach(a => a.finish());
+    s = { x: t.clientX, y: t.clientY, dir: 0, dx: 0, lx: t.clientX, lt: e.timeStamp, v: 0 };
   }, { passive: true });
   view.addEventListener('touchmove', e => {
     if (!s) return;
@@ -184,27 +186,39 @@ const haptic = (() => {
     if (!s.dir) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       s.dir = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'h' : 'v';
+      if (s.dir === 'h') { s.x = t.clientX; view.style.transition = 'none'; view.style.willChange = 'transform'; }
     }
     if (s.dir !== 'h') return;
     e.preventDefault();
-    const list = tabsList(), i = list.indexOf(tab), edge = (dx > 0 && i <= 0) || (dx < 0 && i >= list.length - 1);
-    s.dx = dx;
-    view.style.transition = 'none';
-    view.style.transform = `translateX(${dx * (edge ? 0.12 : 0.35)}px)`;
-    view.style.opacity = 1 - Math.min(0.35, Math.abs(dx) / 900);
+    // Geschwindigkeit aus den letzten Bewegungen (für schnelle kurze Wischer)
+    const dt = e.timeStamp - s.lt;
+    if (dt > 0) s.v = 0.6 * ((t.clientX - s.lx) / dt) + 0.4 * s.v;
+    s.lx = t.clientX; s.lt = e.timeStamp;
+    s.dx = t.clientX - s.x;
+    const list = tabsList(), i = list.indexOf(tab), edge = (s.dx > 0 && i <= 0) || (s.dx < 0 && i >= list.length - 1);
+    // Am Rand gedämpft wie ein Gummiband, sonst folgt die Seite dem Finger
+    const x = edge ? s.dx / (1 + Math.abs(s.dx) / 60) : s.dx * 0.55;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (s) setX(x); });
   }, { passive: false });
   const done = e => {
     if (!s) return;
     const st = s; s = null;
+    cancelAnimationFrame(raf); raf = 0;
     if (st.dir !== 'h') return;
-    const dx = st.dx || 0, v = Math.abs(dx) / Math.max(1, e.timeStamp - st.t);
-    const list = tabsList(), i = list.indexOf(tab), j = i + (dx < 0 ? 1 : -1);
-    const reset = () => { view.style.transition = 'transform .3s cubic-bezier(.3,1.4,.5,1),opacity .2s'; view.style.transform = ''; view.style.opacity = ''; };
-    if (e.type === 'touchcancel' || (Math.abs(dx) < 70 && v < 0.45) || i < 0 || j < 0 || j >= list.length) return reset();
-    view.style.transition = 'none'; view.style.transform = ''; view.style.opacity = '';
+    const dx = st.dx, list = tabsList(), i = list.indexOf(tab), j = i + (dx < 0 ? 1 : -1);
+    const flick = Math.abs(st.v) > 0.35 && Math.sign(st.v) === Math.sign(dx);
+    const from = view.style.transform;
+    view.style.willChange = '';
+    if (e.type === 'touchcancel' || (Math.abs(dx) < 70 && !flick) || i < 0 || j < 0 || j >= list.length) {
+      setX(0);
+      if (from && view.animate) { const a = view.animate([{ transform: from }, { transform: 'translate3d(0,0,0)' }], { duration: 380, easing: 'cubic-bezier(.25,1.3,.5,1)' }); setTimeout(() => a.finish(), 500); }
+      return;
+    }
+    setX(0);
     haptic(); go(list[j]);
-    const a = view.animate?.([{ transform: `translateX(${dx < 0 ? 60 : -60}px)`, opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1)' });
-    if (a) setTimeout(() => a.finish(), 400);   // Sicherung, falls die Animation angehalten wird
+    // Neue Seite gleitet aus der Wischrichtung herein
+    const w = Math.min(innerWidth * 0.32, 140) * (dx < 0 ? 1 : -1);
+    if (view.animate) { const a = view.animate([{ transform: `translate3d(${w}px,0,0)`, opacity: 0.5 }, { transform: 'translate3d(0,0,0)', opacity: 1 }], { duration: 340, easing: 'cubic-bezier(.22,1,.36,1)' }); setTimeout(() => a.finish(), 500); }
   };
   view.addEventListener('touchend', done);
   view.addEventListener('touchcancel', done);
