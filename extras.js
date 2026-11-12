@@ -568,9 +568,10 @@ function locSummary(l) {
   const a = { start: 'startet', none: '' }[l.enter.act], b = { stop: 'stoppt', none: '' }[l.leave.act];
   return `${l.r} m Umkreis${a || b ? ' · ' + [a && 'Ankommen ' + a, b && 'Gehen ' + b].filter(Boolean).join(', ') : ''}`;
 }
-function locForm(i) {
-  const l = locDraft = JSON.parse(JSON.stringify(i == null ? locNew() : data.settings.locs[i]));
-  l._i = i ?? -1;
+function locForm(i, keep) {
+  const l = keep ? locDraft : (locDraft = JSON.parse(JSON.stringify(i == null ? locNew() : data.settings.locs[i])));
+  if (!keep) l._i = i ?? -1;
+  i = l._i < 0 ? null : l._i;
   const sw = (id, on) => `<input id="${id}" type="checkbox" switch ${on ? 'checked' : ''}>`;
   const act = (k, opts) => `<select id="l${k}act">${Object.entries(opts).map(([v, t]) => `<option value="${v}" ${l[k].act === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
   sheet(`<div class="sheet-head"><button class="pill sm" onclick="backToTopic()">‹ Standort</button><button class="pill sm green" onclick="locSave()">Speichern</button></div>
@@ -578,13 +579,7 @@ function locForm(i) {
   <div class="label">Name des Ortes</div>
   <div class="group"><label class="row"><input id="lname" style="max-width:none;flex:1" value="${esc(l.name)}" placeholder="z. B. Büro"></label></div>
   <div class="label">Ort</div>
-  <div class="group">
-    <div class="row"><span id="lpos" class="${l.lat == null ? 'muted' : ''}">${locPosText(l)}</span></div>
-    <button class="row" onclick="locHere()"><span>📍 Aktuellen Standort übernehmen</span><span class="muted">›</span></button>
-    <label class="row"><input id="laddr" style="max-width:none;flex:1" placeholder="Adresse suchen" onkeydown="event.key === 'Enter' && locSearch()"><button class="pill sm" onclick="locSearch()">Suchen</button></label>
-    <label class="row"><span>Umkreis</span><select id="lr">${LOC_R.map(r => `<option value="${r}" ${+l.r === r ? 'selected' : ''}>${r} m</option>`).join('')}</select></label>
-  </div>
-  <p class="hint">Die Adresssuche fragt OpenStreetMap. Im Umkreis um diesen Punkt giltst du als „angekommen“.</p>
+  <div class="group"><button class="row" onclick="locPick()"><span id="lpos" class="${l.lat == null ? 'muted' : ''}" style="text-align:left">${l.lat == null ? 'Wähle einen Ort' : locPosText(l) + `<div class="muted small">Umkreis ${l.r} m</div>`}</span><span class="muted">›</span></button></div>
   <div class="group"><label class="row"><span>Farbe</span><input id="lcolor" type="color" value="${esc(l.color)}" class="colorpick"></label></div>
   <div class="label">Standardort</div>
   <div class="group"><label class="row"><span>Als Standardort verwenden</span>${sw('ldef', l.def)}</label></div>
@@ -616,45 +611,127 @@ function locForm(i) {
   <p class="hint">Beide Aktionen werden nur ausgeführt, wenn die Zeit in diesem Zeitraum liegt.</p>
   ${i == null ? '' : `<button class="big redbtn" onclick="locDel(${i})">Löschen</button>`}`);
 }
-function locPosText(l) { return l.lat == null ? 'Noch kein Ort gewählt' : `${l.addr ? esc(l.addr) + ' · ' : ''}${l.lat.toFixed(5)}, ${l.lng.toFixed(5)} <a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lng}#map=17/${l.lat}/${l.lng}" target="_blank" rel="noopener">Karte</a>`; }
-function locSetPos(lat, lng, addr) {
-  Object.assign(locDraft, { lat, lng, addr: addr || '' });
-  const el = $('#lpos'); if (el) { el.innerHTML = locPosText(locDraft); el.classList.remove('muted'); }
-}
-function locHere() {
-  if (!navigator.geolocation) return alert('Dein Gerät gibt keinen Standort heraus.');
-  $('#lpos').textContent = 'Standort wird ermittelt …';
-  navigator.geolocation.getCurrentPosition(p => locSetPos(p.coords.latitude, p.coords.longitude, `±${Math.round(p.coords.accuracy)} m genau`),
-    e => { $('#lpos').textContent = 'Kein Standort: ' + (e.code === 1 ? 'Zugriff nicht erlaubt (iPhone: Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites).' : 'nicht gefunden, bitte nochmal.'); },
-    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
-}
-async function locSearch() {
-  const q = $('#laddr').value.trim(); if (!q) return;
-  $('#lpos').textContent = 'Suche …';
-  try {
-    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=de,at,ch&q=' + encodeURIComponent(q), { headers: { 'Accept-Language': 'de' } });
-    const [hit] = await r.json();
-    if (!hit) { $('#lpos').textContent = 'Adresse nicht gefunden.'; return; }
-    locSetPos(+hit.lat, +hit.lon, hit.display_name.split(',').slice(0, 3).join(','));
-  } catch (e) { $('#lpos').textContent = 'Suche fehlgeschlagen (Internet?).'; }
-}
-function locSave() {
-  const l = locDraft, i = l._i;
-  Object.assign(l, { name: $('#lname').value.trim(), r: +$('#lr').value, color: $('#lcolor').value, def: $('#ldef').checked, arch: $('#larch').checked,
+function locPosText(l) { return l.lat == null ? 'Noch kein Ort gewählt' : esc(l.addr || `${l.lat.toFixed(5)}, ${l.lng.toFixed(5)}`); }
+// Formularwerte in den Entwurf übernehmen (vor dem Wechsel in die Ortswahl und beim Speichern)
+function locCollect() {
+  const l = locDraft;
+  Object.assign(l, { name: $('#lname').value.trim(), color: $('#lcolor').value, def: $('#ldef').checked, arch: $('#larch').checked,
     minLen: Math.max(0, Math.round(num($('#lmin').value))), from: $('#lfrom').value || '00:00', to: $('#lto').value || '23:59' });
   l.enter = { act: $('#lenteract').value, off: $('#lenteroff').checked, shift: Math.round(num($('#lentershift').value)) };
   l.leave = { act: $('#lleaveact').value, off: $('#lleaveoff').checked, shift: Math.round(num($('#lleaveshift').value)) };
+}
+function locSave() {
+  const l = locDraft, i = l._i;
+  locCollect();
   if (!l.name) return alert('Bitte einen Namen für den Ort eintragen.');
   if (l.lat == null) return alert('Bitte den Ort festlegen: aktuellen Standort übernehmen oder Adresse suchen.');
   delete l._i;
   const L = data.settings.locs ||= [];
   if (l.def) L.forEach(x => { x.def = false; });
   if (i < 0) L.push(l); else L[i] = l;
-  save(); locDraft = null; backToTopic(); locCheck(true);
+  save(); locDraft = null; backToTopic();
+  if (l.enter.act !== 'none' || l.leave.act !== 'none') locAsk(() => locCheck(true));
 }
 function locDel(i) {
   if (!confirm('Diesen Ort löschen?')) return;
   data.settings.locs.splice(i, 1); save(); backToTopic();
+}
+
+// ----- Erlaubnis für den Standort -----
+// Erst unsere Erklärung, dann fragt das iPhone selbst („… möchte deinen Standort verwenden“).
+async function locPerm() { try { return (await navigator.permissions.query({ name: 'geolocation' })).state; } catch (e) { return 'unknown'; } }
+async function locAsk(then) {
+  if (!navigator.geolocation) return alert('Dein Gerät gibt keinen Standort heraus.');
+  const st = await locPerm();
+  if (st === 'granted') return then();
+  document.querySelector('.ask')?.remove();
+  const d = document.createElement('div'); d.className = 'ask';
+  d.innerHTML = st === 'denied'
+    ? `<div class="askcard"><div class="askicon">📍</div><h3>Standort ist gesperrt</h3>
+       <p>Du hast der Stempeluhr den Standort nicht erlaubt. So schaltest du ihn frei:<br><b>Einstellungen → Datenschutz & Sicherheit → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“</b><br>Danach die App einmal schließen und neu öffnen.</p>
+       <button class="pill wide" onclick="this.closest('.ask').remove()">Verstanden</button></div>`
+    : `<div class="askcard"><div class="askicon">📍</div><h3>Darf die Stempeluhr deinen Standort verwenden?</h3>
+       <p>Damit kann die Zeiterfassung starten, wenn du an deinem Arbeitsort ankommst, und stoppen, wenn du gehst. Dein Standort wird nur auf deinem Handy geprüft und nicht gespeichert, nur der Ort, den du festlegst.</p>
+       <p class="muted small">Gleich fragt dein iPhone nach. Wähle dort „Erlauben“ bzw. „Beim Verwenden der App erlauben“.</p>
+       <button class="big" id="askok">Weiter</button>
+       <button class="pill wide" onclick="this.closest('.ask').remove()">Nicht jetzt</button></div>`;
+  document.body.appendChild(d);
+  const ok = d.querySelector('#askok');
+  if (ok) ok.onclick = () => { d.remove(); then(); };
+}
+function locHere(cb) {
+  locAsk(() => {
+    toast('📍 Standort wird ermittelt …');
+    navigator.geolocation.getCurrentPosition(p => cb(p.coords),
+      e => e.code === 1 ? locAsk(() => {}) : alert('Standort nicht gefunden. Bitte nochmal versuchen, am besten draußen oder mit WLAN an.'),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+}
+
+// ----- „Wähle einen Ort“: Suche, aktueller Standort, Karte mit Umkreis -----
+const LEAFLET = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
+let locMap = null, locSat = true;
+function locPick() { locCollect(); locPickView(); }
+function locPickView(results) {
+  const l = locDraft, has = l.lat != null;
+  if (locMap) { locMap.remove(); locMap = null; }
+  sheet(`<div class="sheet-head"><button class="pill sm backbtn" onclick="locPickBack()" aria-label="Zurück">‹</button><h2 class="pick-title">Wähle einen Ort</h2>
+      ${has ? `<span style="display:flex;gap:8px"><button class="pill sm red" onclick="locPickClear()" aria-label="Ort entfernen">🗑</button><button class="pill sm green" onclick="locPickSave()">Speichern</button></span>` : '<span></span>'}</div>
+    <div class="locsearch"><input id="lq" placeholder="Suche einen Ort" enterkeyhint="search" onkeydown="event.key === 'Enter' && locFind()"><button class="pill sm sel" onclick="locFind()">Suche</button></div>
+    <div id="lres">${(results || []).map((h, i) => `<button class="row card locres" onclick="locChoose(${i})"><span class="locpin">📍</span><span class="tt"><b>${esc(h.title)}</b><span class="muted small">${esc(h.sub)}</span></span></button>`).join('')}</div>
+    ${has ? `<div class="mapwrap"><div id="lmap"></div><div class="mappin"></div></div>
+      <div class="radrow"><input type="range" id="lrad" min="50" max="1000" step="25" value="${l.r}" oninput="locRadius(+this.value)"><span id="lradt">Radius ${l.r} m</span>
+      <button class="pill sm" onclick="locLayer()" aria-label="Kartenart">🗺</button></div>
+      <p class="hint">Verschiebe die Karte, bis der Punkt auf deinem Arbeitsort liegt. Der Kreis zeigt, ab wann du als „angekommen“ giltst.</p>`
+    : `<button class="big locnow" onclick="locHere(c => { locDraft.lat = c.latitude; locDraft.lng = c.longitude; locDraft.addr = ''; locPickView(); })">Aktueller Standort</button>`}`);
+  locPickResults = results || [];
+  if (has) locMapInit();
+}
+let locPickResults = [];
+async function locFind() {
+  const q = $('#lq').value.trim(); if (!q) return;
+  $('#lres').innerHTML = '<p class="hint center">Suche …</p>';
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=de,at,ch&q=' + encodeURIComponent(q), { headers: { 'Accept-Language': 'de' } });
+    const hits = (await r.json()).map(h => {
+      const a = h.address || {}, street = [a.road || a.pedestrian || a.hamlet, a.house_number].filter(Boolean).join(' ');
+      return { lat: +h.lat, lng: +h.lon, title: street || h.name || h.display_name.split(',')[0], sub: [a.postcode, a.village || a.town || a.city || a.municipality].filter(Boolean).join(' ') || h.display_name.split(',').slice(1, 3).join(',') };
+    });
+    if (!hits.length) { $('#lres').innerHTML = '<p class="hint center">Nichts gefunden. Versuch es mit Straße, Hausnummer und Ort.</p>'; return; }
+    const keep = $('#lq').value; locPickView(hits); $('#lq').value = keep;
+  } catch (e) { $('#lres').innerHTML = '<p class="hint center">Suche fehlgeschlagen (Internet?).</p>'; }
+}
+function locChoose(i) { const h = locPickResults[i]; Object.assign(locDraft, { lat: h.lat, lng: h.lng, addr: [h.title, h.sub].filter(Boolean).join(', ') }); locPickView(); }
+function locPickClear() { Object.assign(locDraft, { lat: null, lng: null, addr: '' }); locPickView(); }
+function locPickBack() { if (locMap) { locMap.remove(); locMap = null; } locForm(null, true); }
+function locPickSave() {
+  if (locMap) { const c = locMap.getCenter(), moved = distM(c.lat, c.lng, locDraft.lat, locDraft.lng) > 5; locDraft.lat = c.lat; locDraft.lng = c.lng; if (moved) locDraft.addr = ''; }
+  locPickBack();
+}
+async function locMapInit() {
+  try {
+    if (!window.L) {
+      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = LEAFLET + 'leaflet.min.css'; document.head.appendChild(css);
+      await loadScript(LEAFLET + 'leaflet.min.js');
+    }
+  } catch (e) { $('#lmap').innerHTML = '<p class="hint center" style="padding-top:40%">Karte konnte nicht geladen werden (Internet?).</p>'; return; }
+  const el = $('#lmap'); if (!el) return;
+  const l = locDraft, c = [l.lat, l.lng];
+  locMap = L.map(el, { zoomControl: false, attributionControl: true }).setView(c, 17);
+  locMap._tiles = locTiles().addTo(locMap);
+  locMap._circle = L.circle(c, { radius: l.r, color: '#8cc63f', weight: 2, fillColor: '#8cc63f', fillOpacity: 0.35, interactive: false }).addTo(locMap);
+  locMap.on('move', () => locMap._circle.setLatLng(locMap.getCenter()));
+  locMap.fitBounds(locMap._circle.getBounds(), { padding: [30, 30] });
+}
+function locTiles() {
+  return locSat
+    ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Esri, Maxar' })
+    : L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+}
+function locLayer() { if (!locMap) return; locSat = !locSat; locMap.removeLayer(locMap._tiles); locMap._tiles = locTiles().addTo(locMap); }
+function locRadius(r) {
+  locDraft.r = r; $('#lradt').textContent = `Radius ${r} m`;
+  if (locMap) { locMap._circle.setRadius(r); }
 }
 
 // Automatik
@@ -668,8 +745,9 @@ function distM(a, b, c, d) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 let locBusy = false;
-function locCheck(force) {
+async function locCheck(force) {
   if (locBusy || !me || viewing || ADMIN_APP || document.hidden || !own.ready || !navigator.geolocation || !locActive().length) return;
+  if (!force && (await locPerm()) === 'prompt') return;   // ohne Erlaubnis nicht ungefragt nachfragen
   locBusy = true;
   navigator.geolocation.getCurrentPosition(p => { locBusy = false; locApply(p.coords); }, () => { locBusy = false; },
     { enableHighAccuracy: true, timeout: 20000, maximumAge: force ? 0 : 60000 });
