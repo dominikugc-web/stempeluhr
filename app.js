@@ -24,7 +24,7 @@ let edit = null;
 function normalize(d) {
   const def = { name: '', soll: [0, 8, 8, 8, 8, 8, 0], pause: 30, state: '', startBalance: 0, since: today(), vacation: 30,
     jobs: [], stkl: 1, zkf: 0, kirche: false, kvz: 2.9, pv: 'z', hourly: 0, otCap: 0,
-    plans: [], round: { step: 0, mode: 'nearest' }, onboarded: true, theme: {}, tips: true };
+    plans: [], round: { step: 0, mode: 'nearest' }, onboarded: true, theme: {}, tips: true, locs: [] };
   return {
     sessions: (d.sessions || []).filter(x => typeof x.s === 'number'),
     absences: d.absences || [],
@@ -348,7 +348,8 @@ function updateStart() {
 function toggle() {
   if (viewing) return alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du im Kalender.');
   const run = data.sessions.find(x => x.e == null);
-  if (run) run.e = Date.now(); else data.sessions.push({ s: Date.now(), e: null });
+  const defLoc = (data.settings.locs || []).find(l => l.def && !l.arch);
+  if (run) run.e = Date.now(); else data.sessions.push({ s: Date.now(), e: null, ...(defLoc ? { loc: defLoc.id } : {}) });
   save(); updateStart();
 }
 
@@ -694,6 +695,7 @@ function setupTopics() {
     [
       ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
       ['balance', '⚖️', 'Überstunden & Urlaub', `seit ${dmy(st.since)} · ${st.vacation} Urlaubstage`],
+      own && ['loc', '📍', 'Standort', (st.locs || []).filter(l => !l.arch).length ? (st.locs || []).filter(l => !l.arch).map(l => esc(l.name)).join(', ') + ' · automatisch starten/stoppen' : 'Orte für automatischen Start und Stopp'],
       own && ['pay', '💶', 'Verdienst & Steuern', `${st.jobs.length ? st.jobs.length + (st.jobs.length === 1 ? ' Job' : ' Jobs') : 'Kein Job'} · Steuerklasse ${ROMAN[st.stkl - 1]}`],
     ],
     [
@@ -710,12 +712,13 @@ function renderSetup() {
     <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
   ${viewing && !viewing.preview ? `<button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>` : ''}`;
 }
-const TOPIC_TITLE = { account: 'Konto & Firma', team: 'Team', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
+const TOPIC_TITLE = { account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {
   const st = data.settings, now = new Date();
   const body = {
     account: () => accountHtml(),
     team: () => teamHtml(),
+    loc: () => locListHtml(),
     work: () => `<div class="group">
         <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
         <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>

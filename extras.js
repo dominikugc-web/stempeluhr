@@ -547,3 +547,170 @@ function takeFerien(i) {
   data.absences.push({ id: Date.now().toString(36), type: 'urlaub', from: f.from, to: f.to, hours: 0, comment: f.name });
   save(); render(); openFerien();
 }
+
+// ---------- Standort: Orte mit automatischem Start/Stopp ----------
+// Hinweis: Eine Web-App bekommt den Standort nur, solange sie geöffnet ist. Geprüft wird beim Öffnen,
+// beim Zurückkehren in die App und alle 2 Minuten, solange sie offen ist. Die Koordinaten sind privat.
+const LOC_R = [75, 100, 150, 250, 500];
+const locNew = () => ({ id: Date.now().toString(36), name: '', lat: null, lng: null, r: 150, color: '#0083ff', def: false, arch: false, minLen: 0,
+  enter: { act: 'start', off: false, shift: 0 }, leave: { act: 'stop', off: false, shift: 0 }, from: '00:00', to: '23:59' });
+let locDraft = null;
+function locListHtml() {
+  const L = data.settings.locs || [];
+  return `${L.length ? `<div class="group">${L.map((l, i) => `<button class="row" onclick="locForm(${i})">
+      <span style="display:flex;align-items:center;gap:12px"><span class="locdot" style="background:${esc(l.color)}"></span>
+      <span>${esc(l.name || 'Ohne Namen')}${l.def ? ' <span class="muted small">· Standard</span>' : ''}<div class="muted small">${l.arch ? 'Archiviert' : l.lat == null ? 'Kein Ort gewählt' : locSummary(l)}</div></span></span>
+      <span class="muted">›</span></button>`).join('')}</div>` : ''}
+    <button class="pill wide" onclick="locForm()">+ Ort hinzufügen</button>
+    <p class="hint">Kommst du an einem Ort an, kann die Zeiterfassung automatisch starten, beim Verlassen stoppt sie. Wichtig: Als Web-App sieht die Stempeluhr deinen Standort nur, solange sie geöffnet ist. Öffne die App also kurz, wenn du ankommst oder gehst. Mit dem Zeitversatz kannst du die Zeit dann passend vor- oder zurückstellen. Deine Orte sieht nur du.</p>`;
+}
+function locSummary(l) {
+  const a = { start: 'startet', none: '' }[l.enter.act], b = { stop: 'stoppt', none: '' }[l.leave.act];
+  return `${l.r} m Umkreis${a || b ? ' · ' + [a && 'Ankommen ' + a, b && 'Gehen ' + b].filter(Boolean).join(', ') : ''}`;
+}
+function locForm(i) {
+  const l = locDraft = JSON.parse(JSON.stringify(i == null ? locNew() : data.settings.locs[i]));
+  l._i = i ?? -1;
+  const sw = (id, on) => `<input id="${id}" type="checkbox" switch ${on ? 'checked' : ''}>`;
+  const act = (k, opts) => `<select id="l${k}act">${Object.entries(opts).map(([v, t]) => `<option value="${v}" ${l[k].act === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="backToTopic()">‹ Standort</button><button class="pill sm green" onclick="locSave()">Speichern</button></div>
+  <h2>${i == null ? 'Neuer Ort' : 'Ort bearbeiten'}</h2>
+  <div class="label">Name des Ortes</div>
+  <div class="group"><label class="row"><input id="lname" style="max-width:none;flex:1" value="${esc(l.name)}" placeholder="z. B. Büro"></label></div>
+  <div class="label">Ort</div>
+  <div class="group">
+    <div class="row"><span id="lpos" class="${l.lat == null ? 'muted' : ''}">${locPosText(l)}</span></div>
+    <button class="row" onclick="locHere()"><span>📍 Aktuellen Standort übernehmen</span><span class="muted">›</span></button>
+    <label class="row"><input id="laddr" style="max-width:none;flex:1" placeholder="Adresse suchen" onkeydown="event.key === 'Enter' && locSearch()"><button class="pill sm" onclick="locSearch()">Suchen</button></label>
+    <label class="row"><span>Umkreis</span><select id="lr">${LOC_R.map(r => `<option value="${r}" ${+l.r === r ? 'selected' : ''}>${r} m</option>`).join('')}</select></label>
+  </div>
+  <p class="hint">Die Adresssuche fragt OpenStreetMap. Im Umkreis um diesen Punkt giltst du als „angekommen“.</p>
+  <div class="group"><label class="row"><span>Farbe</span><input id="lcolor" type="color" value="${esc(l.color)}" class="colorpick"></label></div>
+  <div class="label">Standardort</div>
+  <div class="group"><label class="row"><span>Als Standardort verwenden</span>${sw('ldef', l.def)}</label></div>
+  <p class="hint">Zeiten, die du von Hand startest, werden diesem Ort zugeordnet.</p>
+  <div class="label">Archiviert</div>
+  <div class="group"><label class="row"><span>Ist archiviert</span>${sw('larch', l.arch)}</label></div>
+  <div class="label">Minimale Timerlänge</div>
+  <div class="group"><label class="row"><span>Timerlänge in Minuten</span><input id="lmin" class="short" type="number" inputmode="numeric" min="0" placeholder="0" value="${l.minLen || ''}"></label></div>
+  <p class="hint">Bei z. B. 5 werden automatische Zeiteinträge, die kürzer als 5 Minuten sind, gelöscht.</p>
+  <div class="label">Aktion beim Ankommen</div>
+  <div class="group">
+    <label class="row"><span>Aktion</span>${act('enter', { start: 'Zeiteintrag starten', none: 'Nichts tun' })}</label>
+    <label class="row"><span>Auch an arbeitsfreien Tagen</span>${sw('lenteroff', l.enter.off)}</label>
+    <label class="row"><span>Zeitversatz in Minuten</span><input id="lentershift" class="short" inputmode="numeric" placeholder="0" value="${l.enter.shift || ''}"></label>
+  </div>
+  <p class="hint">Bei 5 wird die Zeit um fünf Minuten nach vorne gesetzt, bei -5 um fünf Minuten zurück. Praktisch, wenn du die App erst etwas später öffnest.</p>
+  <div class="label">Aktion beim Verlassen</div>
+  <div class="group">
+    <label class="row"><span>Aktion</span>${act('leave', { stop: 'Zeiteintrag stoppen', none: 'Nichts tun' })}</label>
+    <label class="row"><span>Auch an arbeitsfreien Tagen</span>${sw('lleaveoff', l.leave.off)}</label>
+    <label class="row"><span>Zeitversatz in Minuten</span><input id="lleaveshift" class="short" inputmode="numeric" placeholder="0" value="${l.leave.shift || ''}"></label>
+  </div>
+  <p class="hint">Bei -10 wird als Ende zehn Minuten vor dem Moment eingetragen, in dem die App merkt, dass du weg bist.</p>
+  <div class="label">Erlaubter Zeitraum</div>
+  <div class="group">
+    <label class="row"><span>Prüft ab Uhrzeit</span><input id="lfrom" type="time" value="${l.from}"></label>
+    <label class="row"><span>Prüft bis Uhrzeit</span><input id="lto" type="time" value="${l.to}"></label>
+  </div>
+  <p class="hint">Beide Aktionen werden nur ausgeführt, wenn die Zeit in diesem Zeitraum liegt.</p>
+  ${i == null ? '' : `<button class="big redbtn" onclick="locDel(${i})">Löschen</button>`}`);
+}
+function locPosText(l) { return l.lat == null ? 'Noch kein Ort gewählt' : `${l.addr ? esc(l.addr) + ' · ' : ''}${l.lat.toFixed(5)}, ${l.lng.toFixed(5)} <a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lng}#map=17/${l.lat}/${l.lng}" target="_blank" rel="noopener">Karte</a>`; }
+function locSetPos(lat, lng, addr) {
+  Object.assign(locDraft, { lat, lng, addr: addr || '' });
+  const el = $('#lpos'); if (el) { el.innerHTML = locPosText(locDraft); el.classList.remove('muted'); }
+}
+function locHere() {
+  if (!navigator.geolocation) return alert('Dein Gerät gibt keinen Standort heraus.');
+  $('#lpos').textContent = 'Standort wird ermittelt …';
+  navigator.geolocation.getCurrentPosition(p => locSetPos(p.coords.latitude, p.coords.longitude, `±${Math.round(p.coords.accuracy)} m genau`),
+    e => { $('#lpos').textContent = 'Kein Standort: ' + (e.code === 1 ? 'Zugriff nicht erlaubt (iPhone: Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites).' : 'nicht gefunden, bitte nochmal.'); },
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+}
+async function locSearch() {
+  const q = $('#laddr').value.trim(); if (!q) return;
+  $('#lpos').textContent = 'Suche …';
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=de,at,ch&q=' + encodeURIComponent(q), { headers: { 'Accept-Language': 'de' } });
+    const [hit] = await r.json();
+    if (!hit) { $('#lpos').textContent = 'Adresse nicht gefunden.'; return; }
+    locSetPos(+hit.lat, +hit.lon, hit.display_name.split(',').slice(0, 3).join(','));
+  } catch (e) { $('#lpos').textContent = 'Suche fehlgeschlagen (Internet?).'; }
+}
+function locSave() {
+  const l = locDraft, i = l._i;
+  Object.assign(l, { name: $('#lname').value.trim(), r: +$('#lr').value, color: $('#lcolor').value, def: $('#ldef').checked, arch: $('#larch').checked,
+    minLen: Math.max(0, Math.round(num($('#lmin').value))), from: $('#lfrom').value || '00:00', to: $('#lto').value || '23:59' });
+  l.enter = { act: $('#lenteract').value, off: $('#lenteroff').checked, shift: Math.round(num($('#lentershift').value)) };
+  l.leave = { act: $('#lleaveact').value, off: $('#lleaveoff').checked, shift: Math.round(num($('#lleaveshift').value)) };
+  if (!l.name) return alert('Bitte einen Namen für den Ort eintragen.');
+  if (l.lat == null) return alert('Bitte den Ort festlegen: aktuellen Standort übernehmen oder Adresse suchen.');
+  delete l._i;
+  const L = data.settings.locs ||= [];
+  if (l.def) L.forEach(x => { x.def = false; });
+  if (i < 0) L.push(l); else L[i] = l;
+  save(); locDraft = null; backToTopic(); locCheck(true);
+}
+function locDel(i) {
+  if (!confirm('Diesen Ort löschen?')) return;
+  data.settings.locs.splice(i, 1); save(); backToTopic();
+}
+
+// Automatik
+const locStateKey = () => 'stempeluhr-locstate-' + (me?.uid || '');
+function locState() { try { return JSON.parse(localStorage.getItem(locStateKey())) || {}; } catch (e) { return {}; } }
+function locStateSave(s) { try { localStorage.setItem(locStateKey(), JSON.stringify(s)); } catch (e) { } }
+const locActive = () => (data.settings.locs || []).filter(l => !l.arch && l.lat != null && (l.enter.act !== 'none' || l.leave.act !== 'none'));
+function distM(a, b, c, d) {
+  const R = 6371000, r = Math.PI / 180, x = (c - a) * r, y = (d - b) * r;
+  const h = Math.sin(x / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin(y / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+let locBusy = false;
+function locCheck(force) {
+  if (locBusy || !me || viewing || ADMIN_APP || document.hidden || !own.ready || !navigator.geolocation || !locActive().length) return;
+  locBusy = true;
+  navigator.geolocation.getCurrentPosition(p => { locBusy = false; locApply(p.coords); }, () => { locBusy = false; },
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: force ? 0 : 60000 });
+}
+function locApply(c) {
+  if (c.accuracy > 300) return;   // zu ungenau, lieber nichts tun
+  const st = locState();
+  for (const l of locActive()) {
+    const inside = distM(c.latitude, c.longitude, l.lat, l.lng) <= l.r + Math.min(c.accuracy, 50);
+    const prev = st[l.id];
+    st[l.id] = inside;
+    if (inside && prev !== true) locEvent(l, 'enter');
+    else if (!inside && prev === true) locEvent(l, 'leave');
+  }
+  locStateSave(st);
+}
+function locEvent(l, kind) {
+  const a = l[kind]; if (!a || a.act === 'none') return;
+  const now = new Date(), hhmm = pad(now.getHours()) + ':' + pad(now.getMinutes());
+  const inWindow = l.from <= l.to ? hhmm >= l.from && hhmm <= l.to : hhmm >= l.from || hhmm <= l.to;
+  if (!inWindow) return;
+  const d = calc().day(today());
+  if (!a.off && (!d.workday || (d.absence && d.absence.type !== 'reduzierung'))) return;
+  const t = Date.now() + (a.shift || 0) * MIN, run = data.sessions.find(x => x.e == null);
+  if (kind === 'enter' && a.act === 'start') {
+    if (run) return;
+    data.sessions.push({ s: Math.min(t, Date.now()), e: null, loc: l.id, auto: 1 });
+    save(); render(); toast(`📍 ${l.name}: Zeiterfassung gestartet${a.shift ? ` (${a.shift > 0 ? '+' : ''}${a.shift} Min.)` : ''}`);
+  }
+  if (kind === 'leave' && a.act === 'stop') {
+    if (!run) return;
+    run.e = Math.max(run.s, Math.min(t, Date.now() + 0));
+    if (l.minLen && run.auto && run.e - run.s < l.minLen * MIN) {
+      data.sessions.splice(data.sessions.indexOf(run), 1);
+      save(); render(); toast(`📍 ${l.name}: Eintrag unter ${l.minLen} Min. verworfen`);
+    } else { save(); render(); toast(`📍 ${l.name}: Zeiterfassung gestoppt`); }
+  }
+}
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.classList.add('out'), 3200); setTimeout(() => t.remove(), 3700);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(locCheck, 800); });
+setInterval(locCheck, 120000);
