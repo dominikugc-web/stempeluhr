@@ -92,7 +92,8 @@ function moveTabInd() {
   ind.style.transform = `translateX(${x}px)`; ind.style.width = w + 'px';
   if (!isNaN(from) && from !== x && ind.animate) {
     const k = Math.min(1.45, 1 + Math.abs(x - from) / 500);
-    ind.animate([{ scale: '1 1' }, { scale: `${k} .86`, offset: .35 }, { scale: '.96 1.04', offset: .7 }, { scale: '1 1' }], { duration: 500, easing: 'ease-out' });
+    const a = ind.animate([{ scale: '1 1' }, { scale: `${k} .86`, offset: .35 }, { scale: '.96 1.04', offset: .7 }, { scale: '1 1' }], { duration: 500, easing: 'ease-out' });
+    setTimeout(() => a.finish(), 650);
     nav.classList.add('press'); setTimeout(() => nav.classList.remove('press'), 180);
   }
   ind.dataset.x = x;
@@ -143,6 +144,50 @@ function moveTabInd() {
   addEventListener('mousemove', e => { if (start) move(e.clientX); });
   addEventListener('mouseup', e => { if (start) up(e.clientX, e.timeStamp, false); });
   nav.addEventListener('click', e => { if (eatClick && e.isTrusted) { e.stopPropagation(); e.preventDefault(); } }, true);
+})();
+// Wischen nach links/rechts irgendwo auf dem Bildschirm wechselt zum Nachbarfeld der Menüleiste.
+(function pageSwipe() {
+  const nav = $('.tabs');
+  let s = null;
+  const tabsList = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden).map(b => b.dataset.tab);
+  const blocked = el => el.closest('input,select,textarea,.tabs,[data-noswipe]') || [...(function* () { for (let e = el; e && e !== view; e = e.parentElement) yield e; })()]
+    .some(e => e.scrollWidth > e.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(e).overflowX));
+  view.addEventListener('touchstart', e => {
+    s = null;
+    if (e.touches.length !== 1 || nav.hidden || !$('#sheet').hidden || blocked(e.target)) return;
+    const t = e.touches[0];
+    s = { x: t.clientX, y: t.clientY, t: e.timeStamp, dir: 0 };
+  }, { passive: true });
+  view.addEventListener('touchmove', e => {
+    if (!s) return;
+    const t = e.touches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (!s.dir) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      s.dir = Math.abs(dx) > Math.abs(dy) * 1.3 ? 'h' : 'v';
+    }
+    if (s.dir !== 'h') return;
+    e.preventDefault();
+    const list = tabsList(), i = list.indexOf(tab), edge = (dx > 0 && i <= 0) || (dx < 0 && i >= list.length - 1);
+    s.dx = dx;
+    view.style.transition = 'none';
+    view.style.transform = `translateX(${dx * (edge ? 0.12 : 0.35)}px)`;
+    view.style.opacity = 1 - Math.min(0.35, Math.abs(dx) / 900);
+  }, { passive: false });
+  const done = e => {
+    if (!s) return;
+    const st = s; s = null;
+    if (st.dir !== 'h') return;
+    const dx = st.dx || 0, v = Math.abs(dx) / Math.max(1, e.timeStamp - st.t);
+    const list = tabsList(), i = list.indexOf(tab), j = i + (dx < 0 ? 1 : -1);
+    const reset = () => { view.style.transition = 'transform .3s cubic-bezier(.3,1.4,.5,1),opacity .2s'; view.style.transform = ''; view.style.opacity = ''; };
+    if (e.type === 'touchcancel' || (Math.abs(dx) < 70 && v < 0.45) || i < 0 || j < 0 || j >= list.length) return reset();
+    view.style.transition = 'none'; view.style.transform = ''; view.style.opacity = '';
+    go(list[j]);
+    const a = view.animate?.([{ transform: `translateX(${dx < 0 ? 60 : -60}px)`, opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1)' });
+    if (a) setTimeout(() => a.finish(), 400);   // Sicherung, falls die Animation angehalten wird
+  };
+  view.addEventListener('touchend', done);
+  view.addEventListener('touchcancel', done);
 })();
 // iOS-Web-App: Der Layout-Bereich endet manchmal über der Home-Leiste, obwohl der Bildschirm weiter geht.
 // Dann wird die App auf die echte Bildschirmhöhe gezogen, damit nichts unten abgeschnitten wird.
