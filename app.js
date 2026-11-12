@@ -180,7 +180,7 @@ const haptic = (() => {
   const tabsList = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden).map(b => b.dataset.tab);
   const blocked = el => el.closest('input,select,textarea,.tabs,[data-noswipe]') || [...(function* () { for (let e = el; e && e !== view; e = e.parentElement) yield e; })()]
     .some(e => e.scrollWidth > e.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(e).overflowX));
-  const GAP = 10, W = () => view.clientWidth + GAP;   // Seitenbreite plus schwarzer Spalt
+  const W = () => view.clientWidth;
   // Nachbarseite in die Vorschau zeichnen, ohne die aktuelle Seite anzufassen
   function fillPeek(t) {
     const keep = document.createDocumentFragment(), st = view.scrollTop, old = tab;
