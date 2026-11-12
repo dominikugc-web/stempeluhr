@@ -98,18 +98,37 @@ function moveTabInd() {
   }
   ind.dataset.x = x;
 }
+// Leichtes Antippen-Gefühl (Haptik). Android: Vibration. iPhone (ab iOS 18): Ein verstecktes Schalter-Feld
+// wird umgelegt, das löst das System-Feedback aus. Ist Haptik in den iPhone-Einstellungen aus, passiert nichts.
+const haptic = (() => {
+  let lab;
+  return () => {
+    try {
+      if (navigator.vibrate) return navigator.vibrate(8);
+      if (!lab) {
+        lab = document.createElement('label');
+        lab.setAttribute('aria-hidden', 'true');
+        lab.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;left:-9px;top:-9px';
+        const inp = document.createElement('input');
+        inp.type = 'checkbox'; inp.setAttribute('switch', ''); inp.tabIndex = -1;
+        lab.appendChild(inp); document.body.appendChild(lab);
+      }
+      lab.click();
+    } catch (e) { }
+  };
+})();
 // Wischen über die Menüleiste: Die Pille folgt dem Finger, beim Loslassen öffnet sich das Feld darunter.
 // Ein schneller kurzer Wisch springt ein Feld weiter. Auf dem iPhone über Touch-Events, am Computer mit der Maus.
 (function tabSwipe() {
   const nav = $('.tabs'), ind = $('.tab-ind');
   if (!nav || !ind) return;
-  let start = null, dragging = false, eatClick = false;
+  let start = null, dragging = false, eatClick = false, hoverBtn = null;
   const btns = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden);
   const under = x => btns().reduce((best, b) => {
     const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - x);
     return !best || d < best.d ? { b, d } : best;
   }, null)?.b;
-  const down = (x, t) => { start = { x, t }; dragging = false; };
+  const down = (x, t) => { start = { x, t }; dragging = false; hoverBtn = null; };
   const move = x => {
     if (!start) return false;
     if (!dragging && Math.abs(x - start.x) < 8) return false;
@@ -119,6 +138,7 @@ function moveTabInd() {
     ind.style.transform = `translateX(${left}px) scale(1.12)`;
     ind.dataset.x = left;
     const u = under(rx);
+    if (u !== hoverBtn) { if (hoverBtn) haptic(); hoverBtn = u; }
     btns().forEach(b => b.classList.toggle('hover', b === u));
     return true;
   };
@@ -133,7 +153,7 @@ function moveTabInd() {
     const dx = x - s.x, v = Math.abs(dx) / Math.max(1, t - s.t);
     if (!cancel && target === list[cur] && v > 0.5) target = list[Math.max(0, Math.min(list.length - 1, cur + Math.sign(dx)))];
     if (cancel || !target || target.dataset.tab === tab) { moveTabInd(); return; }
-    target.click();
+    haptic(); target.click();
   };
   nav.addEventListener('touchstart', e => down(e.touches[0].clientX, e.timeStamp), { passive: true });
   nav.addEventListener('touchmove', e => { if (move(e.touches[0].clientX)) e.preventDefault(); }, { passive: false });
@@ -182,7 +202,7 @@ function moveTabInd() {
     const reset = () => { view.style.transition = 'transform .3s cubic-bezier(.3,1.4,.5,1),opacity .2s'; view.style.transform = ''; view.style.opacity = ''; };
     if (e.type === 'touchcancel' || (Math.abs(dx) < 70 && v < 0.45) || i < 0 || j < 0 || j >= list.length) return reset();
     view.style.transition = 'none'; view.style.transform = ''; view.style.opacity = '';
-    go(list[j]);
+    haptic(); go(list[j]);
     const a = view.animate?.([{ transform: `translateX(${dx < 0 ? 60 : -60}px)`, opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1)' });
     if (a) setTimeout(() => a.finish(), 400);   // Sicherung, falls die Animation angehalten wird
   };
