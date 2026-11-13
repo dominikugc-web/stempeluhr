@@ -97,13 +97,34 @@ function renderPage() {
 }
 function go(t) { tab = t; render(); view.scrollTop = 0; }
 // Gleitende Markierung in der Menüleiste (zieht sich beim Wechsel kurz in die Länge und federt nach).
+// Blaue Kopie der Icons über der Leiste, nur innerhalb der Pille sichtbar: Wie bei iOS färbt die Linse
+// genau das ein, was unter ihr liegt, auch halbe Icons beim Ziehen.
+function tabHi() {
+  const nav = $('.tabs'); if (!nav) return null;
+  let hi = nav.querySelector('.tab-hi');
+  const btns = [...nav.querySelectorAll('button')];
+  if (!hi) {
+    hi = document.createElement('div'); hi.className = 'tab-hi'; hi.setAttribute('aria-hidden', 'true');
+    btns.forEach(b => { const sp = document.createElement('span'); sp.innerHTML = b.innerHTML; hi.appendChild(sp); });
+    nav.appendChild(hi);
+  }
+  btns.forEach((b, i) => { hi.children[i].hidden = b.hidden; hi.children[i].classList.toggle('hover', b.classList.contains('hover')); });
+  return hi;
+}
+// Pille an Position x mit Breite w, k = Vergrößerung beim Ziehen
+function placeInd(x, w, k = 1) {
+  const ind = $('.tab-ind'), hi = tabHi();
+  ind.style.transform = `translateX(${x}px)${k !== 1 ? ` scale(${k})` : ''}`; ind.style.width = w + 'px';
+  const g = w * (k - 1) / 2;
+  if (hi) hi.style.clipPath = `inset(0 calc(100% - ${x + w + g}px) 0 ${x - g}px round 27px)`;
+}
 function moveTabInd() {
   const nav = $('.tabs'), ind = $('.tab-ind'), b = $('.tabs button.on');
   if (!nav || !ind) return;
-  if (!b || b.hidden || nav.hidden) { ind.style.opacity = 0; return; }
+  if (!b || b.hidden || nav.hidden) { ind.style.opacity = 0; const hi = tabHi(); if (hi) hi.style.clipPath = 'inset(0 100% 0 0)'; return; }
   const x = b.offsetLeft, w = b.offsetWidth, from = parseFloat(ind.dataset.x);
   ind.style.opacity = 1;
-  ind.style.transform = `translateX(${x}px)`; ind.style.width = w + 'px';
+  placeInd(x, w);
   if (!isNaN(from) && from !== x && ind.animate) {
     const k = Math.min(1.45, 1 + Math.abs(x - from) / 500);
     const a = ind.animate([{ scale: '1 1' }, { scale: `${k} .86`, offset: .35 }, { scale: '.96 1.04', offset: .7 }, { scale: '1 1' }], { duration: 500, easing: 'ease-out' });
@@ -142,26 +163,27 @@ const haptic = (() => {
     const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - x);
     return !best || d < best.d ? { b, d } : best;
   }, null)?.b;
-  const down = (x, t) => { start = { x, t }; dragging = false; hoverBtn = null; };
+  // Finger auf dem aktiven Feld: Die Linse wächst sofort, wie bei iOS
+  const down = (x, t) => { start = { x, t }; dragging = false; hoverBtn = null; if (under(x - nav.getBoundingClientRect().left)?.dataset.tab === tab) nav.classList.add('press'); };
   const move = x => {
     if (!start) return false;
     if (!dragging && Math.abs(x - start.x) < 8) return false;
-    if (!dragging) { dragging = true; nav.classList.add('press'); ind.style.transition = 'width .2s'; }
+    if (!dragging) { dragging = true; nav.classList.add('press', 'drag'); ind.style.transition = 'width .2s,top .25s,bottom .25s,background .25s,box-shadow .25s'; }
     const r = nav.getBoundingClientRect(), w = ind.offsetWidth, rx = x - r.left;
     const left = Math.max(5, Math.min(r.width - 5 - w, rx - w / 2));
-    ind.style.transform = `translateX(${left}px) scale(1.12)`;
-    ind.dataset.x = left;
     const u = under(rx);
     if (u !== hoverBtn) { if (hoverBtn) haptic(); hoverBtn = u; }
     btns().forEach(b => b.classList.toggle('hover', b === u));
+    placeInd(left, w, 1.12);
+    ind.dataset.x = left;
     return true;
   };
   const up = (x, t, cancel) => {
     const s = start; start = null;
-    if (!s || !dragging) return;
+    if (!s || !dragging) { nav.classList.remove('press'); return; }
     dragging = false; eatClick = true; setTimeout(() => { eatClick = false; }, 400);
-    nav.classList.remove('press'); ind.style.transition = '';
-    btns().forEach(b => b.classList.remove('hover'));
+    nav.classList.remove('press', 'drag'); ind.style.transition = '';
+    btns().forEach(b => b.classList.remove('hover')); tabHi();
     const r = nav.getBoundingClientRect(), list = btns(), cur = list.findIndex(b => b.dataset.tab === tab);
     let target = under(x - r.left);
     const dx = x - s.x, v = Math.abs(dx) / Math.max(1, t - s.t);
