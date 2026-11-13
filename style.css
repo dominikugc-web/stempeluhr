@@ -311,3 +311,13 @@ html.light .dial b{color:#2c2c2e}
 @container (max-height:780px){.startfix>.tip{display:none}}
 @container (max-height:640px){.sbig b{font-size:36px}}
 @container (max-height:560px){.sbig{padding:10px 14px}.sbig b{font-size:32px}.ssm{padding:6px 12px}.ssm b{font-size:20px}.shead h1{font-size:28px}}
+.sday{padding:12px 16px;border-radius:24px;margin-bottom:14px}
+.sdh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;min-height:24px}
+.tl{position:relative;height:12px;border-radius:6px;background:var(--track)}
+.tl i,.tsess i{position:absolute;top:0;bottom:0;min-width:12px;border-radius:6px;background:var(--ok)}
+.tl i.alt,.tsess i.alt{background:color-mix(in srgb,var(--ok) 60%,#fff)}
+.sday .barlabels{font-size:12px;margin-top:4px}
+.tsess{margin-top:6px;font-size:15px;font-variant-numeric:tabular-nums}
+.tsess>div{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;min-height:26px}
+.tsess i{position:static;display:block;width:12px;height:12px;border-radius:4px}
+.tsess i.brk{background:var(--track)}

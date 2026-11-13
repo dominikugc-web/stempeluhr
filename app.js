@@ -409,11 +409,25 @@ function toggle() {
   save(); updateStart();
 }
 
+// Tagesverlauf von heute: Zeitleiste (Lücken = Pausen) und alle Stempel-Abschnitte
+function dayTimelineHtml(t) {
+  if (!t.sess.length) return '<div class="card sday"><b>Tagesverlauf</b><p class="muted small center" style="margin:8px 0 0">Heute noch nicht gestempelt</p></div>';
+  const now = Date.now(), first = t.sess[0].s, running = t.sess.at(-1).e == null;
+  const end = Math.max(t.sess.at(-1).e ?? now, running ? now : 0, first + HOUR);
+  const pos = ms => ((ms - first) / (end - first) * 100).toFixed(2) + '%';
+  return `<div class="card sday">
+    <div class="sdh"><b>Tagesverlauf${note(t) ? ` <span class="muted small">${esc(note(t))}</span>` : ''}</b><span><span class="muted small">netto</span> <b>${dur(t.net)}</b></span></div>
+    <div class="tl">${t.sess.map((x, i) => `<i class="${i % 2 ? 'alt' : ''}" style="left:${pos(x.s)};width:calc(${pos(x.e ?? now)} - ${pos(x.s)})"></i>`).join('')}</div>
+    <div class="barlabels"><span>${tod(first)}</span><span>${tod((first + end) / 2)}</span><span>${running ? 'jetzt' : tod(end)}</span></div>
+    <div class="tsess">${t.sess.map((x, i) => `<div><i class="${i % 2 ? 'alt' : ''}"></i><span>${tod(x.s)} – ${x.e ? tod(x.e) : 'läuft'}</span><span class="muted">${dur((x.e ?? now) - x.s)}</span></div>`).join('')}</div>
+    ${t.breakTotal ? `<div class="tsess"><div><i class="brk"></i><span class="muted">Pause gesamt</span><span class="muted">${dur(t.breakTotal)}</span></div></div>` : ''}
+  </div>`;
+}
 function openOverview() {
   const c = calc(), t = today(), st = data.settings, y = t.slice(0, 4);
   const all = c.range(st.since, t), s = stats(all);
   const gestern = c.balance(addDays(t, -1)), aktuell = c.balance(t);
-  sheet(`
+  sheet(`${dayTimelineHtml(c.day(t))}
   <div class="ot-grid">
     <button class="ot ${cls(gestern)}" onclick="openBalance()"><b>${hm(gestern, true)}</b><span>Überstunden gestern</span></button>
     <button class="ot ${cls(aktuell)}" onclick="openBalance()"><b>${hm(aktuell, true)}</b><span>Überstunden aktuell ›</span></button>
@@ -421,7 +435,7 @@ function openOverview() {
     <div class="ot"><b>${s.end}</b><span>Ø Endzeit</span></div>
   </div>
   <p class="hint">Tippe auf das Konto, um die Rechnung Tag für Tag zu sehen. „Aktuell“ rechnet die volle Sollzeit von heute schon mit ein.${+st.otCap ? ` Das Konto geht höchstens bis ${st.otCap} Std., alles darüber wird ausgezahlt.` : ''}</p>
-  <p class="center">Seit Beginn der Aufzeichnung hast du ${dur(sum(all, 'net'))} gearbeitet (nach Abzug von ${st.pause} Min. Pause pro Tag).</p>
+  <p class="center">Seit Beginn der Aufzeichnung hast du ${dur(sum(all, 'net'))} gearbeitet (nach Abzug der Pausen).</p>
   <div class="group">
     <div class="row"><span>Urlaub ${y}</span><span>${countAbs(c.range(y + '-01-01', y + '-12-31'), 'urlaub')} von ${st.vacation} Tagen</span></div>
     <div class="row"><span>Krankheitstage ${y}</span><span>${countAbs(c.range(y + '-01-01', t), 'krank')}</span></div>
