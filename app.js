@@ -345,9 +345,7 @@ function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $
 // unten die Uhr mit Start/Stop. Die Uhr nimmt den restlichen Platz ein, so passt alles auf jedes Handy.
 function renderStart() {
   view.innerHTML = `<div class="startfix">
-  <div class="shead"><h1>Heute</h1><div class="shbtns">
-    <button class="iconbtn" onclick="openOverview()" aria-label="Übersicht">${ICON.chart}</button>
-    <button class="iconbtn" onclick="openAbsences()" aria-label="Abwesenheiten">${ICON.cal}</button></div></div>
+  <div class="shead"><h1>Heute</h1></div>
   <div class="sgrid">
     <div class="card sbig"><span class="muted small">Vom Soll</span><b id="pct">0 %</b><span class="small" id="finish"></span>
       <div class="bar thin"><div class="fill" id="fill"></div></div></div>
@@ -356,12 +354,7 @@ function renderStart() {
       <div class="card ssm"><span class="muted small">Pause</span><b id="tpause"></b></div>
     </div>
   </div>
-  <div class="card sday">
-    <div class="sdh"><b>Tagesverlauf <span class="muted small" id="tnote"></span></b><span id="tnet"></span></div>
-    <div class="tl" id="tl"></div>
-    <div class="barlabels"><span id="b0"></span><span id="b1"></span><span id="b2"></span></div>
-    <div id="tsess"></div>
-  </div>
+  <div class="two"><button class="pill" onclick="openOverview()">${ICON.chart} Übersicht</button><button class="pill" onclick="openAbsences()">${ICON.cal} Abwesenheiten</button></div>
   ${tipHtml()}
   <div class="card sclock">
     <div class="dial" id="dial"><span class="caps" id="caps"></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
@@ -405,19 +398,6 @@ function updateStart() {
   $('#tdiff').textContent = hm(t.diff, true);
   $('#tdiff').className = t.sess.length ? cls(t.diff) : '';
   $('#tpause').textContent = hm(t.breakTotal);
-  $('#tnote').textContent = note(t) || '';
-  // Zeitleiste: von der ersten Stempelung bis jetzt bzw. bis zur voraussichtlichen Fertig-Zeit
-  const end = Math.max(t.sess.at(-1)?.e ?? now, running ? now : 0, t.sess.length ? 0 : finish, first + HOUR);
-  const pos = ms => ((ms - first) / (end - first) * 100).toFixed(2) + '%';
-  $('#tl').innerHTML = t.sess.map((x, i) => `<i class="${i % 2 ? 'alt' : ''}" style="left:${pos(x.s)};width:calc(${pos(x.e ?? now)} - ${pos(x.s)})"></i>`).join('');
-  $('#b0').textContent = t.sess.length ? tod(first) : '';
-  $('#b1').textContent = t.sess.length ? tod((first + end) / 2) : '';
-  $('#b2').textContent = t.sess.length ? (running ? 'jetzt' : tod(end)) : '';
-  // feste Höhe (3 Zeilen), damit die Uhr beim Stempeln nicht springt; ältere Abschnitte stehen in der Zeitleiste
-  const rows = t.sess.slice(-3);
-  $('#tsess').innerHTML = t.sess.length ? `<div class="tsess">${rows.map((x, i) => `<div><i class="${(t.sess.length - rows.length + i) % 2 ? 'alt' : ''}"></i><span>${tod(x.s)} – ${x.e ? tod(x.e) : 'läuft'}</span><span class="muted">${dur((x.e ?? now) - x.s)}</span></div>`).join('')}</div>`
-    : '<p class="muted small center tsempty">Heute noch nicht gestempelt</p>';
-  $('#tnet').innerHTML = t.sess.length ? `<span class="muted small">netto</span> <b>${dur(t.net)}</b>` : '';
   $('#toggle').textContent = running ? 'Stop' : 'Start';
   $('#toggle').classList.toggle('stop', running);
 }

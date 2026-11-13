@@ -284,9 +284,6 @@ main:has(> .startfix){overflow:hidden}
 .startfix>*{margin:0;flex:none}
 .shead{display:flex;align-items:center;justify-content:space-between}
 .shead h1{margin:0;font-size:32px}
-.shbtns{display:flex;gap:8px}
-.iconbtn{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--card);border:1px solid var(--line);color:var(--txt)}
-.iconbtn svg{width:21px;height:21px}
 .sgrid{display:grid;grid-template-columns:1.15fr 1fr;gap:10px}
 .sbig{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:14px 16px;border-radius:24px}
 .sbig b{font-size:44px;font-weight:300;line-height:1.05;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -294,19 +291,6 @@ main:has(> .startfix){overflow:hidden}
 .scol{display:grid;gap:10px}
 .ssm{padding:10px 14px;border-radius:20px;display:flex;flex-direction:column;justify-content:center}
 .ssm b{font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
-.sday{padding:12px 16px;border-radius:24px}
-.sdh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
-.tl{position:relative;height:12px;border-radius:6px;background:var(--track)}
-.tl i,.tsess i{position:absolute;top:0;bottom:0;border-radius:6px;background:var(--ok)}
-.tl i{min-width:12px}
-.tl i.alt,.tsess i.alt{background:color-mix(in srgb,var(--ok) 60%,#fff)}
-.sday .barlabels{font-size:12px;margin-top:4px;height:16px}
-.sdh{min-height:24px}
-#tsess{--rows:3;height:calc(var(--rows) * 26px + 6px);overflow:hidden}
-.tsess{margin-top:6px;font-size:15px;font-variant-numeric:tabular-nums}
-.tsempty{margin:0;height:100%;display:grid;place-items:center}
-.tsess>div{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;height:26px}
-.tsess i{position:static;display:block;width:12px;height:12px;border-radius:4px}
 .startfix .tip{padding:10px 14px}
 .sclock{flex:1 1 0;min-height:150px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px;border-radius:28px;container-type:size}
 .sclock .big{margin:0;flex:none;height:56px}
@@ -325,5 +309,5 @@ html.light .dial::after{background:repeating-conic-gradient(rgba(0,0,0,.22) 0 .7
 html.light .dial b{color:#2c2c2e}
 /* Tipp nur, wenn genug Platz ist; sonst bekommt die Uhr den Platz */
 @container (max-height:780px){.startfix>.tip{display:none}}
-@container (max-height:640px){.sbig b{font-size:36px}#tsess{--rows:2}.tsess>div:nth-last-child(n+3){display:none}}
-@container (max-height:560px){#tsess{display:none}.sbig{padding:10px 14px}.sbig b{font-size:32px}.ssm{padding:6px 12px}.ssm b{font-size:20px}.shead h1{font-size:28px}.iconbtn{width:36px;height:36px}}
+@container (max-height:640px){.sbig b{font-size:36px}}
+@container (max-height:560px){.sbig{padding:10px 14px}.sbig b{font-size:32px}.ssm{padding:6px 12px}.ssm b{font-size:20px}.shead h1{font-size:28px}}
