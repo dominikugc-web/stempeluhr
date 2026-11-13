@@ -359,7 +359,7 @@ function renderStart() {
   ${tipHtml()}
   <div class="card sclock">
     <div class="dial" id="dial"><span class="caps" id="caps"></span>
-      <span class="analog" aria-hidden="true"><i class="mk"></i><i class="mk"></i><i class="mk"></i><i class="mk"></i><i class="hh" id="hh"></i><i class="mh" id="mh"></i><i class="ctr"></i></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
+      <span class="hticks"></span><span class="analog" aria-hidden="true"><i class="hh" id="hh"></i><i class="mh" id="mh"></i><i class="ctr"></i></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
     <button id="toggle" class="big" onclick="toggle()">Start</button>
   </div></div>`;
   updateStart();
