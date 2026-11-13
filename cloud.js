@@ -605,7 +605,7 @@ function accountHtml() {
   return `<div class="label">Konto</div>
   <div class="group">
     ${asSelf() ? `<div class="row"><span>${esc(asUser.email || asUser.name)}<div class="muted small">Ansicht als dieser Nutzer</div></span></div>`
-      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>
+      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'} · ${isPro() ? 'Stempeluhr Pro ' + proBadge() : 'Kostenlos'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>
     <button class="row" onclick="deleteAccount()"><span class="red">Konto löschen</span></button>`}
   </div>
   <div class="label">Firma</div>
@@ -1028,7 +1028,7 @@ function adminUsers() {
     return own ? `Geschäftsführer von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
   };
   if (!list.length) return '<p class="muted center">Keine Treffer.</p>';
-  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('as', '${u.uid}')"><span>${openLabel(u.open)}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}
+  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('as', '${u.uid}')"><span>${openLabel(u.open)}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''} ${proBadge()}
     <div class="muted small">${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.open ? openText(u.open) : u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
     <span class="${cls(u.balance)}">${hm(u.balance, true)} ›</span></button>`).join('')}</div>`;
 }

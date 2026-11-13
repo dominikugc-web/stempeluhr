@@ -1323,3 +1323,33 @@ function openSlip(id) {
   deliver(new Blob([bytes], { type: 'application/pdf' }), `Lohnabrechnung ${d.period}.pdf`);
   if (!d.read && !asSelf()) { d.read = true; ref(`payslips/${actingUid()}/docs/${id}`).update({ read: true }).catch(() => {}); }
 }
+
+// ---------- Stempeluhr Pro ----------
+// Bis die App im App Store ist, hat jeder Pro kostenlos (Testphase). Später schaltet ein Abo im App Store Pro frei;
+// dann entscheidet isPro() anhand des Kaufs, und PRO_BETA wird ausgeschaltet.
+const PRO_BETA = true;
+const isPro = () => PRO_BETA;
+const proBadge = () => isPro() ? '<span class="badge-pro">PRO</span>' : '';
+const PRO_FEATURES = [
+  ['👥', 'Team & Geschäftsführer', 'Mitarbeiter einladen, Zeiten sehen und korrigieren, mehrere Geschäftsführer und Firmen'],
+  ['📤', 'Lohn-Export', 'Lexware, DATEV, Excel und CSV, mit Lohnarten und Personalnummern'],
+  ['📄', 'Lohnabrechnungen', 'Abrechnungen an Mitarbeiter verteilen und die eigene automatisch einlesen'],
+  ['🧳', 'Mehrere Arbeitsplätze', 'Hauptjob, Zweitjob und Minijob getrennt erfassen'],
+  ['📍', 'Standort-Automatik', 'Zeit startet und stoppt automatisch an deinem Arbeitsort'],
+  ['💶', 'Verdienst-Rechner', 'Brutto, Netto und Überstunden in Euro, nach amtlicher Formel'],
+  ['📊', 'Export & Statistik', 'PDF-Nachweis, Excel, CSV, Kalender und Jahresauswertung'],
+  ['🔔', 'Benachrichtigungen', 'Push bei Anfragen, Antworten und neuen Lohnabrechnungen'],
+];
+function proHtml() {
+  return `<div class="card procard center">
+    <div class="prologo">PRO</div>
+    <h2 style="margin:10px 0 4px">Stempeluhr Pro</h2>
+    <p class="green" style="margin:0 0 6px"><b>✓ Aktiv</b></p>
+    <p class="muted small" style="margin:0">Während der Testphase ist Pro für alle kostenlos. Du nutzt schon jetzt alle Funktionen.</p>
+  </div>
+  <div class="label">Das ist in Pro enthalten</div>
+  <div class="group">${PRO_FEATURES.map(([i, t, d]) => `<div class="row profeat"><span class="ti">${i}</span><span class="tt"><b>${t}</b><span class="muted small">${d}</span></span><span class="green">✓</span></div>`).join('')}</div>
+  <div class="label">Immer kostenlos</div>
+  <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Überstunden und Urlaub</span><span class="green">✓</span></div></div>
+  <p class="hint">Sobald die Stempeluhr im App Store ist, gibt es Pro als Abo. Wer die App in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>`;
+}

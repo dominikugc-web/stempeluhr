@@ -877,6 +877,7 @@ function setupTopics() {
     : membership?.status === 'pending' ? 'Anfrage an ' + membership.companyName + ' offen' : 'Firma';
   const act = (typeof teamPeople === 'function' ? teamPeople().filter(p => !p.self).length : 0), pend = members.filter(m => m.status === 'pending').length;
   return [
+    [mine && me && ['pro', '⭐', 'Stempeluhr Pro ' + proBadge(), isPro() ? '<span class="green">Aktiv</span> · kostenlos in der Testphase' : 'Alle Funktionen freischalten']],
     [
       mine && me && ['account', '👤', 'Konto & Firma', `${asSelf() ? asUser.email || asUser.name : me.email || me.displayName || ''} · ${firm}`],
       mine && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} ${act === 1 ? 'Person' : 'Personen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
@@ -896,7 +897,7 @@ function setupTopics() {
   ].map(g => g.filter(Boolean)).filter(g => g.length);
 }
 function renderSetup() {
-  view.innerHTML = `<h1 class="center">Setup</h1>
+  view.innerHTML = `<h1 class="center">Setup${!viewing || asSelf() ? ' ' + proBadge() : ''}</h1>
   ${viewing && !asSelf() ? `<p class="hint center">Einstellungen von ${esc(viewing.name)}. Gehalt und Steuerdaten sind privat.</p>` : ''}
   ${setupTopics().map(g => `<div class="group">${g.map(([id, icon, title, sub]) => `<button class="row topic" onclick="openTopic('${id}')">
     <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
@@ -906,7 +907,7 @@ function renderSetup() {
       <button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
   ${viewing && !viewing.preview && viewing.uid === company?.owner ? '<p class="hint center">Gründer der Firma. Geschäftsführer-Rechte und Mitgliedschaft lassen sich hier nicht ändern.</p>' : ''}`;
 }
-const TOPIC_TITLE = { slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
+const TOPIC_TITLE = { pro: 'Stempeluhr Pro', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {
   const st = data.settings, now = new Date();
   const body = {
@@ -914,6 +915,7 @@ function openTopic(id, keepStats) {
     team: () => teamHtml(),
     loc: () => locListHtml(),
     slots: () => slotsHtml(),
+    pro: () => proHtml(),
     work: () => `${hasSlots() ? `<p class="hint" style="margin-top:0">Gilt für <b>${esc(slotName(curSlot))}</b>. Für einen anderen Job oben auf der Startseite umschalten oder unter Setup → Arbeitsplätze auf „Soll“ tippen.</p>` : ''}<div class="group">
         <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
         <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
