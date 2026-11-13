@@ -341,25 +341,32 @@ function sheet(html) {
 function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $('#sheet').classList.remove('preview', 'chatsheet'); currentTopic = null; fbUnsub?.(); fbUnsub = null; }
 
 // ---------- start ----------
+// Startseite: feste Seite ohne Scrollen. Oben Fortschritt, Differenz und Pause, darunter der Tagesverlauf,
+// unten die Uhr mit Start/Stop. Die Uhr nimmt den restlichen Platz ein, so passt alles auf jedes Handy.
 function renderStart() {
-  view.innerHTML = `
-  <div class="clock" id="clock">00:00:00</div>
-  <div class="card">
-    <div class="today-top">
-      <div><div class="pct" id="pct">0 %</div><div class="muted">Heute</div></div>
-      <div class="barwrap"><div class="bar"><div class="fill" id="fill"></div></div>
-        <div class="barlabels"><span id="b0"></span><span id="b1"></span><span id="b2"></span></div></div>
+  view.innerHTML = `<div class="startfix">
+  <div class="shead"><h1>Heute</h1><div class="shbtns">
+    <button class="iconbtn" onclick="openOverview()" aria-label="Übersicht">${ICON.chart}</button>
+    <button class="iconbtn" onclick="openAbsences()" aria-label="Abwesenheiten">${ICON.cal}</button></div></div>
+  <div class="sgrid">
+    <div class="card sbig"><span class="muted small">Vom Soll</span><b id="pct">0 %</b><span class="small" id="finish"></span>
+      <div class="bar thin"><div class="fill" id="fill"></div></div></div>
+    <div class="scol">
+      <div class="card ssm"><span class="muted small">Differenz</span><b id="tdiff"></b></div>
+      <div class="card ssm"><span class="muted small">Pause</span><b id="tpause"></b></div>
     </div>
-    <div class="tiles">
-      <div class="tile"><b id="finish"></b><span>Fertig um</span></div>
-      <div class="tile"><b id="tdiff"></b><span>Differenz</span></div>
-      <div class="tile"><b>${hm(data.settings.pause * MIN)}</b><span>Pause</span></div>
-    </div>
-    <div class="sessions" id="tsess"></div>
   </div>
-  <div class="two"><button class="pill" onclick="openOverview()">${ICON.chart} Übersicht</button><button class="pill" onclick="openAbsences()">${ICON.cal} Abwesenheiten</button></div>
-  <button id="toggle" class="big" onclick="toggle()">Start</button>
-  ${tipHtml()}`;
+  <div class="card sday">
+    <div class="sdh"><b>Tagesverlauf <span class="muted small" id="tnote"></span></b><span id="tnet"></span></div>
+    <div class="tl" id="tl"></div>
+    <div class="barlabels"><span id="b0"></span><span id="b1"></span><span id="b2"></span></div>
+    <div id="tsess"></div>
+  </div>
+  ${tipHtml()}
+  <div class="card sclock">
+    <div class="dial" id="dial"><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
+    <button id="toggle" class="big" onclick="toggle()">Start</button>
+  </div></div>`;
   updateStart();
 }
 function updateStart() {
@@ -369,17 +376,29 @@ function updateStart() {
   const done = t.soll && t.net >= t.soll;
   const left = t.soll > 6 * HOUR ? Math.max(0, P - t.brk - t.pause) : 0;   // Pause, die noch abgezogen wird
   const finish = now + Math.max(0, t.soll - t.net + left), first = t.sess[0]?.s ?? now;
+  const running = data.sessions.some(x => x.e == null);
   $('#clock').textContent = clockStr(t.gross);
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
-  $('#b0').textContent = tod(first);
-  $('#b1').textContent = tod((first + finish) / 2);
-  $('#b2').textContent = tod(finish);
-  $('#finish').textContent = !t.soll ? '–' : done ? 'Fertig' : tod(finish);
+  $('#dial').style.setProperty('--p', Math.min(100, pct));
+  $('#dial').style.setProperty('--pc', progColor(pct));
+  $('#finish').textContent = !t.soll ? 'Heute frei' : done ? 'Ziel erreicht ✓' : `fertig um ${tod(finish)}`;
   $('#tdiff').textContent = hm(t.diff, true);
-  $('#tsess').innerHTML = [note(t) && `<span class="tag">${esc(note(t))}</span>`, t.sess.length ? 'Heute: ' + span(t) + ' · netto ' + dur(t.net) : 'Heute noch nicht gestempelt'].filter(Boolean).join('<br>');
-  const running = data.sessions.some(x => x.e == null);
+  $('#tdiff').className = t.sess.length ? cls(t.diff) : '';
+  $('#tpause').textContent = hm(t.breakTotal);
+  $('#tnote').textContent = note(t) || '';
+  // Zeitleiste: von der ersten Stempelung bis jetzt bzw. bis zur voraussichtlichen Fertig-Zeit
+  const end = Math.max(t.sess.at(-1)?.e ?? now, running ? now : 0, t.sess.length ? 0 : finish, first + HOUR);
+  const pos = ms => ((ms - first) / (end - first) * 100).toFixed(2) + '%';
+  $('#tl').innerHTML = t.sess.map((x, i) => `<i class="${i % 2 ? 'alt' : ''}" style="left:${pos(x.s)};width:calc(${pos(x.e ?? now)} - ${pos(x.s)})"></i>`).join('');
+  $('#b0').textContent = t.sess.length ? tod(first) : '';
+  $('#b1').textContent = t.sess.length ? tod((first + end) / 2) : '';
+  $('#b2').textContent = t.sess.length ? (running ? 'jetzt' : tod(end)) : '';
+  const rows = t.sess.slice(-3);
+  $('#tsess').innerHTML = t.sess.length ? `<div class="tsess">${t.sess.length > 3 ? `<div class="muted small">+ ${t.sess.length - 3} frühere</div>` : ''}${rows.map((x, i) => `<div><i class="${(t.sess.length - rows.length + i) % 2 ? 'alt' : ''}"></i><span>${tod(x.s)} – ${x.e ? tod(x.e) : 'läuft'}</span><span class="muted">${dur((x.e ?? now) - x.s)}</span></div>`).join('')}</div>
+` : '<p class="muted small center" style="margin:6px 0 0">Heute noch nicht gestempelt</p>';
+  $('#tnet').innerHTML = t.sess.length ? `<span class="muted small">netto</span> <b>${dur(t.net)}</b>` : '';
   $('#toggle').textContent = running ? 'Stop' : 'Start';
   $('#toggle').classList.toggle('stop', running);
 }
