@@ -155,4 +155,21 @@ assert.equal(op.jobs[0].brutto, 2233);
 assert.equal(op.jobs[1].brutto, 603); // Minijob bleibt gleich
 assert.deepEqual(L.makeCalc({ ...ot, settings: { ...ot.settings, otCap: 0 } }, +new Date(2026, 10, 3, 18, 0)).payouts(), {});
 
+// ---------- Lohnabrechnung (Lexware-Aufbau, erfundene Werte) ----------
+const it = (p, y, x, s, w = s.length * 5) => ({ p, y, x, s, w });
+const slip = L.parsePayslip([
+  it(1, 794, 60, 'Abrechnung für April 2026 - Max Muster'), it(1, 735, 60, 'Muster GmbH'),
+  it(1, 747, 300, 'Personal-Nr.'), it(1, 747, 362, 'Geburtsdatum'), it(1, 747, 429, 'Steuerklasse Konfession', 108),
+  it(1, 730, 300, '7'), it(1, 730, 362, '01.01.1990'), it(1, 730, 429, '1'), it(1, 730, 483, 'rk'),
+  it(1, 713, 300, 'KFB'), it(1, 713, 429, 'Midijob'), it(1, 697, 300, '0,5'), it(1, 697, 429, 'Nein'),
+  it(1, 680, 483, 'Anteil PV'), it(1, 663, 483, '1 Kind u.'),
+  it(1, 635, 429, 'Eintritt'), it(1, 619, 429, '01.03.2024'),
+  it(1, 460, 62, 'Gehalt'), it(1, 460, 379, '3.000,00 €'), it(1, 460, 495, '3.000,00 €'),
+  it(1, 412, 62, 'Gesamtbrutto'), it(1, 412, 495, '3.000,00 €'),
+  it(1, 281, 166, 'KV'), it(1, 281, 225, 'RV'), it(1, 281, 285, 'AV'), it(1, 281, 344, 'PV'),
+  it(1, 265, 62, 'laufend'), it(1, 265, 138, '3.000,00 €'), it(1, 233, 62, 'laufend'), it(1, 233, 145, '256,05 €'),
+  it(1, 185, 62, 'Netto'), it(1, 185, 495, '1.950,00 €'),
+]);
+assert.deepEqual(slip, { period: 'April 2026', firm: 'Muster GmbH', stkl: 1, zkf: 0.5, kirche: true, pv: '1', since: '2024-03-01', midi: false, brutto: 3000, gesamtbrutto: 3000, netto: 1950, kvz: 2.47 });
+
 console.log('ok');

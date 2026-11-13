@@ -281,4 +281,58 @@ function hourlyRate(st) {
   return week ? monthly / (week * 13 / 3) : 0;
 }
 
-if (typeof module !== 'undefined') module.exports = { MIN, HOUR, ymd, parseYmd, addDays, monday, isoWeek, easter, holidays, makeCalc, roundTime, sollWeek, bridgeIdeas, lohnsteuer, sv, payMonth, hourlyRate };
+// ---------- Lohnabrechnung (PDF) auslesen ----------
+// items: Textstücke aus pdf.js [{ s, x, y, w, p }] (p = Seite). Ausgelegt auf Lexware-Abrechnungen, mit Rückfall
+// auf allgemeine Suchmuster. Gibt nur gefundene Felder zurück; die App zeigt sie vor dem Übernehmen an.
+function parsePayslip(items) {
+  const money = t => { const m = String(t).match(/-?\d{1,3}(?:\.\d{3})*,\d{2}/); return m ? +m[0].replace(/\./g, '').replace(',', '.') : null; };
+  const rowsOf = p => {
+    const r = {};
+    for (const it of items.filter(i => i.p === p && i.s.trim())) (r[Math.round(it.y)] ||= []).push(it);
+    return Object.keys(r).map(Number).sort((a, b) => b - a).map(y => ({ y, items: r[y].sort((a, b) => a.x - b.x), text: r[y].sort((a, b) => a.x - b.x).map(i => i.s).join(' ') }));
+  };
+  const pages = [...new Set(items.map(i => i.p))].sort();
+  const rows = pages.flatMap(rowsOf);
+  const all = rows.map(r => r.text).join('\n');
+  // Wert unter einer Überschrift (Lexware: Kopfzeile, darunter die Werte in derselben Spalte)
+  const below = label => {
+    for (const [ri, r] of rows.entries()) for (const it of r.items) {
+      const k = it.s.indexOf(label); if (k < 0) continue;
+      const x = it.x + (it.w || 0) * k / it.s.length;
+      for (const r2 of rows.slice(ri + 1, ri + 6)) {
+        if (r.y - r2.y > 40 || r2.y > r.y) break;
+        const v = r2.items.filter(i => Math.abs(i.x - x) < 25).sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x))[0];
+        if (v) return v.s.trim();
+      }
+    }
+    return null;
+  };
+  const lineAmount = re => { const r = rows.find(r => re.test(r.text)); if (!r) return null; const m = r.text.match(/-?\d{1,3}(?:\.\d{3})*,\d{2}/g); return m ? money(m[m.length - 1]) : null; };
+  const out = {};
+  const period = all.match(/Abrechnung für (\w+) (\d{4})/); if (period) out.period = period[1] + ' ' + period[2];
+  const firm = rows.find(r => /GmbH|UG|AG\b|KG\b|e\.K\.|GbR|OHG|Ltd/.test(r.text) && !/Abrechnung/.test(r.text)); if (firm) out.firm = firm.items[0].s.trim();
+  const stkl = below('Steuerklasse') ?? all.match(/Steuerklasse\s*:?\s*([1-6])\b/)?.[1];
+  if (/^[1-6]$/.test(stkl || '')) out.stkl = +stkl;
+  const kfb = below('KFB') ?? below('Kinderfreibetr'); if (kfb && /^\d+(,\d)?$/.test(kfb)) out.zkf = +kfb.replace(',', '.');
+  const konf = below('Konfession'); if (konf) out.kirche = !/^(ohne|-+|vd|keine)$/i.test(konf);
+  const pv = below('Anteil PV'); if (pv) { const k = pv.match(/(\d)\s*Kind/); out.pv = k ? String(Math.min(5, +k[1])) : /kinderlos|zuschlag/i.test(pv) ? 'z' : undefined; if (!out.pv) delete out.pv; }
+  const entry = below('Eintritt'); if (/^\d{2}\.\d{2}\.\d{4}$/.test(entry || '')) out.since = entry.split('.').reverse().join('-');
+  if (/^ja$/i.test(below('Mehrfachb') || '') && out.stkl === 6) out.type = 'neben';
+  out.midi = /^ja$/i.test(below('Midijob') || '');
+  const kk = below('Krankenkasse'); if (kk && /[A-Za-z]/.test(kk)) out.kasse = kk;
+  out.brutto = lineAmount(/^(Gehalt|Grundgehalt|Monatsgehalt|Lohn)\b/) ?? undefined;
+  const sach = lineAmount(/^Sachbezug/); if (sach) out.sach = Math.abs(sach);
+  out.gesamtbrutto = lineAmount(/^Gesamtbrutto/) ?? undefined;
+  out.netto = lineAmount(/^Netto\b/) ?? undefined;
+  out.auszahlung = lineAmount(/^Auszahlungsbetrag/) ?? undefined;
+  // KV-Zusatzbeitrag aus Beitrag / Beitragsbrutto (laufend): Arbeitnehmer zahlt 7,3 % + halben Zusatzbeitrag
+  const kvHead = rows.findIndex(r => /^KV\b/.test(r.text.trim()) && /RV/.test(r.text));
+  if (kvHead >= 0 && !out.midi) {
+    const lauf = rows.slice(kvHead + 1, kvHead + 5).filter(r => /^laufend/.test(r.text)).map(r => (r.text.match(/\d{1,3}(?:\.\d{3})*,\d{2}/g) || []).map(money));
+    if (lauf.length >= 2 && lauf[0][0] > 0) { const z = Math.round((lauf[1][0] / lauf[0][0] - 0.073) * 200 * 100) / 100; if (z > 0 && z < 6) out.kvz = z; }
+  }
+  for (const k of Object.keys(out)) if (out[k] === undefined || out[k] === null) delete out[k];
+  return out;
+}
+
+if (typeof module !== 'undefined') module.exports = { parsePayslip, MIN, HOUR, ymd, parseYmd, addDays, monday, isoWeek, easter, holidays, makeCalc, roundTime, sollWeek, bridgeIdeas, lohnsteuer, sv, payMonth, hourlyRate };

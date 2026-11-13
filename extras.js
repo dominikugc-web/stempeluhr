@@ -1170,3 +1170,66 @@ function openFromPush(url) {
   if (ADMIN_APP) { if (isAdmin()) { closeSheet(); openFeedback(fbp); loadFeedbackAdmin(); } } else openFeedback();
 }
 navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.open) openFromPush(e.data.open); });
+
+// ---------- Lohnabrechnung einlesen (Setup → Verdienst & Steuern) ----------
+// Das PDF wird nur auf dem Gerät gelesen (pdf.js), nichts davon wird hochgeladen. Übernommen werden nur
+// die Einstellungen (Steuerklasse, Freibeträge, Kasse, Gehalt), nicht das PDF selbst.
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/';
+let slipFound = null;
+function pickPayslip() {
+  if (supportReadOnly()) return;
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
+  inp.onchange = () => inp.files[0] && readPayslip(inp.files[0]);
+  inp.click();
+}
+async function readPayslip(file) {
+  try {
+    toast('Abrechnung wird gelesen …');
+    const pdfjs = await import(PDFJS + 'pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.mjs';
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise, items = [];
+    for (let p = 1; p <= Math.min(doc.numPages, 4); p++)
+      for (const it of (await (await doc.getPage(p)).getTextContent()).items) items.push({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width, p });
+    if (!items.some(i => i.s.trim())) return alert('In diesem PDF ist kein Text, vermutlich ein Foto oder Scan. Bitte die Original-PDF aus der Lohnsoftware nehmen.');
+    slipFound = parsePayslip(items);
+    if (!slipFound.stkl && !slipFound.brutto) return alert('In dieser Datei wurden keine Lohndaten erkannt. Ist das eine Lohnabrechnung als PDF?');
+    showPayslip();
+  } catch (e) { alert('Die Abrechnung konnte nicht gelesen werden: ' + e.message); }
+}
+function showPayslip() {
+  const f = slipFound, st = data.settings, row = (l, v, old) => v === undefined ? '' : `<div class="row"><span>${l}${old !== undefined && old !== v ? `<div class="muted small">bisher ${old}</div>` : ''}</span><b>${v}</b></div>`;
+  const yn = b => b ? 'Ja' : 'Nein';
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="backToTopic()">Abbrechen</button><button class="pill sm green" onclick="applyPayslip()">Übernehmen</button></div>
+  <h2>Lohnabrechnung${f.period ? ' ' + esc(f.period) : ''}</h2>
+  <p class="hint">Das hat die App in deiner Abrechnung gefunden. Mit „Übernehmen“ werden die Werte in deine Einstellungen eingetragen.</p>
+  <div class="group">
+    ${row('Arbeitgeber', f.firm && esc(f.firm))}
+    ${row('Gehalt brutto / Monat', f.brutto != null ? eur(f.brutto) : undefined, (curJob() ? eur(curJob().brutto) : undefined))}
+    ${row('Sachbezug steuerfrei', f.sach != null ? eur(f.sach) : undefined)}
+    ${row('Beschäftigt seit', f.since && dmy(f.since))}
+    ${row('Steuerklasse', f.stkl && ROMAN[f.stkl - 1], ROMAN[st.stkl - 1])}
+    ${row('Kinderfreibeträge', f.zkf != null ? deNum(f.zkf) : undefined, deNum(st.zkf))}
+    ${row('Kirchensteuer', f.kirche != null ? yn(f.kirche) : undefined, yn(st.kirche))}
+    ${row('Pflegeversicherung', f.pv && PVOPT[f.pv], PVOPT[st.pv])}
+    ${row('KV-Zusatzbeitrag', f.kvz != null ? deNum(f.kvz) + ' %' : undefined, deNum(st.kvz) + ' %')}
+  </div>
+  ${f.netto != null || f.auszahlung != null ? `<div class="group">${row('Netto laut Abrechnung', f.netto != null ? eur(f.netto) : undefined)}${row('Auszahlung', f.auszahlung != null ? eur(f.auszahlung) : undefined)}</div>
+  <p class="hint">Einmalzahlungen wie Boni oder Prämien werden nicht übernommen, weil sie nicht jeden Monat kommen. Deshalb kann das Netto in der App davon abweichen.</p>` : ''}
+  <p class="hint">Die PDF wird nur auf deinem Handy gelesen und nicht hochgeladen.</p>`);
+}
+// Job, zu dem die Abrechnung gehört: gleicher Arbeitgeber oder der einzige Hauptjob
+function curJob() {
+  const js = data.settings.jobs || [], f = slipFound || {};
+  return js.find(j => f.firm && j.name && j.name.toLowerCase() === f.firm.toLowerCase()) || (js.filter(j => j.type !== 'mini').length === 1 ? js.find(j => j.type !== 'mini') : null);
+}
+function applyPayslip() {
+  if (supportReadOnly()) return;
+  const f = slipFound, st = data.settings;
+  for (const k of ['stkl', 'zkf', 'kirche', 'pv', 'kvz']) if (f[k] !== undefined) st[k] = f[k];
+  if (f.brutto) {
+    const j = curJob();
+    if (j) Object.assign(j, { brutto: f.brutto, ...(f.sach != null ? { sach: f.sach } : {}), ...(f.since ? { since: f.since } : {}), ...(!j.name && f.firm ? { name: f.firm } : {}) });
+    else st.jobs.push({ name: f.firm || '', type: f.type || 'haupt', brutto: f.brutto, since: f.since || '', sach: f.sach || 0, cut: true, rvFrei: true });
+  }
+  save(); render(); toast('✓ Werte aus der Lohnabrechnung übernommen'); openTopic('pay');
+}
