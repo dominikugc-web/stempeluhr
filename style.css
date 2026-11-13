@@ -88,7 +88,7 @@ h2{font-size:30px;margin:8px 0 14px}
 .row>span:only-child{text-align:left;flex:1}
 .label{color:var(--mut);font-weight:600;margin:20px 6px 8px}
 .hint{color:var(--mut);font-size:14px;margin:-6px 8px 14px}
-.big + .hint,.big + p{margin-top:12px}
+.big + .hint,.big + p,.card + .hint{margin-top:12px}
 input,select{font:inherit;font-size:16px;color:var(--txt);background:rgba(255,255,255,.09);border:0;border-radius:12px;padding:8px 12px;max-width:58%;min-width:0}
 input[type=number],input.short{width:100px}
 input.full{max-width:none;width:100%;background:none;padding:0}
