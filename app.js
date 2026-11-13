@@ -114,7 +114,7 @@ function tabHi() {
 // Pille an Position x mit Breite w, k = Vergrößerung beim Ziehen
 function placeInd(x, w, k = 1) {
   const ind = $('.tab-ind'), hi = tabHi();
-  ind.style.transform = `translateX(${x}px)${k !== 1 ? ` scale(${k})` : ''}`; ind.style.width = w + 'px';
+  ind.style.transform = `translateX(${x}px)${k !== 1 ? ` scale(${k},1)` : ''}`; ind.style.width = w + 'px';
   const g = w * (k - 1) / 2;
   if (hi) hi.style.clipPath = `inset(0 calc(100% - ${x + w + g}px) 0 ${x - g}px round 27px)`;
 }
@@ -157,7 +157,7 @@ const haptic = (() => {
 (function tabSwipe() {
   const nav = $('.tabs'), ind = $('.tab-ind');
   if (!nav || !ind) return;
-  let start = null, dragging = false, eatClick = false, hoverBtn = null;
+  let start = null, dragging = false, eatClick = false, hoverBtn = null, lastTouch = -1e9;
   const btns = () => [...nav.querySelectorAll('button')].filter(b => !b.hidden);
   const under = x => btns().reduce((best, b) => {
     const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - x);
@@ -174,7 +174,7 @@ const haptic = (() => {
     const u = under(rx);
     if (u !== hoverBtn) { if (hoverBtn) haptic(); hoverBtn = u; }
     btns().forEach(b => b.classList.toggle('hover', b === u));
-    placeInd(left, w, 1.12);
+    placeInd(left, w, 1.1);
     ind.dataset.x = left;
     return true;
   };
@@ -191,12 +191,15 @@ const haptic = (() => {
     if (cancel || !target || target.dataset.tab === tab) { moveTabInd(); return; }
     haptic(); target.click();
   };
-  nav.addEventListener('touchstart', e => down(e.touches[0].clientX, e.timeStamp), { passive: true });
+  nav.addEventListener('touchstart', e => { lastTouch = e.timeStamp; down(e.touches[0].clientX, e.timeStamp); }, { passive: true });
   nav.addEventListener('touchmove', e => { if (move(e.touches[0].clientX)) e.preventDefault(); }, { passive: false });
   nav.addEventListener('touchend', e => up(e.changedTouches[0].clientX, e.timeStamp, false));
   nav.addEventListener('touchcancel', e => up(e.changedTouches[0]?.clientX ?? 0, e.timeStamp, true));
-  // Maus (Computer)
-  nav.addEventListener('mousedown', e => { if (e.button === 0) down(e.clientX, e.timeStamp); });
+  // Hängengebliebene Linse aufräumen, wenn die App in den Hintergrund geht
+  document.addEventListener('visibilitychange', () => { if (start) up(0, 0, true); nav.classList.remove('press', 'drag'); });
+  // Maus (Computer). iOS schickt nach jedem Tippen nachgemachte Maus-Ereignisse, oft ohne mouseup:
+  // die würden die Linse groß stehen lassen, deshalb kurz nach einer Berührung ignorieren.
+  nav.addEventListener('mousedown', e => { if (e.button === 0 && e.timeStamp - lastTouch > 1000) down(e.clientX, e.timeStamp); });
   addEventListener('mousemove', e => { if (start) move(e.clientX); });
   addEventListener('mouseup', e => { if (start) up(e.clientX, e.timeStamp, false); });
   nav.addEventListener('click', e => { if (eatClick && e.isTrusted) { e.stopPropagation(); e.preventDefault(); } }, true);
