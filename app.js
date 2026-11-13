@@ -392,7 +392,7 @@ function updateStart() {
   const now = Date.now(), t = calc().day(today());
   const P = data.settings.pause * MIN, pct = t.soll ? Math.floor(t.net / t.soll * 100) : 0;
   const done = t.soll && t.net >= t.soll;
-  const left = t.soll > 6 * HOUR ? Math.max(0, P - t.brk - t.pause) : 0;   // Pause, die noch abgezogen wird
+  const left = data.settings.pauseRule === 'fix' || t.soll > 6 * HOUR ? Math.max(0, P - t.brk - t.pause) : 0;   // Pause, die noch abgezogen wird
   const finish = now + Math.max(0, t.soll - t.net + left), first = t.sess[0]?.s ?? now;
   const running = data.sessions.some(x => x.e == null);
   $('#clock').textContent = clockStr(t.gross);
@@ -403,7 +403,7 @@ function updateStart() {
   let ring = dialRing(t.soll ? t.net / t.soll : 0), hint = '', hcls = '';
   if (state === 'pause') {
     // Pausen-Uhr: Ring füllt sich bis zur Pflichtpause, die Pause zählt erst ab 15 Min.
-    const req = t.gross > 9 * HOUR ? Math.max(P, 45 * MIN) : (t.gross > 6 * HOUR || t.soll > 6 * HOUR) ? P : 15 * MIN;
+    const req = data.settings.pauseRule === 'fix' ? P : t.gross > 9 * HOUR ? Math.max(P, 45 * MIN) : (t.gross > 6 * HOUR || t.soll > 6 * HOUR) ? P : 15 * MIN;
     const pe = now - pz.e, need = Math.max(15 * MIN, req - t.brk);   // t.brk = schon gemachte Pausen ab 15 Min.
     ring = pauseRing(pe / need);
     $('#clock').textContent = clockStr(pe);
@@ -866,8 +866,11 @@ function openTopic(id, keepStats) {
         <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
         <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
+        <label class="row"><span>Pausenregel</span><select onchange="setS('pauseRule', this.value); openTopic('work')"><option value="law">Gesetzlich</option><option value="fix" ${st.pauseRule === 'fix' ? 'selected' : ''}>Immer pauschal</option></select></label>
       </div>
-      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Stempelst du für die Pause aus, zählt jede Lücke ab 15 Min. als Pause. Fehlt bei mehr als 6 Std. Arbeit noch etwas bis zur Pause oben (ab 9 Std. mind. 45 Min.), wird nur der Rest abgezogen.</p>
+      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Stempelst du für die Pause aus, zählt jede Lücke ab 15 Min. als Pause. ${st.pauseRule === 'fix'
+        ? `<b>Immer pauschal:</b> An jedem Arbeitstag werden ${st.pause} Min. abgezogen, egal wie lange du arbeitest (Regel deines Arbeitgebers). Gestempelte Pausen werden angerechnet.`
+        : `<b>Gesetzlich:</b> Fehlt bei mehr als 6 Std. Arbeit noch etwas bis zur Pause oben (ab 9 Std. mind. 45 Min.), wird nur der Rest abgezogen. Bis 6 Std. wird nichts abgezogen.`}</p>
       <div class="label">Sollstunden pro Tag</div>
       <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
       ${setupExtrasHtml()}`,
@@ -1059,7 +1062,7 @@ function exportPdf(y, m) {
   });
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text(doc.splitTextToSize(`Pause = alle Unterbrechungen zwischen Beginn und Ende. Fehlt bis zur Mindestpause (${st.pause} Min. ab 6 Std., ${Math.max(st.pause, 45)} Min. ab 9 Std.) etwas, wird es zusätzlich abgezogen. Erstellt am ${dmy(t)}.`, 180), 14, doc.lastAutoTable.finalY + 6);
+  doc.text(doc.splitTextToSize(`Pause = alle Unterbrechungen zwischen Beginn und Ende. ${st.pauseRule === 'fix' ? `Pause pauschal ${st.pause} Min. pro Arbeitstag (Firmenregel); fehlt etwas, wird es zusätzlich abgezogen.` : `Fehlt bis zur Mindestpause (${st.pause} Min. ab 6 Std., ${Math.max(st.pause, 45)} Min. ab 9 Std.) etwas, wird es zusätzlich abgezogen.`} Erstellt am ${dmy(t)}.`, 180), 14, doc.lastAutoTable.finalY + 6);
   deliver(doc.output('blob'), `Arbeitszeit_${y}-${pad(m + 1)}.pdf`);
 }
 

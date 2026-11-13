@@ -98,8 +98,10 @@ function makeCalc(data, now) {
     // Abgezogen wird erst ab 6 Std., die Zeit fällt dadurch nie unter 6:00.
     let brkAll = 0, brk = 0;
     for (let i = 1; i < sess.length; i++) if (sess[i - 1].e) { const g = Math.max(0, sess[i].s - sess[i - 1].e); brkAll += g; if (g >= 15 * MIN) brk += g; }
-    const req = (gross > 9 * HOUR ? Math.max(st.pause, 45) : st.pause) * MIN;
-    const pause = Math.min(Math.max(0, gross - 6 * HOUR), Math.max(0, req - brk));
+    // Pausenregel 'fix' (Firmenregel): an jedem Arbeitstag pauschal st.pause, egal wie lange gearbeitet wurde.
+    const fix = st.pauseRule === 'fix';
+    const req = (fix ? st.pause : gross > 9 * HOUR ? Math.max(st.pause, 45) : st.pause) * MIN;
+    const pause = fix ? Math.min(gross, Math.max(0, req - brk)) : Math.min(Math.max(0, gross - 6 * HOUR), Math.max(0, req - brk));
     const year = d.slice(0, 4), holiday = (hol[year] ||= holidays(+year, st.state))[d];
     const absence = data.absences.find(a => a.from <= d && d <= a.to);
     const weekday = +sollWeek(st, d)[parseYmd(d).getDay()] || 0;
