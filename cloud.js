@@ -18,7 +18,7 @@ const firmKey = () => 'stempeluhr-firm-' + (me?.uid || '');
 let membersOn = false;
 let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mitarbeiter ansieht
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
-let joinCode = new URLSearchParams(location.search).get('join');
+let joinCode = new URLSearchParams(location.search).get('join')?.replace(/[^A-Za-z0-9]/g, '').toUpperCase() || null;
 // Aus einer Benachrichtigung geöffnet (?fb=…): nach dem Laden einmal den Chat öffnen
 let pushOpen = new URLSearchParams(location.search).get('fb') || (new URLSearchParams(location.search).has('slips') ? '#slips' : null);
 function pushStartOpen() { if (!pushOpen) return; const u = pushOpen === '#slips' ? '?slips=1' : '?fb=' + pushOpen; pushOpen = null; history.replaceState(null, '', location.pathname); setTimeout(() => openFromPush(u), 300); }
@@ -542,8 +542,17 @@ function joinForm(code = '') {
   </div>
   <p class="hint">Den Code bekommst du von deinem Geschäftsführer. Nach der Freigabe sieht er deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>`);
 }
+// Code aus allem holen, was Leute einfügen: nur der Code, der Link (?join=…) oder die ganze Einladungsnachricht
+function cleanCode(v) {
+  const t = String(v || '').toUpperCase(), re = new RegExp(`[${CODE_CHARS}]{6}`);
+  const m = t.match(/JOIN=([A-Z0-9]+)/) || t.match(/CODE\W*([A-Z0-9]{6})\b/);
+  if (m) return m[1];
+  const plain = t.replace(/[^A-Z0-9]/g, '');
+  return plain.length <= 8 ? plain : ((t.match(new RegExp(`\\b[${CODE_CHARS}]{6}\\b`, 'g')) || []).pop() || plain.match(re)?.[0] || '');
+}
 async function joinCompany() {
-  const code = $('#jcode').value.trim().toUpperCase(), name = $('#jname2').value.trim();
+  const code = cleanCode($('#jcode').value), name = $('#jname2').value.trim();
+  $('#jcode').value = code;
   if (!code || !name) return alert('Bitte Code und Namen eintragen.');
   try {
     const inv = await ref('invites/' + code).get();
