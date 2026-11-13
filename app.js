@@ -134,6 +134,10 @@ function moveTabInd() {
   }
   ind.dataset.x = x;
 }
+// Kein Zoomen: iOS ignoriert user-scalable=no, deshalb die Zwei-Finger-Geste hier abfangen (Doppeltippen sperrt touch-action im CSS).
+// Die Karte im Standort-Fenster zoomt trotzdem, sie verarbeitet die Finger selbst.
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 // Leichtes Antippen-Gefühl (Haptik). Android: Vibration. iPhone (ab iOS 18): Ein verstecktes Schalter-Feld
 // wird umgelegt, das löst das System-Feedback aus. Ist Haptik in den iPhone-Einstellungen aus, passiert nichts.
 const haptic = (() => {
