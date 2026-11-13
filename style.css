@@ -347,3 +347,4 @@ html.light .hticks{background:repeating-conic-gradient(rgba(0,0,0,.22) 0 .7deg,t
 .otp input{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:16px;color:transparent;caret-color:transparent;border:0;background:none}
 .big:disabled{opacity:.45}
 button.link{color:var(--accent);padding:0;font:inherit}
+.joinbtns{margin:10px 0 0}.joinbtns .pill{white-space:nowrap;font-size:15px;padding-left:8px;padding-right:8px}

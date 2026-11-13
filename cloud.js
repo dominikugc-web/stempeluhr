@@ -269,7 +269,7 @@ function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Fir
     membersOn = true;
     companyUnsubs.push(fb.db.collection(`companies/${id}/members`).onSnapshot(q => {
       members = q.docs.map(d => ({ uid: d.id, ...d.data() }));
-      loadTeamStats(); updateTabs(); refreshTeam(); syncInvite();
+      loadTeamStats(); updateTabs(); refreshTeam(); syncInvite(); setTimeout(joinPrompt, 600);
     }, cloudError));
     companyUnsubs.push(ref(`companies/${id}/admin/settings`).onSnapshot(s => {
       companyAdmin = s.exists ? s.data() : {};
@@ -683,6 +683,32 @@ async function rotateCode() {
     await ref('invites/' + old).delete();
   } catch (e) { alert(e.message); }
 }
+// Offene Beitrittsanfragen: Beim Öffnen der App erscheint je Anfrage ein Fenster mit Annehmen / Ablehnen / Später.
+// „Später“ blendet sie bis zum nächsten Öffnen der App aus, in Setup → Team bleibt sie sichtbar.
+const joinSeen = new Set();
+function joinPrompt() {
+  if (ADMIN_APP || viewing || !company || !isOwner() || document.querySelector('.ask')) return;
+  const m = members.find(x => x.status === 'pending' && !joinSeen.has(x.uid));
+  if (!m) return;
+  joinSeen.add(m.uid);
+  const d = document.createElement('div'); d.className = 'ask';
+  d.innerHTML = `<div class="askcard"><div class="askicon">👋</div><h3>Neue Beitrittsanfrage</h3>
+    <p><b>${esc(m.name)}</b>${m.email ? ` <span class="small">(${esc(m.email)})</span>` : ''} möchte <b>${esc(company.name)}</b> beitreten.</p>
+    <p class="muted small">Nach dem Annehmen siehst du die Zeiten und Abwesenheiten und kannst sie korrigieren. Gehalt und Steuerdaten bleiben privat.</p>
+    <button class="big" data-a="yes">Annehmen</button>
+    <div class="two joinbtns"><button class="pill" data-a="no"><span class="red">Ablehnen</span></button><button class="pill" data-a="later">Später entscheiden</button></div></div>`;
+  d.onclick = async e => {
+    const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
+    d.remove(); haptic();
+    try {
+      if (a === 'yes') { await ref(`companies/${company.id}/members/${m.uid}`).update({ status: 'active' }); toast(`✓ ${m.name} ist jetzt im Team`); }
+      if (a === 'no') { await ref(`companies/${company.id}/members/${m.uid}`).delete(); toast(`Anfrage von ${m.name} abgelehnt`); }
+    } catch (err) { cloudError(err); }
+    setTimeout(joinPrompt, 400);   // weitere offene Anfragen nacheinander
+  };
+  document.body.appendChild(d);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { joinSeen.clear(); setTimeout(joinPrompt, 600); } });
 function approveMember(uid) { ref(`companies/${company.id}/members/${uid}`).update({ status: 'active' }).catch(cloudError); }
 function rejectMember(uid) {
   const m = members.find(x => x.uid === uid);
