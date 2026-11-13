@@ -367,3 +367,28 @@ h1 .badge-pro{font-size:13px;vertical-align:6px}
 .profeat .tt{display:flex;flex-direction:column;text-align:left;flex:1;min-width:0}
 /* Zurück-Knopf oben links: nur der Pfeil */
 .pill.back{width:76px;height:40px;padding:0;display:inline-grid;place-items:center;font-size:24px;line-height:1;border-radius:20px;flex:none}
+
+/* ===== Einheitliche Formen und Abstände (gilt für die ganze App, überschreibt Einzelwerte oben) =====
+   Ecken: große Kacheln 24 px · Kacheln in Kacheln 16 px · Eingaben 12 px · Knöpfe vollrund
+   Abstand: 14 px unter jedem Block · 16 px zwischen Inhalt und Kacheln in einer Karte */
+:root{--r-lg:24px;--r-sm:16px;--gap-block:14px}
+.card,.group,.day,.ot,.kpi,.tip,details.month,.choice,.viewing,.mapwrap,.locres,.sbig,.ssm,.sday,.sclock{border-radius:var(--r-lg)}
+.tile,.segctl,.otp span,.dbox{border-radius:var(--r-sm)}
+.card,.group,.day,.choice,details.month,.tip,.two,.kpis,.ot-grid,.viewing,.mapwrap,.sday{margin-top:0;margin-bottom:var(--gap-block)}
+.pill.wide{margin:0 0 12px}
+.tiles{margin-top:16px}
+.tile b,.kpi b,.ssm b{font-size:22px}
+/* Fenster-Kopf: alle Knöpfe gleich hoch wie der Zurück-Knopf */
+.sheet-head{min-height:40px;margin-bottom:6px}
+.sheet-head .pill{height:40px;padding:0 16px;font-size:15px;margin:0}
+.sheet-head .pill.back{padding:0}
+/* Startseite: Abstände kommen hier aus dem Raster (gap), nicht aus den Blöcken */
+.startfix>*{margin:0}
+.nowrap{white-space:nowrap}
+.wtitle{overflow:hidden;text-overflow:ellipsis}
+.sheet-head .pill.back{font-size:24px}
+/* Fenster-Titel: mittig zwischen den Knöpfen, eine Zeile */
+.sheet-head h2{flex:1;min-width:0;text-align:center;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Eingabefelder in Listenzeilen: gleich breit, rechtsbündig wie in den iPhone-Einstellungen */
+.row>input:not([type=checkbox]):not([type=color]):not([type=range]):not(.full),.row>select{width:128px;max-width:45%;text-align:right;flex:none}
+.row>select{text-align-last:right}

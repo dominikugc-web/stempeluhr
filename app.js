@@ -703,8 +703,8 @@ function calWeekView(head, nav, todayBtn) {
   view.innerHTML = head + nav(`<h1 style="font-size:26px">Woche ${isoWeek(ws)}</h1><div class="muted">${dmy(ws).slice(0, 6)} – ${dmy(addDays(ws, 6))}</div>`) +
   (ws !== monday(t) ? todayBtn : '') + `
   <div class="whead">${ring(soll ? Math.round(net / soll * 100) : 0)}
-    <div class="wtitle"><b>${dur(net)}</b><div class="muted small">von ${dur(soll)} Soll</div></div>
-    <div class="wsum"><b class="${cls(diff)}">${dur(diff, true)}</b><div class="muted small">bis heute</div></div>
+    <div class="wtitle"><b>${hm(net)} Std.</b><div class="muted small">von ${hm(soll)} Std. Soll</div></div>
+    <div class="wsum"><b class="${cls(diff)}">${hm(diff, true)}</b><div class="muted small">bis heute</div></div>
   </div>
   ${days.map(x => dayRow(x, t)).join('')}`;
 }
@@ -712,7 +712,7 @@ function dayRow(x, t) {
   const future = x.d > t;
   return `<button class="day ${x.d === t ? 'is-today' : ''} ${x.soll || x.net || note(x) ? '' : 'off'}" onclick="setCal('day', '${x.d}')">
     <span class="dot ${x.d === t ? 'today' : dayState(x, t)}"></span>
-    <span class="dl"><b>${WD[parseYmd(x.d).getDay()]}</b><span class="muted">${dmy(x.d).slice(0, 6)}${x.sess.length ? ' · ' + span(x) : ''}</span>${note(x) ? `<span class="tag">${esc(note(x))}</span>` : ''}</span>
+    <span class="dl"><b>${WD[parseYmd(x.d).getDay()]} <span class="muted small" style="font-weight:400">${dmy(x.d).slice(0, 6)}</span></b>${x.sess.length ? '<span class="muted"><span class="nowrap">' + span(x).replaceAll(', ', '</span>, <span class="nowrap">') + '</span></span>' : ''}${note(x) ? `<span class="tag">${esc(note(x))}</span>` : ''}</span>
     <span class="dr"><b>${x.sess.length || (!future && x.soll) ? dur(x.net) : ''}</b>${!future && (x.soll || x.net) ? `<span class="${cls(x.diff)} small">${dur(x.diff, true)}</span>` : ''}</span>
   </button>`;
 }
@@ -939,7 +939,7 @@ function openTopic(id, keepStats) {
       <button class="pill wide" onclick="openBalance()">Überstunden Tag für Tag & Korrekturen ›</button>
       <div class="label">Urlaub</div>
       <div class="group"><label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${st.vacation}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label></div>
-      <button class="pill wide" onclick="openAbsences()">Abwesenheiten, Urlaubsplaner, Schulferien ›</button>`,
+      <button class="pill wide" onclick="openAbsences()">Abwesenheiten &amp; Urlaubsplaner ›</button>`,
     pay: () => payTopicHtml(),
     export: () => `<div class="label">PDF-Arbeitszeitnachweis</div>
       <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
