@@ -533,7 +533,7 @@ function calDayView(head, nav, todayBtn) {
   </div>
   <div class="label">Zeiten</div>
   ${x.sess.length ? `<div class="group">${x.sess.map(s => `<div class="row"><span>${tod(s.s)} – ${s.e ? tod(s.e) : 'läuft'}</span><span>${dur((s.e ?? Date.now()) - s.s)}</span></div>`).join('')}
-    <div class="row"><span class="muted">Pause (pauschal)</span><span class="muted">− ${dur(x.pause)}</span></div></div>`
+    ${x.pause ? `<div class="row"><span class="muted">Pause (pauschal)</span><span class="muted">− ${dur(x.pause)}</span></div>` : ''}</div>`
     : `<p class="muted center">${d > t ? 'Dieser Tag liegt in der Zukunft.' : 'An diesem Tag ist keine Zeit erfasst.'}</p>`}
   <div class="two"><button class="pill" onclick="openDay(calDay)">✏️ ${x.sess.length ? 'Bearbeiten' : 'Eintragen'}</button><button class="pill" onclick="absenceForm(calDay)">🏖 Abwesenheit</button></div>
   ${d >= data.settings.since ? `<div class="group"><div class="row"><span>Überstundenkonto am ${dmy(d < t ? d : t).slice(0, 6)}</span><span class="${cls(c.balance(d < t ? d : t))}">${hm(c.balance(d < t ? d : t), true)}</span></div></div>`
@@ -738,7 +738,7 @@ function openTopic(id, keepStats) {
         <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
       </div>
-      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Die Pause wird an jedem Arbeitstag pauschal abgezogen.</p>
+      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Die Pause wird abgezogen, sobald du an einem Tag mehr als 6 Std. arbeitest.</p>
       <div class="label">Sollstunden pro Tag</div>
       <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
       ${setupExtrasHtml()}`,
@@ -928,7 +928,7 @@ function exportPdf(y, m) {
   });
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text(`Pause: pauschal ${st.pause} Min. pro Arbeitstag abgezogen. Erstellt am ${dmy(t)}.`, 14, doc.lastAutoTable.finalY + 6);
+  doc.text(`Pause: pauschal ${st.pause} Min. an Tagen über 6 Std. abgezogen. Erstellt am ${dmy(t)}.`, 14, doc.lastAutoTable.finalY + 6);
   deliver(doc.output('blob'), `Arbeitszeit_${y}-${pad(m + 1)}.pdf`);
 }
 

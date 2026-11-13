@@ -31,6 +31,11 @@ assert.equal(c.day('2026-11-01').soll, 0); // before start date
 // -1 h start + 0.5 h (Mon) - 8 h (Tue) + 0 (vacation Wed) - 5 h (Thu reduced)
 assert.equal(c.balance('2026-11-05'), -13.5 * H);
 assert.equal(c.balance('2026-11-01'), -1 * H);
+// Pause erst nach 6 Std.: 30 Min. → keine Pause, 6:20 → nur 20 Min., 6:00 bleibt unten
+const pz = (h) => L.makeCalc({ sessions: [{ s: +new Date(2026, 10, 2, 6, 0), e: +new Date(2026, 10, 2, 6, 0) + h * H }], absences: [], settings: data.settings }, +new Date(2026, 10, 3)).day('2026-11-02');
+assert.equal(pz(0.5).net, 0.5 * H);
+assert.equal(pz(6 + 1 / 3).net, 6 * H);
+assert.equal(pz(7).net, 6.5 * H);
 
 
 // ---------- Runden, Arbeitspläne, Korrekturen ----------

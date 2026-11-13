@@ -93,7 +93,8 @@ function makeCalc(data, now) {
   function day(d) {
     const sess = (byDay[d] || []).slice().sort((a, b) => a.s - b.s);
     const gross = sess.reduce((t, x) => { const r = roundSession(x, st.round, now); return t + Math.max(0, r.e - r.s); }, 0);
-    const pause = Math.min(gross, st.pause * MIN);
+    // Pause wie im ArbZG erst nach 6 Std. abziehen, die Zeit fällt dadurch nie unter 6:00
+    const pause = Math.min(Math.max(0, gross - 6 * HOUR), st.pause * MIN);
     const year = d.slice(0, 4), holiday = (hol[year] ||= holidays(+year, st.state))[d];
     const absence = data.absences.find(a => a.from <= d && d <= a.to);
     const weekday = +sollWeek(st, d)[parseYmd(d).getDay()] || 0;
