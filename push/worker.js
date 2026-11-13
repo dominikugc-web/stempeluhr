@@ -101,6 +101,17 @@ export default {
     }
 
     // Neue Lohnabrechnung: jeder Angemeldete darf, aber nur mit festem Text (kein Spam mit eigenem Inhalt möglich)
+    // Beitrittsanfrage: an Gründer/Geschäftsführer laut Einladungscode, fester Text
+    if (path === '/notify' && b.kind === 'join') {
+      const to = (Array.isArray(b.to) ? b.to : []).filter(u => typeof u === 'string' && /^\w{10,40}$/.test(u)).slice(0, 5);
+      const clean = v => String(v || '').replace(/[^\p{L}\p{N} .,&'-]/gu, '').trim().slice(0, 40);
+      const name = clean(b.body) || 'Jemand', firm = clean(b.firm);
+      const data = { title: '👋 Neue Beitrittsanfrage', body: `${name} möchte ${firm || 'deiner Firma'} beitreten. Tippe zum Freigeben.`, url: './?team=1', tag: 'join' };
+      let sent = 0;
+      for (const t of to) for (const s of JSON.parse(await env.SUBS.get(t) || '[]').filter(s => s.app === 'user')) if (await push(s, data, env).catch(() => 0) < 300) sent++;
+      return out({ ok: true, sent });
+    }
+
     if (path === '/notify' && b.kind === 'payslip') {
       if (typeof b.to !== 'string' || !/^\w{10,40}$/.test(b.to)) return out({ error: 'Empfänger fehlt' }, 400);
       const period = /^[A-Za-zÄÖÜäöü]+ \d{4}$/.test(b.body || '') ? b.body : '';

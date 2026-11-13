@@ -1166,6 +1166,7 @@ function notifyPush(body) { if (me) pushCall('/notify', body).catch(() => {}); }
 // Tipp auf eine Benachrichtigung: Chat öffnen (?fb=1 im Nutzer-App, ?fb=<uid> in der Admin-App)
 function openFromPush(url) {
   if (new URL(url, location.href).searchParams.has('slips')) return me && !ADMIN_APP && openSlips();
+  if (new URL(url, location.href).searchParams.has('team')) { if (me && !ADMIN_APP) { closeSheet(); go('setup'); openTopic('team'); } return; }
   const fbp = new URL(url, location.href).searchParams.get('fb');
   if (!fbp || !me) return;
   if (ADMIN_APP) { if (isAdmin()) { closeSheet(); openFeedback(fbp); loadFeedbackAdmin(); } } else openFeedback();

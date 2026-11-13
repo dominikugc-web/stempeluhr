@@ -20,8 +20,9 @@ let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mi
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
 let joinCode = new URLSearchParams(location.search).get('join')?.replace(/[^A-Za-z0-9]/g, '').toUpperCase() || null;
 // Aus einer Benachrichtigung geöffnet (?fb=…): nach dem Laden einmal den Chat öffnen
-let pushOpen = new URLSearchParams(location.search).get('fb') || (new URLSearchParams(location.search).has('slips') ? '#slips' : null);
-function pushStartOpen() { if (!pushOpen) return; const u = pushOpen === '#slips' ? '?slips=1' : '?fb=' + pushOpen; pushOpen = null; history.replaceState(null, '', location.pathname); setTimeout(() => openFromPush(u), 300); }
+const qs = new URLSearchParams(location.search);
+let pushOpen = qs.get('fb') || (qs.has('slips') ? '#slips' : qs.has('team') ? '#team' : null);
+function pushStartOpen() { if (!pushOpen) return; const u = pushOpen === '#slips' ? '?slips=1' : pushOpen === '#team' ? '?team=1' : '?fb=' + pushOpen; pushOpen = null; history.replaceState(null, '', location.pathname); setTimeout(() => openFromPush(u), 300); }
 
 // Entwickler-App (admin/index.html): dieselbe Oberfläche mit Umschalter Entwickler / Geschäftsführer / Mitarbeiter / Ich.
 // Die UID muss auch in firestore.rules (isAdmin) stehen, sonst verweigert der Server den Zugriff.
@@ -242,6 +243,21 @@ function writeOwn(first) {
 function refresh() { if ($('#sheet').hidden) render(); }
 
 // ---------- firma beobachten ----------
+// Wer bei einer Beitrittsanfrage benachrichtigt wird: Gründer und alle Geschäftsführer. Steht im Einladungscode,
+// weil der neue Mitarbeiter die Firma vor der Freigabe noch nicht lesen darf.
+const inviteNotify = () => [...new Set([company.owner, ...members.filter(m => m.status === 'active' && m.role === 'boss').map(m => m.uid)])].slice(0, 5);
+let inviteSynced = '';
+async function syncInvite() {
+  if (ADMIN_APP || !company?.code || !isOwner()) return;
+  const want = inviteNotify(), key = company.code + want.join();
+  if (inviteSynced === key) return;
+  inviteSynced = key;
+  try {
+    const r = ref('invites/' + company.code), s = await r.get();
+    if (!s.exists || s.data().cid !== company.id || String(s.data().notify) === String(want)) return;
+    await r.delete(); await r.set({ ...s.data(), notify: want });   // Codes dürfen nur angelegt/gelöscht werden
+  } catch (e) { inviteSynced = ''; }
+}
 function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Firma als Geschäftsführer
   off(companyUnsubs);
   if (!acting) cid = id;
@@ -253,7 +269,7 @@ function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Fir
     membersOn = true;
     companyUnsubs.push(fb.db.collection(`companies/${id}/members`).onSnapshot(q => {
       members = q.docs.map(d => ({ uid: d.id, ...d.data() }));
-      loadTeamStats(); updateTabs(); refreshTeam();
+      loadTeamStats(); updateTabs(); refreshTeam(); syncInvite();
     }, cloudError));
     companyUnsubs.push(ref(`companies/${id}/admin/settings`).onSnapshot(s => {
       companyAdmin = s.exists ? s.data() : {};
@@ -488,7 +504,7 @@ async function companySave() {
     if (renamed) {
       // Einladung und offene Anfragen sollen den neuen Namen zeigen (Einladungen lassen sich nur neu anlegen, nicht ändern)
       await ref('invites/' + company.code).delete();
-      await ref('invites/' + company.code).set({ cid: company.id, name });
+      await ref('invites/' + company.code).set({ cid: company.id, name, notify: inviteNotify() });
       await Promise.all(members.map(m => ref(`companies/${company.id}/members/${m.uid}`).update({ companyName: name }).catch(() => {})));
     }
     company.name = name; company.info = info;
@@ -524,7 +540,7 @@ async function createCompany(extra) {
   try {
     const code = await freeCode(), c = fb.db.collection('companies').doc();
     await c.set({ name, owner: me.uid, ownerName: displayName(), code, created: firebase.firestore.FieldValue.serverTimestamp(), ...(extra ? { ownerTracks: false } : {}) });
-    await ref('invites/' + code).set({ cid: c.id, name });
+    await ref('invites/' + code).set({ cid: c.id, name, notify: [me.uid] });
     if (extra) { closeSheet(); go('setup'); switchFirm(c.id, true); openTopic('team'); toast(`${name} angelegt`); return true; }
     await ref('data/' + me.uid).update({ cid: c.id });
     closeSheet();
@@ -601,10 +617,11 @@ async function joinCompany() {
   try {
     const inv = await ref('invites/' + code).get();
     if (!inv.exists) return alert('Diesen Code gibt es nicht. Frag deinen Geschäftsführer nach dem aktuellen Code.');
-    const { cid: id, name: companyName } = inv.data();
+    const { cid: id, name: companyName, notify = [] } = inv.data();
     await ref(`companies/${id}/members/${me.uid}`).set({ name, email: me.email || '', status: 'pending', code, companyName, requested: firebase.firestore.FieldValue.serverTimestamp() });
     data.settings.name = name;
     await ref('data/' + me.uid).update({ cid: id, 'settings.name': name });
+    if (notify.length) notifyPush({ kind: 'join', to: notify, body: name, firm: companyName });
     closeSheet();
     alert(`Anfrage an ${companyName} gesendet. Sobald dein Geschäftsführer dich freigibt, bist du drin.`);
     return true;
@@ -661,7 +678,7 @@ async function rotateCode() {
   if (!confirm('Neuen Code erzeugen? Der alte Code funktioniert dann nicht mehr. Bestehende Mitarbeiter bleiben drin.')) return;
   try {
     const code = await freeCode(), old = company.code;
-    await ref('invites/' + code).set({ cid: company.id, name: company.name });
+    await ref('invites/' + code).set({ cid: company.id, name: company.name, notify: inviteNotify() });
     await ref('companies/' + company.id).update({ code });
     await ref('invites/' + old).delete();
   } catch (e) { alert(e.message); }
