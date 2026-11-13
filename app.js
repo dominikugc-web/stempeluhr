@@ -364,20 +364,26 @@ function renderStart() {
   </div>
   ${tipHtml()}
   <div class="card sclock">
-    <div class="dial" id="dial"><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
+    <div class="dial" id="dial"><span class="caps" id="caps"></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
     <button id="toggle" class="big" onclick="toggle()">Start</button>
   </div></div>`;
   updateStart();
 }
 // Ring um die Uhr: eine Umdrehung = Sollzeit. Erste Runde rot → orange (¼) → gelb (½) → grün (voll).
 // Überstunden: Ring bleibt grün, eine zweite Runde startet hellblau (nah am Grün) → dunkelblau → lila.
-const RING1 = 'conic-gradient(#e8455a, #f0883c 25%, #f2c94c 50%, #a8d14a 75%, #8cc63f 100%)';
-const RING2 = 'conic-gradient(#5fd6b8, #4fb3ff 30%, #2f6bff 60%, #3a3fd8 80%, #8e44ff 100%)';
+const RING1 = [[0, '#e8455a'], [.25, '#f0883c'], [.5, '#f2c94c'], [.75, '#a8d14a'], [1, '#8cc63f']];
+const RING2 = [[0, '#5fd6b8'], [.3, '#4fb3ff'], [.6, '#2f6bff'], [.8, '#3a3fd8'], [1, '#8e44ff']];
+const mixHex = (a, b, t) => '#' + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')).join('');
+const ringColor = (st, f) => { for (let i = 1; i < st.length; i++) if (f <= st[i][0]) return mixHex(st[i - 1][1], st[i][1], (f - st[i - 1][0]) / (st[i][0] - st[i - 1][0])); return st.at(-1)[1]; };
+// Ein einziger Verlauf (keine übereinanderliegenden Schichten, sonst schimmert am Rand eine dünne Farblinie durch).
+// Die Farbe hängt am Winkel (¼ immer orange), der Bogen endet bei f, danach kommt der Rest-Ring.
+const ringArc = (st, f, rest) => `conic-gradient(${[...st.filter(x => x[0] < f).map(x => `${x[1]} ${x[0] * 100}%`), `${ringColor(st, f)} ${f * 100}%`, `${rest} ${f * 100}%`].join(', ')})`;
 function dialRing(f) {
   const track = 'var(--ringtrack)';
-  if (f <= 1) return `conic-gradient(transparent 0 ${f * 100}%, ${track} 0), ${RING1}`;
-  const q = Math.min(1, f - 1) * 100;
-  return `conic-gradient(transparent 0 ${q}%, #8cc63f 0), ${RING2}`;
+  if (f <= 0.001) return { bg: track, caps: [] };
+  if (f <= 1) return { bg: ringArc(RING1, f, track), caps: f < 1 ? [[0, RING1[0][1]], [f, ringColor(RING1, f)]] : [] };
+  const q = Math.min(1, f - 1);   // Überstunden: zweite Runde über dem vollen grünen Ring
+  return { bg: ringArc(RING2, q, RING1.at(-1)[1]), caps: q < 1 ? [[0, RING2[0][1]], [q, ringColor(RING2, q)]] : [] };
 }
 function updateStart() {
   if (!$('#clock')) return;
@@ -391,7 +397,10 @@ function updateStart() {
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
-  $('#dial').style.background = dialRing(t.soll ? t.net / t.soll : 0);
+  const ring = dialRing(t.soll ? t.net / t.soll : 0);
+  $('#dial').style.background = ring.bg;
+  // runde Enden am farbigen Bogen
+  $('#caps').innerHTML = ring.caps.map(([f, c]) => `<i style="transform:rotate(${f * 360}deg);--c:${c}"></i>`).join('');
   $('#finish').textContent = !t.soll ? 'Heute frei' : done ? 'Ziel erreicht ✓' : `fertig um ${tod(finish)}`;
   $('#tdiff').textContent = hm(t.diff, true);
   $('#tdiff').className = t.sess.length ? cls(t.diff) : '';
