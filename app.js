@@ -359,7 +359,7 @@ function renderStart() {
   ${tipHtml()}
   <div class="card sclock">
     <div class="dial" id="dial"><span class="caps" id="caps"></span>
-      <span class="hticks"></span><span class="analog" aria-hidden="true"><i class="hh" id="hh"></i><i class="mh" id="mh"></i><i class="ctr"></i></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
+      <span class="hticks"></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
     <button id="toggle" class="big" onclick="toggle()">Start</button>
   </div></div>`;
   updateStart();
@@ -389,10 +389,6 @@ function updateStart() {
   const finish = now + Math.max(0, t.soll - t.net + left), first = t.sess[0]?.s ?? now;
   const running = data.sessions.some(x => x.e == null);
   $('#clock').textContent = clockStr(t.gross);
-  // dezente Analoguhr mit der aktuellen Uhrzeit
-  const d = new Date(now), mi = d.getMinutes() + d.getSeconds() / 60;
-  $('#hh').style.transform = `rotate(${(d.getHours() % 12 + mi / 60) * 30}deg)`;
-  $('#mh').style.transform = `rotate(${mi * 6}deg)`;
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
