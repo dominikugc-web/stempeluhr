@@ -590,7 +590,7 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   <div class="group">${people.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
     <span>${openLabel(s?.open)}${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${s ? (s.open ? openText(s.open) + ' · ' : '') + 'Diese Woche ' + dur(s.week) : esc(m.email || '')}</div></span>
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
-  <p class="hint">${active.length ? 'Grüner Punkt = gerade eingestempelt, oranger Punkt = Eintrag seit über 16 Std. offen (vergessen auszustempeln). Rechts das Überstundenkonto. Tippen zeigt den Kalender, dort kannst du Zeiten korrigieren. GF = Geschäftsführer, die Rolle vergibst du im Setup des jeweiligen Mitarbeiters.' : 'Noch keine Mitarbeiter. Teil den Einladungscode.'}</p>
+  <p class="hint">${active.length ? 'Grüner Punkt = gerade eingestempelt, gelber Punkt = in Pause, oranger Punkt = Eintrag seit über 16 Std. offen (vergessen auszustempeln). Rechts das Überstundenkonto. Tippen zeigt den Kalender, dort kannst du Zeiten korrigieren. GF = Geschäftsführer, die Rolle vergibst du im Setup des jeweiligen Mitarbeiters.' : 'Noch keine Mitarbeiter. Teil den Einladungscode.'}</p>
   ${people.length ? `<div class="label">Lohn & Export</div>${payDueHtml()}
     <div class="group">
       <button class="row" onclick="openPayroll()"><span>📤 Lohn-Export<div class="muted small">${payHas() ? PAY_SOFT[payCfg().soft].name + (payCfg().last ? ' · zuletzt ' + ymName(payCfg().last) : '') : 'Lexware, DATEV, CSV oder Excel'}</div></span><span class="muted">›</span></button>
@@ -756,7 +756,7 @@ function renderAdmin() {
   if (!a) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
   const wk = Date.now() - 7 * 86400000, kpi = (v, l) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`;
   view.innerHTML = `<h1 class="center">Entwickler</h1>
-  <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.open && !u.open.stale).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
+  <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.open && !u.open.stale && !u.open.pause).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
   <div class="label">Firmen</div>
   ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
     <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}

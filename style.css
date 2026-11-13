@@ -294,7 +294,7 @@ main:has(> .startfix){overflow:hidden}
 .startfix .tip{padding:10px 14px}
 .sclock{flex:1 1 0;min-height:150px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px;border-radius:28px;container-type:size}
 .sclock .big{margin:0;flex:none;height:56px}
-.dial{position:relative;flex:none;aspect-ratio:1;height:min(100cqh - 66px,100cqw - 8px);border-radius:50%;display:grid;place-items:center;text-align:center;
+.dial{position:relative;flex:none;aspect-ratio:1;height:min(100cqh - 94px,100cqw - 8px);border-radius:50%;display:grid;place-items:center;text-align:center;
   background:var(--ringtrack);container-type:inline-size}
 .dial::before{content:"";position:absolute;inset:7%;border-radius:50%;background:color-mix(in srgb,var(--bg) 80%,#000)}
 .dial::after{content:"";position:absolute;inset:10%;border-radius:50%;background:repeating-conic-gradient(rgba(255,255,255,.28) 0 .7deg,transparent .7deg 6deg);
@@ -324,3 +324,10 @@ html.light .dial b{color:#2c2c2e}
 /* Die Striche zu jeder vollen Stunde ragen etwas weiter nach innen als die Minutenstriche. */
 .hticks{position:absolute;inset:10%;border-radius:50%;pointer-events:none;background:repeating-conic-gradient(rgba(255,255,255,.28) 0 .7deg,transparent .7deg 30deg);-webkit-mask:radial-gradient(closest-side,transparent 82%,#000 82.5%,#000 88.6%,transparent 88.6%);mask:radial-gradient(closest-side,transparent 82%,#000 82.5%,#000 88.6%,transparent 88.6%)}
 html.light .hticks{background:repeating-conic-gradient(rgba(0,0,0,.22) 0 .7deg,transparent .7deg 30deg)}
+/* Start-Knöpfe: Start | Pause + Feierabend | Weiter + Feierabend (gleiche Höhe, damit die Uhr nicht springt) */
+.acts{display:flex;gap:10px;width:100%;flex:none}
+.acts .big{flex:1;margin:0;height:56px;font-size:20px}
+.big.pause{background:linear-gradient(90deg,#f2c94c,color-mix(in srgb,#f2c94c 55%,#000));color:#2b2100}
+.shint{margin:0;height:18px;font-size:13px;text-align:center;color:var(--mut);flex:none}
+.shint.red{color:var(--minus)}.shint.near{color:var(--near)}.shint.green{color:var(--ok)}
+.yellow{color:#f2c94c}

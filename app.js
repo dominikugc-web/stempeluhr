@@ -62,11 +62,11 @@ const sum = (list, k) => list.reduce((a, x) => a + x[k], 0);
 // sind vergessene Ausstempel-Vorgänge und zählen nicht als „gerade eingestempelt“.
 function openState(sessions, now = Date.now()) {
   const o = sessions.filter(x => x.e == null).sort((a, b) => b.s - a.s)[0];
-  if (!o) return null;
+  if (!o) { const p = pauseRun(sessions, now); return p ? { since: p.e, pause: true, stale: false } : null; }
   return { since: o.s, stale: o.s > now + 5 * MIN || now - o.s > 16 * HOUR };
 }
-const openLabel = st => !st ? '' : st.stale ? `<span class="near" title="Offener Eintrag seit ${dmy(ymd(new Date(st.since)))}">●</span> ` : '<span class="green">●</span> ';
-const openText = st => !st ? '' : st.stale ? `offen seit ${new Date(st.since).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (vergessen auszustempeln?)` : `eingestempelt seit ${tod(st.since)}`;
+const openLabel = st => !st ? '' : st.pause ? '<span class="yellow">●</span> ' : st.stale ? `<span class="near" title="Offener Eintrag seit ${dmy(ymd(new Date(st.since)))}">●</span> ` : '<span class="green">●</span> ';
+const openText = st => !st ? '' : st.pause ? `☕ in Pause seit ${tod(st.since)}` : st.stale ? `offen seit ${new Date(st.since).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (vergessen auszustempeln?)` : `eingestempelt seit ${tod(st.since)}`;
 const countAbs = (days, type) => days.filter(x => x.absence?.type === type && x.workday).length;
 const workdays = (c, from, to) => from <= to ? c.range(from, to).filter(x => x.workday).length : 0;
 
@@ -359,8 +359,9 @@ function renderStart() {
   ${tipHtml()}
   <div class="card sclock">
     <div class="dial" id="dial"><span class="caps" id="caps"></span>
-      <span class="hticks"></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
-    <button id="toggle" class="big" onclick="toggle()">Start</button>
+      <span class="hticks"></span><div><span class="muted small" id="dlabel">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
+    <p class="shint" id="shint"></p>
+    <div class="acts" id="acts"></div>
   </div></div>`;
   updateStart();
 }
@@ -373,6 +374,12 @@ const ringColor = (st, f) => { for (let i = 1; i < st.length; i++) if (f <= st[i
 // Ein einziger Verlauf (keine übereinanderliegenden Schichten, sonst schimmert am Rand eine dünne Farblinie durch).
 // Die Farbe hängt am Winkel (¼ immer orange), der Bogen endet bei f, danach kommt der Rest-Ring.
 const ringArc = (st, f, rest) => `conic-gradient(${[...st.filter(x => x[0] < f).map(x => `${x[1]} ${x[0] * 100}%`), `${ringColor(st, f)} ${f * 100}%`, `${rest} ${f * 100}%`].join(', ')})`;
+const RINGP = [[0, '#7d8aa0'], [.5, '#c9a24a'], [1, '#f2c94c']];   // Pause: ruhig, wird zur Pflichtpause hin gelb
+function pauseRing(f) {
+  if (f <= 0.001) return { bg: 'var(--ringtrack)', caps: [] };
+  const g = Math.min(1, f);
+  return { bg: ringArc(RINGP, g, 'var(--ringtrack)'), caps: g < 1 ? [[0, RINGP[0][1]], [g, ringColor(RINGP, g)]] : [] };
+}
 function dialRing(f) {
   const track = 'var(--ringtrack)';
   if (f <= 0.001) return { bg: track, caps: [] };
@@ -392,22 +399,80 @@ function updateStart() {
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
-  const ring = dialRing(t.soll ? t.net / t.soll : 0);
+  const pz = pauseRun(data.sessions, now), state = running ? 'work' : pz ? 'pause' : 'idle';
+  let ring = dialRing(t.soll ? t.net / t.soll : 0), hint = '', hcls = '';
+  if (state === 'pause') {
+    // Pausen-Uhr: Ring füllt sich bis zur Pflichtpause, die Pause zählt erst ab 15 Min.
+    const req = t.gross > 9 * HOUR ? Math.max(P, 45 * MIN) : (t.gross > 6 * HOUR || t.soll > 6 * HOUR) ? P : 15 * MIN;
+    const pe = now - pz.e, need = Math.max(15 * MIN, req - t.brk);   // t.brk = schon gemachte Pausen ab 15 Min.
+    ring = pauseRing(pe / need);
+    $('#clock').textContent = clockStr(pe);
+    hint = pe < 15 * MIN ? `Noch ${Math.ceil((15 * MIN - pe) / MIN)} Min., dann zählt die Pause` : pe < need ? `Noch ${Math.ceil((need - pe) / MIN)} Min. bis zur Pflichtpause` : '✓ Pflichtpause erreicht';
+    hcls = pe >= need ? 'green' : '';
+  } else if (state === 'work') {
+    const blk = workBlock(t.sess, now);
+    if (blk >= 6 * HOUR) { hint = '⚠️ Über 6 Std. ohne Pause – bitte jetzt Pause machen'; hcls = 'red'; }
+    else if (blk >= 5.75 * HOUR) { hint = `In ${Math.ceil((6 * HOUR - blk) / MIN)} Min. brauchst du eine Pause`; hcls = 'near'; }
+  }
+  $('#dlabel').textContent = state === 'pause' ? '☕ Pause' : 'Arbeitszeit';
+  $('#tpause').textContent = hm(t.breakTotal + (state === 'pause' ? now - pz.e : 0));   // laufende Pause zählt gleich mit
+  $('#shint').textContent = hint; $('#shint').className = 'shint ' + hcls;
+  const acts = $('#acts');
+  if (acts.dataset.state !== state) {
+    acts.dataset.state = state;
+    acts.innerHTML = state === 'work' ? '<button class="big pause" onclick="doPause()">Pause</button><button class="big stop" onclick="doEnd()">Feierabend</button>'
+      : state === 'pause' ? '<button class="big" onclick="doResume()">Weiter</button><button class="big stop" onclick="doEnd()">Feierabend</button>'
+      : '<button class="big" id="toggle" onclick="toggle()">Start</button>';
+  }
   $('#dial').style.background = ring.bg;
   // runde Enden am farbigen Bogen
   $('#caps').innerHTML = ring.caps.map(([f, c]) => `<i style="transform:rotate(${f * 360}deg);--c:${c}"></i>`).join('');
   $('#finish').textContent = !t.soll ? 'Heute frei' : done ? 'Ziel erreicht ✓' : `fertig um ${tod(finish)}`;
   $('#tdiff').textContent = hm(t.diff, true);
   $('#tdiff').className = t.sess.length ? cls(t.diff) : '';
-  $('#tpause').textContent = hm(t.breakTotal);
-  $('#toggle').textContent = running ? 'Stop' : 'Start';
-  $('#toggle').classList.toggle('stop', running);
+
+
+}
+// ---------- Pause ----------
+// „Pause“ beendet den laufenden Abschnitt und merkt sich das (p: 1), „Weiter“ startet einen neuen.
+// Die Lücke zählt wie jede ausgestempelte Lücke: ab 15 Min. als Pause (§ 4 ArbZG).
+function pauseRun(sess = data.sessions, now = Date.now()) {
+  if (sess.some(x => x.e == null)) return null;
+  const last = sess.reduce((a, x) => !a || x.s > a.s ? x : a, null);
+  return last?.p && last.e && now - last.e < 16 * HOUR && ymd(new Date(last.e)) === ymd(new Date(now)) ? last : null;
+}
+function stampGuard() { if (viewing) { alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du im Kalender.'); return true; } }
+function newSession() { const defLoc = (data.settings.locs || []).find(l => l.def && !l.arch); data.sessions.push({ s: Date.now(), e: null, ...(defLoc ? { loc: defLoc.id } : {}) }); }
+function doPause() {
+  if (stampGuard()) return;
+  const run = data.sessions.find(x => x.e == null); if (!run) return;
+  run.e = Date.now(); run.p = 1; save(); haptic(); updateStart();
+}
+function doResume() {
+  if (stampGuard()) return;
+  const p = pauseRun();
+  if (p && Date.now() - p.e < 15 * MIN && !confirm('Die Pause ist kürzer als 15 Min. und zählt nicht als gesetzliche Pause. Trotzdem weiterarbeiten?')) return;
+  newSession(); save(); haptic(); updateStart();
+}
+function doEnd() {
+  if (stampGuard()) return;
+  const run = data.sessions.find(x => x.e == null), p = pauseRun();
+  if (run) run.e = Date.now();
+  if (p) delete p.p;   // Feierabend aus der Pause: die Pause war das Ende des Tages
+  save(); haptic(); updateStart();
+}
+// Wie lange schon am Stück gearbeitet (Unterbrechungen unter 15 Min. zählen nicht als Pause)
+function workBlock(sess, now) {
+  const list = sess.slice().sort((a, b) => a.s - b.s);
+  let i = list.length - 1; if (i < 0 || list[i].e != null) return 0;
+  let start = list[i].s;
+  while (i > 0 && list[i - 1].e != null && start - list[i - 1].e < 15 * MIN) start = list[--i].s;
+  return now - start;
 }
 function toggle() {
-  if (viewing) return alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du im Kalender.');
+  if (stampGuard()) return;
   const run = data.sessions.find(x => x.e == null);
-  const defLoc = (data.settings.locs || []).find(l => l.def && !l.arch);
-  if (run) run.e = Date.now(); else data.sessions.push({ s: Date.now(), e: null, ...(defLoc ? { loc: defLoc.id } : {}) });
+  if (run) run.e = Date.now(); else newSession();
   save(); updateStart();
 }
 
