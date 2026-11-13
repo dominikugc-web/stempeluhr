@@ -261,6 +261,7 @@ html.light .fbbtn{color:#e0a400;background:linear-gradient(180deg,rgba(255,255,2
 .bubble.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:6px}
 html.light .bubble.them{background:rgba(0,0,0,.06)}
 .btime{display:block;font-size:11px;opacity:.65;margin-top:4px;text-align:right}
+.ticks{display:inline-block;width:16px;height:14px;margin-left:4px;vertical-align:-2px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.ticks{opacity:.7}.ticks.read{stroke:#a6f0ff;opacity:1;stroke-width:2}.bubble.me .btime{opacity:.85}
 .fbtag{display:block;font-size:12px;font-weight:600;opacity:.85;margin-bottom:2px}
 .fbtypes{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.fbtypes .pill{flex:none}
 .chatbar{display:flex;gap:8px;align-items:flex-end;padding-bottom:4px}

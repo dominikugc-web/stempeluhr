@@ -1038,12 +1038,25 @@ setInterval(locCheck, 120000);
 // Jeder Nutzer hat einen Chat mit dem Entwickler: feedback/{uid} (Übersicht) und feedback/{uid}/msgs (Nachrichten).
 // Der Entwickler sieht alle Chats im Admin-Bereich und kann antworten.
 const FB_TYPES = { idee: ['💡', 'Idee'], fehler: ['🐞', 'Fehler'], beschwerde: ['😕', 'Beschwerde'], frage: ['❓', 'Frage'] };
-let fbUnsub = null, fbThread = null, fbMsgs = [], fbType = 'idee', fbMeta = null, fbMetaUnsub = null;
+let fbUnsub = null, fbThread = null, fbMsgs = [], fbType = 'idee', fbMeta = null, fbMetaUnsub = null, fbChatMeta = {};
+const ms = t => t?.toMillis ? t.toMillis() : 0;
+// Haken wie bei WhatsApp: 🕓 wird gesendet, ✓ gesendet, ✓✓ grau angekommen, ✓✓ blau gelesen
+function fbTicks(m, admin) {
+  if (m.pending || !m.at) return '<span class="ticks">🕓</span>';
+  const side = admin ? 'User' : 'Admin', t = ms(m.at);
+  const st = ms(fbChatMeta['read' + side]) >= t ? 'read' : ms(fbChatMeta['recv' + side]) >= t ? 'recv' : 'sent';
+  const one = '<path d="M1.5 8.5 5 12l7.5-8"/>', two = '<path d="M1.5 8.5 5 12l7.5-8M8 11l1 1 7.5-8"/>';
+  return `<svg class="ticks ${st}" viewBox="0 0 18 16" aria-label="${{ read: 'Gelesen', recv: 'Zugestellt', sent: 'Gesendet' }[st]}">${st === 'sent' ? one : two}</svg>`;
+}
 // Rote Markierung an der Lampe, wenn eine Antwort ungelesen ist
 function feedbackWatch() {
   fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
   if (!me) return feedbackBadge();
-  fbMetaUnsub = ref('feedback/' + me.uid).onSnapshot(s => { fbMeta = s.exists ? s.data() : null; feedbackBadge(); }, () => {});
+  fbMetaUnsub = ref('feedback/' + me.uid).onSnapshot(s => {
+    fbMeta = s.exists ? s.data() : null; feedbackBadge();
+    // Antwort ist auf diesem Gerät angekommen → zwei graue Haken beim Entwickler
+    if (fbMeta?.unreadUser && !s.metadata.fromCache && !(ms(fbMeta.recvUser) >= ms(fbMeta.last))) ref('feedback/' + me.uid).set({ recvUser: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+  }, () => {});
   if (pushOn()) enablePush(true);
 }
 function feedbackBadge() { const b = $('#fbbtn'); if (b) b.classList.toggle('unread', !!fbMeta?.unreadUser); }
@@ -1059,20 +1072,24 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
     <div class="chatbar"><textarea id="fbtext" rows="1" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
       <button class="sendbtn" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
   $('#sheet').classList.add('chatsheet');
-  fbUnsub = fb.db.collection(`feedback/${fbThread}/msgs`).orderBy('at').onSnapshot(q => {
-    fbMsgs = q.docs.map(d => ({ id: d.id, ...d.data() }));
+  const u1 = fb.db.collection(`feedback/${fbThread}/msgs`).orderBy('at').onSnapshot({ includeMetadataChanges: true }, q => {
+    fbMsgs = q.docs.map(d => ({ id: d.id, pending: d.metadata.hasPendingWrites, ...d.data() }));
     fbRender(admin);
-    // gelesen markieren
-    const field = admin ? 'unreadAdmin' : 'unreadUser';
-    if (fbMsgs.length) ref('feedback/' + fbThread).set({ [field]: false }, { merge: true }).catch(() => {});
+    // gelesen markieren (blaue Haken beim anderen), sobald eine Nachricht der Gegenseite neuer ist als unser Lesestand
+    const side = admin ? 'Admin' : 'User', other = admin ? 'user' : 'admin';
+    const newest = Math.max(0, ...fbMsgs.filter(m => m.from === other).map(m => ms(m.at)));
+    if (newest && !(ms(fbChatMeta['read' + side]) >= newest)) ref('feedback/' + fbThread).set({ ['unread' + side]: false, ['read' + side]: firebase.firestore.FieldValue.serverTimestamp(), ['recv' + side]: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
   }, e => { $('#chat').innerHTML = `<p class="hint center red">Feedback konnte nicht geladen werden: ${esc(e.message)}</p>`; });
+  fbChatMeta = {};
+  const u2 = ref('feedback/' + fbThread).onSnapshot(s => { fbChatMeta = s.data() || {}; fbRender(admin); }, () => {});
+  fbUnsub = () => { u1(); u2(); };
 }
 function fbRender(admin) {
   const el = $('#chat'); if (!el) return;
   const mine = m => admin ? m.from === 'admin' : m.from === 'user';
   el.innerHTML = (fbMsgs.length ? '' : `<div class="bubble them"><b>Hallo${admin ? '' : ' ' + esc((displayName() || '').split(' ')[0])}!</b> 👋<br>Hast du eine Idee für eine neue Funktion, stört dich etwas oder ist ein Fehler aufgetreten? Schreib es einfach hier rein. Wir lesen alles und antworten hier im Chat.</div>`)
     + fbMsgs.map(m => `<div class="bubble ${mine(m) ? 'me' : 'them'}">${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
-      <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}</span></div>`).join('');
+      <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}${mine(m) ? fbTicks(m, admin) : ''}</span></div>`).join('');
   el.scrollTop = el.scrollHeight;
 }
 function fbSetType(k) { fbType = k; document.querySelectorAll('.fbtypes .pill').forEach(b => b.classList.toggle('sel', b.dataset.t === k)); }
@@ -1105,6 +1122,8 @@ async function loadFeedbackAdmin() {
   try {
     const q = await fb.db.collection('feedback').orderBy('last', 'desc').limit(200).get();
     fbAdmin = q.docs.map(d => ({ uid: d.id, ...d.data() }));
+    // Neues Feedback ist beim Entwickler angekommen → zwei graue Haken beim Nutzer
+    fbAdmin.filter(t => t.unreadAdmin && !(ms(t.recvAdmin) >= ms(t.last))).forEach(t => ref('feedback/' + t.uid).set({ recvAdmin: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {}));
   } catch (e) { fbAdmin = []; }
   if (tab === 'admin' && $('#fblist')) $('#fblist').innerHTML = feedbackAdminHtml();
 }
