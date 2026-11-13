@@ -49,11 +49,11 @@ assert.equal(g.pause, 0); assert.equal(g.breakTotal, 30 * L.MIN);
 // über 9 Std.: 45 Min. Pflicht
 g = day2([[6, 0], [16, 0]]);
 assert.equal(g.pause, 45 * L.MIN);
-// Firmenregel „immer 30 Min.“: auch über 9 Std. und an kurzen Tagen genau 30 Min., gestempelte Pause wird angerechnet
+// Firmenregel „pauschal 30 Min.“: ab 6 Std., auch über 9 Std. nur 30 Min., kurze Tage ohne Abzug, gestempelte Pause wird angerechnet
 const fixS = { ...data.settings, pauseRule: 'fix' };
 const dayF = (...p) => L.makeCalc({ sessions: p.map(([a, b]) => ({ s: +new Date(2026, 10, 2, ...a), e: +new Date(2026, 10, 2, ...b) })), absences: [], settings: fixS }, +new Date(2026, 10, 3)).day('2026-11-02');
 assert.equal(dayF([[6, 0], [16, 0]]).pause, 30 * L.MIN);
-assert.equal(dayF([[8, 0], [12, 0]]).net, 3.5 * H);
+assert.equal(dayF([[8, 0], [12, 0]]).net, 4 * H);
 assert.equal(dayF([[7, 0], [11, 0]], [[11, 20], [16, 0]]).pause, 10 * L.MIN);
 
 
