@@ -213,7 +213,7 @@ a.link{color:var(--accent);text-decoration:none}
 html.light .swatch.on{border-color:var(--accent)}
 
 /* ---------- Light-Modus ---------- */
-html.light{color-scheme:light;--track:rgba(0,0,0,.08);--future:rgba(0,0,0,.1);--txt:#1c1c1e;--mut:rgba(28,28,30,.55);--card:rgba(255,255,255,.7);--line:rgba(0,0,0,.08)}
+html.light{color-scheme:light;--track:rgba(0,0,0,.08);--future:rgba(0,0,0,.1);--txt:#1c1c1e;--mut:rgba(28,28,30,.68);--card:rgba(255,255,255,.7);--line:rgba(0,0,0,.08)}
 html.light .clock{color:#2c2c2e}
 html.light .tile{background:rgba(0,0,0,.05)}
 html.light .bar{background:rgba(0,0,0,.08)}
@@ -394,3 +394,41 @@ h1 .badge-pro{font-size:13px;vertical-align:6px}
 .row>select{text-align-last:right}
 .two .pill{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .two .pill{padding-left:10px;padding-right:10px;gap:6px;font-size:16px}
+
+/* ===== Audit-Korrekturen ===== */
+/* Tippflächen mindestens 44 px (Apple-Richtlinie) */
+.pill.sm{min-height:44px}
+.segctl button{min-height:44px;padding:0}
+.nav{min-width:44px;min-height:44px;display:inline-grid;place-items:center;padding:0}
+.row>input:not([type=checkbox]):not([type=color]):not([type=range]):not(.full),.row>select{min-height:44px}
+label.row:has(>input:not([type=checkbox]):not([type=color]):not(.full)),label.row:has(>select){padding-top:4px;padding-bottom:4px}
+/* Zurück-Knopf bleibt optisch 40 px hoch (Vorgabe), die Tippfläche ist 44 px */
+.pill.back{position:relative;min-height:0}
+.pill.back::after{content:"";position:absolute;inset:-2px 0}
+.sheet-head .pill:not(.back){height:44px}
+/* Eine Abstandsregel: 14 px zwischen Blöcken, 8 px von der Zwischenüberschrift zum Block */
+.big{margin-top:0}
+.card .big,.card + .big{margin-top:12px}
+.mhead{margin:0 0 var(--gap-block)}
+.segctl{margin:0 0 12px}
+.cal{margin-bottom:var(--gap-block)}
+.bars{margin-bottom:var(--gap-block)}
+.sheet-head{margin-bottom:var(--gap-block)}
+/* Zwischenüberschriften und Hinweise beginnen an derselben Kante */
+.label{margin-left:8px;margin-right:8px}
+/* Sichtbare Fokus-Markierung für Tastatur und Bedienungshilfen */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row:focus-visible,.tabs button:focus-visible{outline-offset:-2px}
+/* Bewegung reduzieren: Federn und Wischeffekte durch kurze, ruhige Übergänge ersetzen, Zustände bleiben sichtbar */
+@media (prefers-reduced-motion: reduce){
+  .tab-ind,.tab-hi,.tabs,.tabs button,.fill,.otp span{transition-duration:.15s!important;transition-timing-function:ease-out!important}
+  .panel,.ask,.toast,.install-arrow{animation:none!important}
+  .tabs.press{transform:translateX(-50%)!important}
+  .tabs.press .tab-ind{top:5px;bottom:5px}
+  .tabs button.hover,.tab-hi span.hover,.tabs button:active{transform:none!important}
+  html{scroll-behavior:auto}
+}
+main > h1{margin-bottom:var(--gap-block)}
+.pill.wide + .hint{margin-top:-4px}
+main > p.muted.center,.panel > p.muted.center{margin:0 0 var(--gap-block)}
+main > .statbar + p.muted.center{margin-top:8px}

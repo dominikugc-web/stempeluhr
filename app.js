@@ -132,6 +132,7 @@ function moveTabInd() {
   ind.style.opacity = 1;
   placeInd(x, w);
   if (!isNaN(from) && from !== x && ind.animate) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { ind.dataset.x = x; return; }
     const k = Math.min(1.45, 1 + Math.abs(x - from) / 500);
     const a = ind.animate([{ scale: '1 1' }, { scale: `${k} .86`, offset: .35 }, { scale: '.96 1.04', offset: .7 }, { scale: '1 1' }], { duration: 500, easing: 'ease-out' });
     setTimeout(() => a.finish(), 650);
@@ -967,7 +968,7 @@ function openTopic(id, keepStats) {
       </div>`,
   }[id];
   if (!body) return;
-  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="closeSheet(); render()">‹</button><h2>${TOPIC_TITLE[id]}</h2></div><div style="height:12px"></div>${body()}`);
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="closeSheet(); render()">‹</button><h2>${TOPIC_TITLE[id]}</h2></div>${body()}`);
   currentTopic = id;
   if (id === 'team' && !keepStats) loadTeamStats();
 }
