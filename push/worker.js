@@ -95,6 +95,11 @@ export default {
       return out({ ok: true });
     }
 
+    if (path === '/forget') {   // Konto gelöscht: alle Geräte vergessen
+      await env.SUBS.delete(uid);
+      return out({ ok: true });
+    }
+
     if (path === '/notify') {
       // Nutzer dürfen nur den Entwickler benachrichtigen, der Entwickler jeden Nutzer.
       const fromAdmin = ADMIN_UIDS.includes(uid) && b.to && b.to !== 'admin';

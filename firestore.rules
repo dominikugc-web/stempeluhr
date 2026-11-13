@@ -60,7 +60,7 @@ service cloud.firestore {
         allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
         allow create: if signedIn() && request.resource.data.text is string && request.resource.data.text.size() <= 4000
           && ((request.auth.uid == uid && request.resource.data.from == 'user') || (isAdmin() && request.resource.data.from == 'admin'));
-        allow delete: if isAdmin();
+        allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);   // Konto löschen
       }
     }
 
@@ -68,6 +68,7 @@ service cloud.firestore {
       allow read: if isAdmin() || (signedIn() && (resource.data.owner == request.auth.uid || isActive(cid, request.auth.uid)));
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
       allow update: if signedIn() && isOwner(cid) && request.resource.data.owner == resource.data.owner;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;   // Gründer löscht sein Konto
 
       match /admin/{doc} {
         allow read, write: if signedIn() && isOwner(cid);

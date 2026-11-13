@@ -326,6 +326,7 @@ const AUTH_MSG = {
   'auth/user-not-found': 'Zu dieser E-Mail gibt es kein Konto.', 'auth/invalid-email': 'Die E-Mail-Adresse ist ungültig.',
   'auth/email-already-in-use': 'Zu dieser E-Mail gibt es schon ein Konto. Melde dich an.',
   'auth/weak-password': 'Das Passwort braucht mindestens 6 Zeichen.', 'auth/missing-password': 'Bitte ein Passwort eingeben.',
+  'auth/requires-recent-login': 'Bitte melde dich einmal ab und wieder an und versuch es dann noch einmal.',
   'auth/too-many-requests': 'Zu viele Versuche. Bitte kurz warten.', 'auth/network-request-failed': 'Keine Internetverbindung.',
   'auth/account-exists-with-different-credential': 'Diese E-Mail ist schon mit Passwort registriert. Melde dich mit E-Mail und Passwort an.',
 };
@@ -366,6 +367,56 @@ function logout() {
   if (!confirm('Abmelden?')) return;
   fb.auth.signOut();
 }
+// Konto endgültig löschen (Pflicht für den App Store, Art. 17 DSGVO). Reihenfolge: erst neu anmelden lassen,
+// dann alle Daten, zum Schluss das Anmeldekonto. Eigene Firmen mit Mitarbeitern werden nicht stillschweigend gelöscht.
+async function deleteAccount() {
+  const word = prompt('Konto endgültig löschen?\n\nAlle deine Zeiten, Einstellungen, Gehaltsdaten, Standorte und Feedback-Nachrichten werden gelöscht. Das kann nicht rückgängig gemacht werden.\n\nTippe LÖSCHEN zum Bestätigen:');
+  if (word == null) return;
+  if (word.trim().toUpperCase() !== 'LÖSCHEN') return alert('Nicht gelöscht. Bitte genau LÖSCHEN eintippen.');
+  const uid = me.uid, gone = [];
+  try {
+    // 1. Firebase verlangt eine frische Anmeldung zum Löschen. Lieber vorher, damit nichts halb gelöscht wird.
+    if (Date.now() - Date.parse(me.metadata.lastSignInTime) > 4 * 60000) {
+      if (me.providerData.some(p => p.providerId === 'google.com')) await me.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+      else {
+        const pw = prompt('Zur Sicherheit bitte noch einmal dein Passwort eingeben:');
+        if (!pw) return;
+        await me.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(me.email, pw));
+      }
+    }
+    // 2. Eigene Firmen: nur löschen, wenn keine Mitarbeiter mehr drin sind
+    for (const c of myCompanies) {
+      const mem = (await fb.db.collection(`companies/${c.id}/members`).get()).docs;
+      if (mem.some(d => d.data().status === 'active')) return alert(`Deine Firma „${c.name}“ hat noch Mitarbeiter. Entferne sie zuerst unter Setup → Team, dann kannst du dein Konto löschen.`);
+    }
+    off(unsubs); off(companyUnsubs); viewUnsub?.(); fbMetaUnsub?.(); fbMetaUnsub = null;
+    view.innerHTML = '<p class="center muted" style="margin-top:40vh">Konto wird gelöscht …</p>';
+    for (const c of myCompanies) {
+      for (const d of (await fb.db.collection(`companies/${c.id}/members`).get()).docs) await d.ref.delete();
+      await ref(`companies/${c.id}/admin/settings`).delete();
+      if (c.code) await ref('invites/' + c.code).delete().catch(() => {});
+      await ref('companies/' + c.id).delete();
+      gone.push(c.name);
+    }
+    // 3. Mitgliedschaft in einer fremden Firma
+    if (cid && !myCompanies.some(c => c.id === cid)) await ref(`companies/${cid}/members/${uid}`).delete().catch(() => {});
+    // 4. Feedback-Chat
+    for (const d of (await fb.db.collection(`feedback/${uid}/msgs`).get()).docs) await d.ref.delete();
+    await ref('feedback/' + uid).delete();
+    // 5. Eigene Daten und Push-Abos
+    await ref('private/' + uid).delete();
+    await ref('data/' + uid).delete();
+    await pushCall('/forget', {}).catch(() => {});
+    // 6. Anmeldekonto
+    await me.delete();
+    try { localStorage.clear(); } catch {}
+    alert('Dein Konto und alle Daten wurden gelöscht.' + (gone.length ? ` Gelöschte Firma: ${gone.join(', ')}.` : ''));
+  } catch (e) {
+    if (['auth/popup-closed-by-user', 'auth/cancelled-popup-request'].includes(e.code)) return;
+    alert('Löschen fehlgeschlagen: ' + (AUTH_MSG[e.code] || e.message) + '\nBitte versuch es noch einmal oder schreib uns über die Lampe.');
+    location.reload();
+  }
+}
 function cloudError(e) {
   console.error(e);
   if (e.code === 'permission-denied') return;  // z. B. aus der Firma entfernt, wird über den Status angezeigt
@@ -395,7 +446,8 @@ function accountHtml() {
   return `<div class="label">Konto</div>
   <div class="group">
     ${asSelf() ? `<div class="row"><span>${esc(asUser.email || asUser.name)}<div class="muted small">Ansicht als dieser Nutzer</div></span></div>`
-      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>`}
+      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>
+    <button class="row" onclick="deleteAccount()"><span class="red">Konto löschen</span></button>`}
   </div>
   <div class="label">Firma</div>
   <div class="group">${firm}</div>
