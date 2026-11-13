@@ -533,14 +533,37 @@ async function createCompany(extra) {
   } catch (e) { alert('Firma konnte nicht angelegt werden: ' + e.message); }
 }
 
+// Firma beitreten: Vollbild, oben der Name (nur wenn noch keiner da ist), darunter je Zeichen eine Kachel.
+// Technisch ein einziges unsichtbares Eingabefeld über den Kacheln, so klappen Tippen, Einfügen und Autovervollständigen.
 function joinForm(code = '') {
-  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="closeSheet()">Abbrechen</button><button class="pill sm green" onclick="joinCompany()">Beitreten</button></div>
-  <h2>Firma beitreten</h2>
-  <div class="group">
-    <label class="row"><span>Einladungscode</span><input id="jcode" class="short" value="${esc(code)}" autocapitalize="characters" placeholder="ABC123" style="text-transform:uppercase"></label>
-    <label class="row"><span>Dein Name</span><input id="jname2" value="${esc(displayName())}"></label>
-  </div>
-  <p class="hint">Den Code bekommst du von deinem Geschäftsführer. Nach der Freigabe sieht er deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>`);
+  const has = data.settings.name || me.displayName || '';
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet()">‹ Zurück</button><span></span></div>
+  <div class="joinwrap">
+    <div class="joinicon">🏢</div>
+    <h1 class="center">Firma beitreten</h1>
+    <p class="center muted">Gib den Einladungscode von deinem Geschäftsführer ein.</p>
+    <div class="group" id="jnamebox" ${has ? 'hidden' : ''}><label class="row"><span>Dein Name</span><input id="jname2" value="${esc(has)}" placeholder="Vor- und Nachname" autocomplete="name" oninput="otpPaint()"></label></div>
+    ${has ? `<p class="center small" id="jnameinfo">Du trittst bei als <b>${esc(has)}</b> · <button class="link" onclick="$('#jnamebox').hidden = false; $('#jnameinfo').remove(); $('#jname2').focus()">ändern</button></p>` : ''}
+    <div class="otp">${'<span></span>'.repeat(6)}<input id="jcode" aria-label="Einladungscode" autocapitalize="characters" autocomplete="one-time-code" autocorrect="off" spellcheck="false" oninput="otpInput()" onfocus="otpPaint()" onblur="otpPaint()" onkeydown="event.key === 'Enter' && !$('#jbtn').disabled && joinCompany()"></div>
+    <button class="big" id="jbtn" onclick="joinCompany()" disabled>Beitreten</button>
+    <p class="hint center">Nach der Freigabe sieht dein Geschäftsführer deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>
+  </div>`);
+  $('#sheet').classList.add('full');
+  $('#jcode').value = code ? cleanCode(code) : '';
+  otpPaint();
+  setTimeout(() => (has ? $('#jcode') : $('#jname2'))?.focus(), 350);
+}
+function otpInput() {
+  const i = $('#jcode'), raw = i.value;
+  i.value = (raw.length > 6 ? cleanCode(raw) : raw.toUpperCase().replace(/[^A-Z0-9]/g, '')).slice(0, 6);   // eingefügte Nachricht → nur der Code
+  otpPaint();
+  if (i.value.length === 6) haptic();
+}
+function otpPaint() {
+  const i = $('#jcode'); if (!i) return;
+  const v = i.value, f = document.activeElement === i;
+  document.querySelectorAll('.otp span').forEach((s, k) => { s.textContent = v[k] || ''; s.classList.toggle('cur', f && k === Math.min(v.length, 5)); s.classList.toggle('on', !!v[k]); });
+  $('#jbtn').disabled = v.length < 6 || !$('#jname2').value.trim();
 }
 // Code aus allem holen, was Leute einfügen: nur der Code, der Link (?join=…) oder die ganze Einladungsnachricht
 function cleanCode(v) {
