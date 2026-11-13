@@ -1238,7 +1238,8 @@ function applyPayslip() {
     if (j) Object.assign(j, { brutto: f.brutto, ...(f.sach != null ? { sach: f.sach } : {}), ...(f.since ? { since: f.since } : {}), ...(!j.name && f.firm ? { name: f.firm } : {}) });
     else st.jobs.push({ name: f.firm || '', type: f.type || 'haupt', brutto: f.brutto, since: f.since || '', sach: f.sach || 0, cut: true, rvFrei: true });
   }
-  save(); render(); toast('✓ Werte aus der Lohnabrechnung übernommen'); openTopic('pay');
+  save(); toast('✓ Werte aus der Lohnabrechnung übernommen');
+  if (tab === 'pay' && currentTopic !== 'pay') { closeSheet(); render(); } else { render(); openTopic('pay'); }
 }
 
 

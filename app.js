@@ -706,14 +706,34 @@ function calMonthView(head, nav, todayBtn) {
 }
 function moveMonth(n) { const d = new Date(month.y, month.m + n, 1); month = { y: d.getFullYear(), m: d.getMonth() }; render(); }
 
+// Jobs, Steuer & Sozialversicherung: im Setup und direkt im Tab Verdienst
+function payTopicHtml() {
+  const st = data.settings;
+  return `<div class="label">Jobs</div>
+      ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
+      <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
+      <button class="pill wide" onclick="pickPayslip()">📄 Lohnabrechnung einlesen (PDF)</button>
+      <div class="group" style="margin-top:14px"><button class="row" onclick="openSlips()"><span>🗂 Meine Lohnabrechnungen<div class="muted small">Von deinem Arbeitgeber bereitgestellt</div></span><span class="muted">›</span></button></div>
+      <p class="hint">Brutto pro Monat laut Vertrag. Damit rechnet die App Brutto und Netto aus.</p>
+      <div class="label">Steuer und Sozialversicherung</div>
+      <div class="group">
+        <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}" ${st.stkl === k ? 'selected' : ''}>${ROMAN[k - 1]}</option>`).join('')}</select></label>
+        <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${st.zkf}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
+        <label class="row"><span>Kirchensteuer</span><select onchange="setS('kirche', this.value === '1')"><option value="0">Nein</option><option value="1" ${st.kirche ? 'selected' : ''}>Ja</option></select></label>
+        <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${k}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
+        <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value)))"></label>
+      </div>
+      <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland. Diese Daten sieht nur du, dein Geschäftsführer nicht. Bei Problemen kann der App-Support sie zur Hilfe einsehen, aber nicht ändern.</p>`;
+}
 // ---------- verdienst ----------
 const MSHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 function renderPay() {
   const st = data.settings, c = calc(), t = today(), { y, m } = month;
   const head = `<div class="mhead"><button class="nav" onclick="moveMonth(-1)" aria-label="Vorheriger Monat">‹</button><h1>${MONTHS[m]} ${y}</h1><button class="nav" onclick="moveMonth(1)" aria-label="Nächster Monat">›</button></div>`;
   if (!st.jobs.length) {
-    view.innerHTML = head + `<div class="card center"><p>Trag ein, welche Jobs du hast und was du dort brutto verdienst. Dann rechnet die App hier Brutto, Abzüge und Netto aus.</p>
-      <button class="big" onclick="jobForm()">Job hinzufügen</button><p class="hint">Steuerklasse und Krankenkasse stellst du unter Setup ein.</p></div>`;
+    view.innerHTML = head + `<p class="center muted">Trag ein, welche Jobs du hast und was du dort brutto verdienst. Dann rechnet die App hier Brutto, Abzüge und Netto aus. Am schnellsten geht es mit deiner letzten Lohnabrechnung als PDF.</p>
+      ${payTopicHtml()}`;
     return;
   }
   const otH = (yy, mm) => (c.payouts()[`${yy}-${pad(mm + 1)}`] || 0) / HOUR, cap = +st.otCap || 0;
@@ -815,7 +835,8 @@ function renderPay() {
     ${row('Netto pro gearbeiteter Stunde', fullHours ? eur(fullNet / (fullHours / HOUR)) : '–')}
     ${row(`Netto ganzes Jahr ${y} (Prognose)`, eur(months.reduce((a, x) => a + x.pm.netto, 0)))}
   </div>
-  <p class="hint">Rechnung nach dem amtlichen Lohnsteuer-Programmablaufplan 2026 und den Sozialversicherungswerten 2026. Netto pro Stunde zählt nur abgeschlossene Monate seit Beginn der Aufzeichnung. Einmalzahlungen wie Boni fehlen. Verbindlich ist deine Lohnabrechnung.</p>`;
+  <p class="hint">Rechnung nach dem amtlichen Lohnsteuer-Programmablaufplan 2026 und den Sozialversicherungswerten 2026. Netto pro Stunde zählt nur abgeschlossene Monate seit Beginn der Aufzeichnung. Einmalzahlungen wie Boni fehlen. Verbindlich ist deine Lohnabrechnung.</p>
+  <button class="pill wide" onclick="openTopic('pay')">⚙︎ Jobs, Steuer & Lohnabrechnungen</button>`;
 }
 
 // ---------- setup: Themenliste, jedes Thema öffnet ein eigenes Fenster ----------
@@ -884,22 +905,7 @@ function openTopic(id, keepStats) {
       <div class="label">Urlaub</div>
       <div class="group"><label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${st.vacation}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label></div>
       <button class="pill wide" onclick="openAbsences()">Abwesenheiten, Urlaubsplaner, Schulferien ›</button>`,
-    pay: () => `<div class="label">Jobs</div>
-      ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
-      <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
-      <button class="pill wide" onclick="pickPayslip()">📄 Lohnabrechnung einlesen (PDF)</button>
-      <div class="group" style="margin-top:14px"><button class="row" onclick="openSlips()"><span>🗂 Meine Lohnabrechnungen<div class="muted small">Von deinem Arbeitgeber bereitgestellt</div></span><span class="muted">›</span></button></div>
-      <p class="hint">Brutto pro Monat laut Vertrag. Damit rechnet der Tab Verdienst Brutto und Netto aus.</p>
-      <div class="label">Steuer und Sozialversicherung</div>
-      <div class="group">
-        <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}" ${st.stkl === k ? 'selected' : ''}>${ROMAN[k - 1]}</option>`).join('')}</select></label>
-        <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${st.zkf}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
-        <label class="row"><span>Kirchensteuer</span><select onchange="setS('kirche', this.value === '1')"><option value="0">Nein</option><option value="1" ${st.kirche ? 'selected' : ''}>Ja</option></select></label>
-        <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${k}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
-        <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value)))"></label>
-      </div>
-      <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland. Diese Daten sieht nur du, dein Geschäftsführer nicht. Bei Problemen kann der App-Support sie zur Hilfe einsehen, aber nicht ändern.</p>`,
+    pay: () => payTopicHtml(),
     export: () => `<div class="label">PDF-Arbeitszeitnachweis</div>
       <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
       <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
@@ -926,7 +932,7 @@ function openTopic(id, keepStats) {
       </div>`,
   }[id];
   if (!body) return;
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet(); render()">‹ Setup</button><h2>${TOPIC_TITLE[id]}</h2></div><div style="height:12px"></div>${body()}`);
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet(); render()">‹ ${tab === 'setup' ? 'Setup' : 'Zurück'}</button><h2>${TOPIC_TITLE[id]}</h2></div><div style="height:12px"></div>${body()}`);
   currentTopic = id;
   if (id === 'team' && !keepStats) loadTeamStats();
 }
