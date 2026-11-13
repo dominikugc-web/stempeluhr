@@ -367,7 +367,8 @@ function updateStart() {
   const now = Date.now(), t = calc().day(today());
   const P = data.settings.pause * MIN, pct = t.soll ? Math.floor(t.net / t.soll * 100) : 0;
   const done = t.soll && t.net >= t.soll;
-  const finish = now + Math.max(0, t.soll + P - t.gross), first = t.sess[0]?.s ?? now;
+  const left = t.soll > 6 * HOUR ? Math.max(0, P - t.brk - t.pause) : 0;   // Pause, die noch abgezogen wird
+  const finish = now + Math.max(0, t.soll - t.net + left), first = t.sess[0]?.s ?? now;
   $('#clock').textContent = clockStr(t.gross);
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
@@ -479,7 +480,8 @@ function renderDay() {
   <button class="pill wide" onclick="addRow()">+ Zeit hinzufügen</button>
   <div class="group">
     <div class="row"><span>Brutto</span><span>${dur(x.gross)}</span></div>
-    <div class="row"><span>Pause (pauschal)</span><span>${dur(x.pause)}</span></div>
+    <div class="row"><span>Pause gesamt</span><span>${dur(x.breakTotal)}</span></div>
+    ${x.pause ? `<div class="row"><span class="muted small">davon pauschal abgezogen</span><span class="muted small">${dur(x.pause)}</span></div>` : ''}
     <div class="row"><span>Netto</span><span>${dur(x.net)}</span></div>
     <div class="row"><span>Soll</span><span>${dur(x.soll)}</span></div>
     <div class="row"><span>Differenz</span><span class="${cls(x.diff)}">${dur(x.diff, true)}</span></div>
@@ -560,6 +562,7 @@ function calDayView(head, nav, todayBtn) {
   </div>
   <div class="label">Zeiten</div>
   ${x.sess.length ? `<div class="group">${x.sess.map(s => `<div class="row"><span>${tod(s.s)} – ${s.e ? tod(s.e) : 'läuft'}</span><span>${dur((s.e ?? Date.now()) - s.s)}</span></div>`).join('')}
+    ${x.brkAll ? `<div class="row"><span class="muted">Pause (ausgestempelt)</span><span class="muted">${dur(x.brkAll)}</span></div>` : ''}
     ${x.pause ? `<div class="row"><span class="muted">Pause (pauschal)</span><span class="muted">− ${dur(x.pause)}</span></div>` : ''}</div>`
     : `<p class="muted center">${d > t ? 'Dieser Tag liegt in der Zukunft.' : 'An diesem Tag ist keine Zeit erfasst.'}</p>`}
   <div class="two"><button class="pill" onclick="openDay(calDay)">✏️ ${x.sess.length ? 'Bearbeiten' : 'Eintragen'}</button><button class="pill" onclick="absenceForm(calDay)">🏖 Abwesenheit</button></div>
@@ -765,7 +768,7 @@ function openTopic(id, keepStats) {
         <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
       </div>
-      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Die Pause wird abgezogen, sobald du an einem Tag mehr als 6 Std. arbeitest.</p>
+      <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Stempelst du für die Pause aus, zählt jede Lücke ab 15 Min. als Pause. Fehlt bei mehr als 6 Std. Arbeit noch etwas bis zur Pause oben (ab 9 Std. mind. 45 Min.), wird nur der Rest abgezogen.</p>
       <div class="label">Sollstunden pro Tag</div>
       <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
       ${setupExtrasHtml()}`,
@@ -930,10 +933,10 @@ function exportPdf(y, m) {
   if (st.name) doc.text(`Name: ${st.name}`, 14, 25);
   doc.autoTable({
     startY: st.name ? 30 : 24,
-    head: [['Datum', 'Tag', 'Von - Bis', 'Brutto', 'Pause', 'Netto', 'Soll', 'Diff.', 'Bemerkung']],
+    head: [['Datum', 'Tag', 'Beginn', 'Ende', 'Pause', 'Arbeitszeit', 'Soll', 'Diff.', 'Bemerkung']],
     body: days.map(x => [
-      dmy(x.d), WD[parseYmd(x.d).getDay()].slice(0, 2), span(x, ' - ').replaceAll(', ', '\n'),
-      x.gross ? hm(x.gross) : '', x.gross ? hm(x.pause) : '', x.gross ? hm(x.net) : '', x.soll ? hm(x.soll) : '',
+      dmy(x.d), WD[parseYmd(x.d).getDay()].slice(0, 2), x.sess[0] ? tod(x.sess[0].s) : '', x.sess.length ? (x.sess.at(-1).e ? tod(x.sess.at(-1).e) : 'läuft') : '',
+      x.gross ? hm(x.breakTotal) : '', x.gross ? hm(x.net) : '', x.soll ? hm(x.soll) : '',
       x.d <= stand && (x.soll || x.gross) ? hm(x.diff, true) : '', note(x),
     ]),
     styles: { fontSize: 8, cellPadding: 1.4 },
@@ -955,7 +958,7 @@ function exportPdf(y, m) {
   });
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text(`Pause: pauschal ${st.pause} Min. an Tagen über 6 Std. abgezogen. Erstellt am ${dmy(t)}.`, 14, doc.lastAutoTable.finalY + 6);
+  doc.text(doc.splitTextToSize(`Pause = alle Unterbrechungen zwischen Beginn und Ende. Fehlt bis zur Mindestpause (${st.pause} Min. ab 6 Std., ${Math.max(st.pause, 45)} Min. ab 9 Std.) etwas, wird es zusätzlich abgezogen. Erstellt am ${dmy(t)}.`, 180), 14, doc.lastAutoTable.finalY + 6);
   deliver(doc.output('blob'), `Arbeitszeit_${y}-${pad(m + 1)}.pdf`);
 }
 

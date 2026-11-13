@@ -36,6 +36,19 @@ const pz = (h) => L.makeCalc({ sessions: [{ s: +new Date(2026, 10, 2, 6, 0), e: 
 assert.equal(pz(0.5).net, 0.5 * H);
 assert.equal(pz(6 + 1 / 3).net, 6 * H);
 assert.equal(pz(7).net, 6.5 * H);
+// Ausgestempelte Pause zählt, nicht doppelt abziehen: 07–11 + 11:30–16 = 8,5 Std. Arbeit, 30 Min. Pause schon gemacht
+const day2 = (...p) => L.makeCalc({ sessions: p.map(([a, b]) => ({ s: +new Date(2026, 10, 2, ...a), e: +new Date(2026, 10, 2, ...b) })), absences: [], settings: data.settings }, +new Date(2026, 10, 3)).day('2026-11-02');
+let g = day2([[7, 0], [11, 0]], [[11, 30], [16, 0]]);
+assert.equal(g.net, 8.5 * H); assert.equal(g.breakTotal, 0.5 * H);
+// 5 Min. Lücke zählt nicht als Pause: 07–11 + 11:05–16 → 8:55 gearbeitet, 30 Min. pauschal → 8:25, Pause gesamt 35 Min.
+g = day2([[7, 0], [11, 0]], [[11, 5], [16, 0]]);
+assert.equal(g.net, 8.5 * H - 5 * L.MIN); assert.equal(g.breakTotal, 35 * L.MIN);
+// 2× 15 Min. reicht
+g = day2([[7, 0], [10, 0]], [[10, 15], [13, 0]], [[13, 15], [16, 0]]);
+assert.equal(g.pause, 0); assert.equal(g.breakTotal, 30 * L.MIN);
+// über 9 Std.: 45 Min. Pflicht
+g = day2([[6, 0], [16, 0]]);
+assert.equal(g.pause, 45 * L.MIN);
 
 
 // ---------- Runden, Arbeitspläne, Korrekturen ----------
@@ -131,13 +144,13 @@ function round(x) { return Math.round(x * 100) / 100; }
 
 // ---------- Überstunden: bis 40 Std. ansammeln, darüber am Monatsende auszahlen ----------
 const ot = { settings: { ...job.settings, since: '2026-11-02', startBalance: 39 * 60, otCap: 40 }, absences: [],
-  sessions: [2, 3].map(d => ({ s: +new Date(2026, 10, d, 7, 0), e: +new Date(2026, 10, d, 17, 30) })) };
-// 2 Tage je 10,5 h brutto, 10 h netto: +4 h -> Konto 43 h, davon 3 h über der Grenze
+  sessions: [2, 3].map(d => ({ s: +new Date(2026, 10, d, 7, 0), e: +new Date(2026, 10, d, 18, 15) })) };
+// 2 Tage je 11,25 h brutto, über 9 h also 45 Min. Pause, 10,5 h netto: +5 h -> Konto 44 h, davon 4 h über der Grenze
 const oc = L.makeCalc(ot, +new Date(2026, 10, 3, 18, 0));
-assert.equal(oc.payouts()['2026-11'], 3 * H);
+assert.equal(oc.payouts()['2026-11'], 4 * H);
 assert.equal(oc.balance('2026-11-03'), 40 * H);
 const op = L.payMonth(ot, 2026, 10, 3);
-assert.equal(op.jobs[0].otPay, 48); // 3 h x 16 €
+assert.equal(op.jobs[0].otPay, 48); // 3 h (übergeben) x 16 €
 assert.equal(op.jobs[0].brutto, 2233);
 assert.equal(op.jobs[1].brutto, 603); // Minijob bleibt gleich
 assert.deepEqual(L.makeCalc({ ...ot, settings: { ...ot.settings, otCap: 0 } }, +new Date(2026, 10, 3, 18, 0)).payouts(), {});

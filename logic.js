@@ -93,8 +93,13 @@ function makeCalc(data, now) {
   function day(d) {
     const sess = (byDay[d] || []).slice().sort((a, b) => a.s - b.s);
     const gross = sess.reduce((t, x) => { const r = roundSession(x, st.round, now); return t + Math.max(0, r.e - r.s); }, 0);
-    // Pause wie im ArbZG erst nach 6 Std. abziehen, die Zeit fällt dadurch nie unter 6:00
-    const pause = Math.min(Math.max(0, gross - 6 * HOUR), st.pause * MIN);
+    // Pausen nach § 4 ArbZG: Ausgestempelte Lücken sind schon keine Arbeitszeit. Lücken ab 15 Min. zählen als Pause;
+    // fehlt bis zur Mindestpause (Einstellung ab 6 Std., mind. 45 Min. ab 9 Std.) noch etwas, wird nur das abgezogen.
+    // Abgezogen wird erst ab 6 Std., die Zeit fällt dadurch nie unter 6:00.
+    let brkAll = 0, brk = 0;
+    for (let i = 1; i < sess.length; i++) if (sess[i - 1].e) { const g = Math.max(0, sess[i].s - sess[i - 1].e); brkAll += g; if (g >= 15 * MIN) brk += g; }
+    const req = (gross > 9 * HOUR ? Math.max(st.pause, 45) : st.pause) * MIN;
+    const pause = Math.min(Math.max(0, gross - 6 * HOUR), Math.max(0, req - brk));
     const year = d.slice(0, 4), holiday = (hol[year] ||= holidays(+year, st.state))[d];
     const absence = data.absences.find(a => a.from <= d && d <= a.to);
     const weekday = +sollWeek(st, d)[parseYmd(d).getDay()] || 0;
@@ -102,7 +107,7 @@ function makeCalc(data, now) {
     if (holiday || (absence && absence.type !== 'reduzierung')) soll = 0;
     else if (absence) soll = Math.max(0, soll - absence.hours * HOUR);
     const adj = d < st.since ? 0 : adjByDay[d] || 0;
-    return { d, sess, gross, pause, net: gross - pause, soll, diff: gross - pause - soll, adj, holiday, absence, workday: weekday > 0 && !holiday, planned: weekday > 0 };
+    return { d, sess, gross, pause, brk, brkAll, breakTotal: brkAll + pause, net: gross - pause, soll, diff: gross - pause - soll, adj, holiday, absence, workday: weekday > 0 && !holiday, planned: weekday > 0 };
   }
   const range = (from, to) => { const out = []; for (let d = from; d <= to; d = addDays(d, 1)) out.push(day(d)); return out; };
   // Laufende Summe ab Startdatum, einmal berechnet und dann gemerkt.

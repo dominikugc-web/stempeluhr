@@ -701,7 +701,7 @@ async function doPayroll() {
           for (const x of days) {
             if (!x.gross && !x.absence) continue;
             const first = x.sess[0], last = x.sess[x.sess.length - 1];
-            rows.push([pnr, mem.name, dmy(x.d), first ? tod(first.s) : '', last?.e ? tod(last.e) : '', x.gross ? dec(x.pause / HOUR) : '', x.gross ? dec(x.net / HOUR) : '', x.gross ? cfg.la.work || '' : '', x.absence ? TYPES[x.absence.type] || x.absence.type : (x.holiday || '')]);
+            rows.push([pnr, mem.name, dmy(x.d), first ? tod(first.s) : '', last?.e ? tod(last.e) : '', x.gross ? dec(x.breakTotal / HOUR) : '', x.gross ? dec(x.net / HOUR) : '', x.gross ? cfg.la.work || '' : '', x.absence ? TYPES[x.absence.type] || x.absence.type : (x.holiday || '')]);
           }
         }
       }
