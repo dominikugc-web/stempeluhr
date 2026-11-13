@@ -348,3 +348,6 @@ html.light .hticks{background:repeating-conic-gradient(rgba(0,0,0,.22) 0 .7deg,t
 .big:disabled{opacity:.45}
 button.link{color:var(--accent);padding:0;font:inherit}
 .joinbtns{margin:10px 0 0}.joinbtns .pill{white-space:nowrap;font-size:15px;padding-left:8px;padding-right:8px}
+/* Beitrittsanfrage im Team: Name oben, Knöpfe darunter gleich breit */
+.reqrow{flex-direction:column;align-items:stretch;gap:10px;padding-top:14px;padding-bottom:14px}
+.reqbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reqbtns .pill{margin:0}

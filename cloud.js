@@ -654,8 +654,8 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
     <div class="two" style="margin:14px 0 0"><button class="pill" onclick="shareInvite()">Link teilen</button><button class="pill" onclick="rotateCode()">Neuer Code</button></div>
   </div>
   <p class="hint" style="margin-top:8px">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig. Ein zweiter Geschäftsführer tritt genauso bei, du machst ihn danach zum Geschäftsführer.</p>
-  ${pending.length ? `<div class="label">Anfragen</div><div class="group">${pending.map(m => `<div class="row"><span>${esc(m.name)}<div class="muted small">${esc(m.email)}</div></span>
-    <span style="display:flex;gap:6px"><button class="pill sm red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill sm green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
+  ${pending.length ? `<div class="label">Anfragen</div><div class="group">${pending.map(m => `<div class="row reqrow"><span>${esc(m.name)}<div class="muted small">${esc(m.email)}</div></span>
+    <span class="reqbtns"><button class="pill red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
   <div class="label">Team</div>
   <div class="group">${people.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
     <span>${openLabel(s?.open)}${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${s ? (s.open ? openText(s.open) + ' · ' : '') + 'Diese Woche ' + dur(s.week) : esc(m.email || '')}</div></span>
