@@ -353,3 +353,9 @@ button.link{color:var(--accent);padding:0;font:inherit}
 /* Beitrittsanfrage im Team: Name oben, Knöpfe darunter gleich breit */
 .reqrow{flex-direction:column;align-items:stretch;gap:10px;padding-top:14px;padding-bottom:14px}
 .reqbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reqbtns .pill{margin:0}
+/* Arbeitsplatz-Auswahl (mehrere Jobs) */
+.slotbar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 0 12px;padding:2px}
+.slotbar::-webkit-scrollbar{display:none}
+.slotbar .pill{flex:none;white-space:nowrap}
+.shead .slotbar.compact{margin:0;max-width:62%}
+.slotacts{display:flex;gap:6px;flex:none}

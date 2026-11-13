@@ -93,8 +93,13 @@ function render() {
 }
 function renderPage() {
   applyTheme();
+  // Verdienst rechnet immer mit allen Jobs über den Hauptarbeitsplatz; danach wieder den gewählten zeigen
+  if (typeof useSlot === 'function') {
+    if (tab === 'pay' && curSlot !== 'main') { slotBeforePay = curSlot; useSlot('main', true); }
+    else if (tab !== 'pay' && slotBeforePay) { const b = slotBeforePay; slotBeforePay = null; useSlot(b, true); }
+  }
   ({ start: renderStart, cal: renderCal, stats: renderStats, pay: renderPay, setup: renderSetup, admin: renderAdmin })[tab]();
-  view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner());
+  view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner() + (['cal', 'stats'].includes(tab) && typeof slotBar === 'function' ? slotBar() : ''));
 }
 function go(t) { tab = t; render(); view.scrollTop = 0; }
 // Gleitende Markierung in der Menüleiste (zieht sich beim Wechsel kurz in die Länge und federt nach).
@@ -350,7 +355,7 @@ function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $
 // unten die Uhr mit Start/Stop. Die Uhr nimmt den restlichen Platz ein, so passt alles auf jedes Handy.
 function renderStart() {
   view.innerHTML = `<div class="startfix">
-  <div class="shead"><h1>Heute</h1></div>
+  <div class="shead"><h1>Heute</h1>${typeof slotBar === 'function' ? slotBar(true) : ''}</div>
   <div class="sgrid">
     <div class="card sbig"><span class="muted small">Vom Soll</span><b id="pct">0 %</b><span class="small" id="finish"></span>
       <div class="bar thin"><div class="fill" id="fill"></div></div></div>
@@ -418,6 +423,11 @@ function updateStart() {
     if (blk >= 6 * HOUR) { hint = '⚠️ Über 6 Std. ohne Pause – bitte jetzt Pause machen'; hcls = 'red'; }
     else if (blk >= 5.75 * HOUR) { hint = `In ${Math.ceil((6 * HOUR - blk) / MIN)} Min. brauchst du eine Pause`; hcls = 'near'; }
   }
+  const all = typeof todayAllGross === 'function' ? todayAllGross() : null;   // alle Jobs zusammen (ArbZG: max. 10 Std.)
+  if (all != null && all > t.gross && !hint) {
+    hint = all > 10 * HOUR ? `⚠️ Alle Jobs zusammen heute ${hm(all)} Std. – mehr als 10 Std. sind nicht erlaubt` : `Alle Jobs zusammen heute: ${hm(all)} Std.`;
+    hcls = all > 10 * HOUR ? 'red' : all > 9.5 * HOUR ? 'near' : '';
+  }
   $('#dlabel').textContent = state === 'pause' ? '☕ Pause' : 'Arbeitszeit';
   $('#tpause').textContent = hm(t.breakTotal + (state === 'pause' ? now - pz.e : 0));   // laufende Pause zählt gleich mit
   $('#shint').textContent = hint; $('#shint').className = 'shint ' + hcls;
@@ -446,6 +456,16 @@ function pauseRun(sess = data.sessions, now = Date.now()) {
   return last?.p && last.e && now - last.e < 16 * HOUR && ymd(new Date(last.e)) === ymd(new Date(now)) ? last : null;
 }
 function stampGuard() { if (viewing) { alert('Das ist eine Vorschau. Für andere kannst du nicht stempeln. Zeiten korrigierst du im Kalender.'); return true; } }
+// Läuft woanders noch eine Zeit, dort beenden (man arbeitet nicht in zwei Jobs gleichzeitig)
+function stopElsewhere() {
+  if (typeof runningSlot !== 'function') return true;
+  const other = runningSlot();
+  if (!other || other === curSlot) return true;
+  if (!confirm(`Bei ${slotName(other)} läuft noch die Zeit. Dort beenden und hier starten?`)) return false;
+  const d = slotData(other), run = d.sessions.find(x => x.e == null); if (run) run.e = Date.now();
+  persist(other);
+  return true;
+}
 function newSession() { const defLoc = (data.settings.locs || []).find(l => l.def && !l.arch); data.sessions.push({ s: Date.now(), e: null, ...(defLoc ? { loc: defLoc.id } : {}) }); }
 function doPause() {
   if (stampGuard()) return;
@@ -456,6 +476,7 @@ function doResume() {
   if (stampGuard()) return;
   const p = pauseRun();
   if (p && Date.now() - p.e < 15 * MIN && !confirm('Die Pause ist kürzer als 15 Min. und zählt nicht als gesetzliche Pause. Trotzdem weiterarbeiten?')) return;
+  if (!stopElsewhere()) return;
   newSession(); save(); haptic(); updateStart();
 }
 function doEnd() {
@@ -476,6 +497,7 @@ function workBlock(sess, now) {
 function toggle() {
   if (stampGuard()) return;
   const run = data.sessions.find(x => x.e == null);
+  if (!run && !stopElsewhere()) return;
   if (run) run.e = Date.now(); else newSession();
   save(); updateStart();
 }
@@ -541,7 +563,8 @@ function absenceForm(from = today()) {
   </div>
   <div class="hint" id="acount"></div>
   <div class="label">Kommentar</div>
-  <div class="group"><div class="row"><input id="acomment" class="full" placeholder="Kommentar hinzufügen"></div></div>`);
+  <div class="group"><div class="row"><input id="acomment" class="full" placeholder="Kommentar hinzufügen"></div></div>
+  ${typeof hasSlots === 'function' && hasSlots() ? `<div class="group"><label class="row"><span>Für alle Jobs eintragen<div class="muted small">z. B. bei Krankheit. Sonst nur für ${esc(slotName(curSlot))}.</div></span><input type="checkbox" id="aall"></label></div>` : ''}`);
   absUpdate();
 }
 function absUpdate(fromChanged) {
@@ -555,7 +578,9 @@ function saveAbsence() {
   const from = $('#afrom').value, to = $('#ato').value, type = $('#atype').value, hours = +$('#ahours').value;
   if (!from || !to || to < from) return alert('Bitte einen gültigen Zeitraum wählen.');
   if (type === 'reduzierung' && !(hours > 0)) return alert('Bitte die Stunden angeben.');
-  data.absences.push({ id: Date.now().toString(36), type, from, to, hours: type === 'reduzierung' ? hours : 0, comment: $('#acomment').value.trim() });
+  const a = { id: Date.now().toString(36), type, from, to, hours: type === 'reduzierung' ? hours : 0, comment: $('#acomment').value.trim() };
+  data.absences.push(a);
+  if ($('#aall')?.checked) for (const id of ['main', ...Object.keys(slots)]) if (id !== curSlot) { slotData(id).absences.push({ ...a }); persist(id); }
   save(); render(); openAbsences();
 }
 function delAbsence(id) {
@@ -857,7 +882,8 @@ function setupTopics() {
       mine && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} ${act === 1 ? 'Person' : 'Personen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
     ],
     [
-      ['work', '🕘', 'Arbeitszeit', `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
+      mine && ['slots', '🧳', 'Arbeitsplätze', typeof hasSlots === 'function' && hasSlots() ? ['main', ...slotList().map(x => x.id)].map(id => esc(slotName(id))).join(', ') : 'Mehrere Jobs getrennt erfassen'],
+      ['work', '🕘', 'Arbeitszeit' + (typeof hasSlots === 'function' && hasSlots() ? ' · ' + esc(slotName(curSlot)) : ''), `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
       ['balance', '⚖️', 'Überstunden & Urlaub', `seit ${dmy(st.since)} · ${st.vacation} Urlaubstage`],
       mine && ['loc', '📍', 'Standort', (st.locs || []).filter(l => !l.arch).length ? (st.locs || []).filter(l => !l.arch).map(l => esc(l.name)).join(', ') + ' · automatisch starten/stoppen' : 'Orte für automatischen Start und Stopp'],
       mine && ['pay', '💶', 'Verdienst & Steuern', `${st.jobs.length ? st.jobs.length + (st.jobs.length === 1 ? ' Job' : ' Jobs') : 'Kein Job'} · Steuerklasse ${ROMAN[st.stkl - 1]}`],
@@ -880,14 +906,15 @@ function renderSetup() {
       <button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
   ${viewing && !viewing.preview && viewing.uid === company?.owner ? '<p class="hint center">Gründer der Firma. Geschäftsführer-Rechte und Mitgliedschaft lassen sich hier nicht ändern.</p>' : ''}`;
 }
-const TOPIC_TITLE = { account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
+const TOPIC_TITLE = { slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {
   const st = data.settings, now = new Date();
   const body = {
     account: () => accountHtml(),
     team: () => teamHtml(),
     loc: () => locListHtml(),
-    work: () => `<div class="group">
+    slots: () => slotsHtml(),
+    work: () => `${hasSlots() ? `<p class="hint" style="margin-top:0">Gilt für <b>${esc(slotName(curSlot))}</b>. Für einen anderen Job oben auf der Startseite umschalten oder unter Setup → Arbeitsplätze auf „Soll“ tippen.</p>` : ''}<div class="group">
         <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
         <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
@@ -1042,7 +1069,7 @@ function exportPdf(y, m) {
   const days = c.range(first, last), stand = last < t ? last : t, past = days.filter(x => x.d <= stand);
   const doc = new jspdf.jsPDF();
   doc.setFontSize(16);
-  doc.text(`Arbeitszeitnachweis ${MONTHS[m]} ${y}`, 14, 18);
+  doc.text(`Arbeitszeitnachweis ${MONTHS[m]} ${y}${typeof hasSlots === 'function' && hasSlots() ? ' – ' + slotName(curSlot) : ''}`, 14, 18);
   doc.setFontSize(10);
   if (st.name) doc.text(`Name: ${st.name}`, 14, 25);
   doc.autoTable({

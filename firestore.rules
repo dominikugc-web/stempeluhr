@@ -4,6 +4,7 @@ rules_version = '2';
 //
 // data/{uid}      Zeiten, Abwesenheiten, Arbeitszeit-Einstellungen. Lesen/ändern: der Nutzer selbst
 //                 und der Chef seiner Firma, sobald er den Mitarbeiter freigegeben hat.
+// slots/{uid}/jobs Zweitjobs: je Firma ein eigener Datensatz, den nur diese Firma sieht.
 // private/{uid}   Gehalt, Steuerklasse, Standorte, Aussehen. Schreiben nur der Nutzer selbst, lesen zusätzlich der
 //                 Entwickler-Support (isAdmin), damit er die App 1:1 wie der Nutzer sieht. Geschäftsführer nie.
 // companies/{cid} Firma (Name, Gründer, Einladungscode, Kontakt). Lesen: Geschäftsführer und freigegebene Mitarbeiter.
@@ -36,6 +37,15 @@ service cloud.firestore {
       allow update: if signedIn() && (request.auth.uid == uid
         || ((bossOf(resource.data.cid, uid) || isAdmin()) && request.resource.data.cid == resource.data.cid));
       allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Weitere Arbeitsplätze (Zweitjob): slots/{uid}/jobs/{jid}. jid = Firmen-ID → nur die Geschäftsführer
+    // genau dieser Firma (und nur wenn der Mitarbeiter dort freigegeben ist); jid = 'p_…' → nur der Nutzer selbst.
+    match /slots/{uid}/jobs/{jid} {
+      allow read: if isAdmin() || (signedIn() && (request.auth.uid == uid || bossOf(jid, uid)));
+      allow create, delete: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && (request.auth.uid == uid
+        || (bossOf(jid, uid) && request.resource.data.cid == resource.data.cid));
     }
 
     match /private/{uid} {

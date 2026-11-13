@@ -44,9 +44,12 @@ const isOwner = () => !!(company && me && (company.owner === actingUid() || (mem
 function teamPeople() {
   if (!company) return [];
   const list = company.ownerTracks === false ? [] : [{ uid: company.owner, name: company.ownerName || 'Gründer', boss: true, founder: true }];
-  for (const m of members) if (m.status === 'active' && m.uid !== company.owner) list.push({ uid: m.uid, name: m.name, email: m.email, boss: m.role === 'boss' });
+  for (const m of members) if (m.status === 'active' && m.uid !== company.owner) list.push({ uid: m.uid, name: m.name, email: m.email, boss: m.role === 'boss', slot: !!m.slot });
   return list.map(p => ({ ...p, self: p.uid === actingUid() })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
 }
+// Wo liegen die Zeiten eines Mitarbeiters für diese Firma? Zweitjob → eigener Arbeitsplatz, sonst Hauptdaten
+const empPath = uid => members.find(m => m.uid === uid)?.slot ? `slots/${uid}/jobs/${company.id}` : 'data/' + uid;
+const empLoad = async uid => { const s = await ref(empPath(uid)).get(); return s.exists ? merged(s.data(), null) : null; };
 const off = list => { list.forEach(f => f()); list.length = 0; };
 const ref = path => fb.db.doc(path);
 
@@ -134,7 +137,10 @@ function startCloud() {
     off(unsubs); off(companyUnsubs); viewUnsub?.(); viewUnsub = null;
     fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
     me = u; own = {}; cid = undefined; company = undefined; membership = undefined; members = []; viewing = null; membersOn = false;
+    slots = {}; curSlot = 'main'; mainData = null;
+    document.querySelectorAll('.ask').forEach(e => e.remove());   // offene Fenster des vorherigen Kontos schließen
     if (!u) { data = normalize({}); showTabs(false); renderLogin(); return; }
+    watchSlots(u.uid);
     unsubs.push(
       ref('data/' + u.uid).onSnapshot(s => onOwn('shared', s), cloudError),
       ref('private/' + u.uid).onSnapshot(s => onOwn('priv', s), cloudError),
@@ -158,14 +164,14 @@ function onOwn(kind, s) {
   }
   if (s.metadata.hasPendingWrites && own.ready) return;  // eigene Änderung, data ist schon aktuell
   own.ready = true;
-  if (!viewing) data = merged(own.shared, own.priv);
+  if (!viewing) { setOwnData(); restoreSlot(); }
   if (ADMIN_APP && !own.roleSet) { own.roleSet = true; if (!isAdmin()) return renderNoAccess(); setRole('dev'); if (pushOn()) enablePush(true); return pushStartOpen(); }
   if (ADMIN_APP && !isAdmin()) return;
   if (ADMIN_APP && role === 'dev') return;
   showTabs(true);
   if (tab === 'login') tab = 'start';
   refresh();
-  if (joinCode && !cid) { const c = joinCode; joinCode = null; history.replaceState(null, '', location.pathname); joinForm(c); }
+  if (joinCode) { const c = joinCode; joinCode = null; history.replaceState(null, '', location.pathname); joinForm(c); }
   restoreFirm();
   pushStartOpen();
 }
@@ -229,18 +235,147 @@ function save() {
   if (!me) return;
   if (viewing) {
     const { shared } = split(data.settings);
-    ref('data/' + viewing.uid).update({ sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: shared }).catch(cloudError);
-  } else writeOwn(false);
+    ref(viewing.path || 'data/' + viewing.uid).update({ sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: viewing.path ? pick(shared, SLOT_KEYS) : shared }).catch(cloudError);
+  } else persist(curSlot);
 }
-function writeOwn(first) {
-  const { shared, priv } = split(data.settings), b = fb.db.batch();
-  const doc = { sessions: data.sessions, absences: data.absences, adjustments: data.adjustments, settings: shared, email: me.email || '' };
+function writeOwn(first, d = curSlot === 'main' ? data : mainData) {
+  const { shared, priv } = split(d.settings), b = fb.db.batch();
+  const doc = { sessions: d.sessions, absences: d.absences, adjustments: d.adjustments, settings: shared, email: me.email || '' };
   if (first) doc.cid = null;
   b.set(ref('data/' + me.uid), doc, first ? undefined : { merge: true });
   b.set(ref('private/' + me.uid), { settings: priv });
   b.commit().catch(cloudError);
 }
 function refresh() { if ($('#sheet').hidden) render(); }
+
+// ---------- Arbeitsplätze: mehrere Jobs bzw. Firmen ----------
+// 'main' = data/{uid}: der Hauptarbeitsplatz wie bisher (Firma = data.cid, deren Geschäftsführer liest ihn).
+// Weitere Arbeitsplätze liegen getrennt in slots/{uid}/jobs/{id}:
+//   id = Firmen-ID  → zweite Firma in der App, nur deren Geschäftsführer darf ihn lesen
+//   id = 'p_…'      → Job ohne Firma in der App (z. B. Minijob), nur man selbst
+// Die Oberfläche arbeitet immer mit `data`; beim Umschalten zeigt `data` auf den gewählten Arbeitsplatz.
+// Diese Einstellungen gehören zum Arbeitsplatz, alles andere (Aussehen, Steuer, Jobs …) ist persönlich.
+const SLOT_KEYS = ['soll', 'plans', 'since', 'vacation', 'startBalance', 'otCap', 'pause', 'pauseRule', 'round'];
+let slots = {}, curSlot = 'main', mainData = null, slotBeforePay = null;
+const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && o[k] !== undefined).map(k => [k, o[k]]));
+const slotList = () => Object.values(slots).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+const hasSlots = () => !viewing && Object.keys(slots).length > 0;
+function slotName(id) {
+  if (id !== 'main') return slots[id]?.name || 'Job';
+  return company?.name || (mainData || data).settings.jobs?.find(j => j.type !== 'mini')?.name || 'Hauptjob';
+}
+function slotView(sl) {
+  const base = mainData || data;
+  return { sessions: sl.sessions, absences: sl.absences, adjustments: sl.adjustments, settings: { ...base.settings, ...pick(sl.settings, SLOT_KEYS) } };
+}
+// Eigene Hauptdaten übernehmen und, falls ein anderer Arbeitsplatz gewählt ist, dessen Sicht wiederherstellen
+function setOwnData() {
+  mainData = merged(own.shared, own.priv);
+  data = curSlot !== 'main' && slots[curSlot] ? slotView(slots[curSlot]) : (curSlot = 'main', mainData);
+}
+// Datensatz eines Arbeitsplatzes (immer derselbe Speicher wie die Oberfläche benutzt)
+function slotData(id) { return id === curSlot ? data : id === 'main' ? (mainData || data) : slotView(slots[id]); }
+function useSlot(id, quiet) {
+  if (viewing || (id !== 'main' && !slots[id]) || id === curSlot) return;
+  if (curSlot === 'main') mainData = data;
+  curSlot = id;
+  data = id === 'main' ? mainData : slotView(slots[id]);
+  try { localStorage.setItem('slot-' + me.uid, id); } catch {}
+  if (!quiet) { haptic(); render(); }
+}
+// Speichern: Arbeitsplatz-Einstellungen in den Arbeitsplatz, persönliche in die Hauptdaten
+function writeSlot(id, d = slotData(id)) {
+  const sl = slots[id]; if (!sl) return;
+  if (id === curSlot) {
+    sl.settings = pick(d.settings, SLOT_KEYS);
+    for (const k of Object.keys(d.settings)) if (!SLOT_KEYS.includes(k)) mainData.settings[k] = d.settings[k];
+    sl.sessions = d.sessions; sl.absences = d.absences; sl.adjustments = d.adjustments;
+  }
+  ref(`slots/${me.uid}/jobs/${id}`).set({ cid: sl.cid || null, name: sl.name, sessions: sl.sessions, absences: sl.absences, adjustments: sl.adjustments, settings: sl.settings }, { merge: true }).catch(cloudError);
+}
+function persist(id) { if (id === 'main') writeOwn(false, slotData('main')); else { writeSlot(id); if (id === curSlot) writeOwn(false, mainData); } }
+function watchSlots(uid) {
+  slots = {}; curSlot = 'main'; mainData = null;
+  const memUnsubs = {};
+  unsubs.push(fb.db.collection(`slots/${uid}/jobs`).onSnapshot(q => {
+    if (q.metadata.hasPendingWrites) return;
+    const next = {};
+    for (const d of q.docs) {
+      const x = d.data(), old = slots[d.id];
+      next[d.id] = { id: d.id, cid: x.cid || null, name: x.name || 'Job', settings: x.settings || {}, status: old?.status,
+        sessions: (x.sessions || []).filter(y => typeof y.s === 'number'), absences: x.absences || [], adjustments: x.adjustments || [] };
+      // Status der Mitgliedschaft in der zweiten Firma (Anfrage / freigegeben / entfernt)
+      if (x.cid && !memUnsubs[d.id]) memUnsubs[d.id] = ref(`companies/${x.cid}/members/${uid}`).onSnapshot(m => {
+        if (slots[d.id]) slots[d.id].status = m.exists ? m.data().status : 'gone'; refresh();
+      }, () => {});
+    }
+    slots = next;
+    if (curSlot !== 'main' && !slots[curSlot]) { curSlot = 'main'; if (mainData) data = mainData; }
+    else if (curSlot !== 'main') data = slotView(slots[curSlot]);
+    own.slotsLoaded = true; restoreSlot();
+    refresh();
+  }, () => {}));
+  unsubs.push(() => Object.values(memUnsubs).forEach(f => f()));
+}
+// Zuletzt gewählten Arbeitsplatz wieder öffnen, sobald Hauptdaten und Arbeitsplätze geladen sind
+function restoreSlot() {
+  if (own.slotRestored || !own.ready || !own.slotsLoaded || viewing) return;
+  own.slotRestored = true;
+  let want = null; try { want = localStorage.getItem('slot-' + me.uid); } catch {}
+  if (want && slots[want] && curSlot === 'main') { useSlot(want, true); refresh(); }
+}
+// Läuft gerade irgendwo eine Zeit? (Man kann nicht in zwei Jobs gleichzeitig arbeiten.)
+function runningSlot() {
+  for (const id of ['main', ...Object.keys(slots)]) if (slotData(id).sessions.some(x => x.e == null)) return id;
+  return null;
+}
+// Heute insgesamt über alle Arbeitsplätze (für die Höchstarbeitszeit nach ArbZG)
+function todayAllGross() {
+  if (!hasSlots()) return null;
+  return ['main', ...Object.keys(slots)].reduce((a, id) => a + makeCalc(slotData(id), Date.now()).day(today()).gross, 0);
+}
+async function addSlot() {
+  const name = prompt('Name des Arbeitsplatzes, z. B. „Minijob Bäckerei“:');
+  if (!name?.trim()) return;
+  const id = 'p_' + Date.now().toString(36);
+  slots[id] = { id, cid: null, name: name.trim().slice(0, 40), settings: { soll: [0, 0, 0, 0, 0, 0, 0], since: today() }, sessions: [], absences: [], adjustments: [] };
+  writeSlot(id);
+  useSlot(id, true); openTopic('work');
+  toast('Trag jetzt die Sollstunden für ' + slots[id].name + ' ein.');
+}
+async function renameSlot(id) {
+  const sl = slots[id]; if (!sl || sl.cid) return;
+  const name = prompt('Neuer Name:', sl.name); if (!name?.trim()) return;
+  sl.name = name.trim().slice(0, 40); writeSlot(id); openTopic('slots');
+}
+async function leaveSlot(id) {
+  const sl = slots[id]; if (!sl) return;
+  const firm = sl.cid && sl.status !== 'gone';
+  if (!confirm(firm ? `${sl.name} verlassen? Der Geschäftsführer sieht deine Zeiten dort dann nicht mehr. Deine Zeiten bleiben bei dir gespeichert.` : `Arbeitsplatz „${sl.name}“ mit allen Zeiten löschen? Das kann nicht rückgängig gemacht werden.`)) return;
+  try {
+    if (firm) { await ref(`companies/${sl.cid}/members/${me.uid}`).delete(); toast(`${sl.name} verlassen`); }
+    else { if (curSlot === id) useSlot('main', true); await ref(`slots/${me.uid}/jobs/${id}`).delete(); delete slots[id]; toast('Arbeitsplatz gelöscht'); }
+  } catch (e) { cloudError(e); }
+  openTopic('slots');
+}
+// Auswahl oben auf Start, Kalender und Statistik
+function slotBar(compact) {
+  if (!hasSlots()) return '';
+  const pill = id => `<button class="pill sm ${curSlot === id ? 'sel' : ''}" onclick="useSlot('${id}')">${esc(slotName(id))}${id !== 'main' && slots[id].cid && slots[id].status === 'pending' ? ' ⏳' : ''}</button>`;
+  return `<div class="slotbar${compact ? ' compact' : ''}">${['main', ...slotList().map(x => x.id)].map(pill).join('')}</div>`;
+}
+function slotsHtml() {
+  const row = (id, sub, acts) => `<div class="row"><span>${esc(slotName(id))}<div class="muted small">${sub}</div></span><span class="slotacts">${acts}</span></div>`;
+  const st = sl => !sl.cid ? 'Ohne Firma · nur für dich' : { pending: '⏳ Anfrage offen', active: '✓ Firma sieht diese Zeiten', gone: 'Nicht mehr in der Firma · nur für dich' }[sl.status] || 'Firma';
+  return `<p class="hint" style="margin-top:0">Hast du mehrere Jobs, erfasst du die Zeiten hier getrennt. Jede Firma sieht nur die Zeiten ihres Arbeitsplatzes. Oben auf der Startseite wählst du, wofür du gerade stempelst.</p>
+  <div class="group">
+    ${row('main', company ? 'Hauptarbeitsplatz · ' + esc(company.name) + ' sieht diese Zeiten' : 'Hauptarbeitsplatz', `<button class="pill sm" onclick="useSlot('main', true); openTopic('work')">Soll</button>`)}
+    ${slotList().map(sl => row(sl.id, st(sl), `<button class="pill sm" onclick="useSlot('${sl.id}', true); openTopic('work')">Soll</button>${sl.cid ? '' : `<button class="pill sm" onclick="renameSlot('${sl.id}')">✎</button>`}<button class="pill sm red" onclick="leaveSlot('${sl.id}')">${sl.cid && sl.status !== 'gone' ? 'Verlassen' : '✕'}</button>`)).join('')}
+  </div>
+  <button class="pill wide" onclick="addSlot()">+ Weiterer Job ohne Firma</button>
+  ${cid ? '<button class="pill wide" onclick="joinForm(\'\', true)">+ Zweite Firma beitreten (Code)</button>' : ''}
+  <p class="hint">Gesetzlich zählen alle Jobs zusammen: höchstens 10 Std. am Tag. Die Startseite warnt dich, wenn es zusammen zu viel wird. Pausen und Überstunden rechnet jeder Arbeitsplatz für sich.</p>`;
+}
 
 // ---------- firma beobachten ----------
 // Wer bei einer Beitrittsanfrage benachrichtigt wird: Gründer und alle Geschäftsführer. Steht im Einladungscode,
@@ -297,9 +432,9 @@ function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Fir
 async function loadTeamStats() {
   for (const m of teamPeople()) {
     try {
-      const s = await ref('data/' + m.uid).get();
-      if (!s.exists) continue;
-      const d = merged(s.data(), null), c = makeCalc(d, Date.now()), t = today(), w = monday(t);
+      const d = await empLoad(m.uid);
+      if (!d) continue;
+      const c = makeCalc(d, Date.now()), t = today(), w = monday(t);
       teamStats[m.uid] = { balance: c.balance(t), week: sum(c.range(w, addDays(w, 6)), 'net'), open: openState(d.sessions) };
     } catch {}
   }
@@ -419,6 +554,11 @@ async function deleteAccount() {
     // 4. Feedback-Chat
     for (const d of (await fb.db.collection(`feedback/${uid}/msgs`).get()).docs) await d.ref.delete();
     await ref('feedback/' + uid).delete();
+    // 4b. Weitere Arbeitsplätze und Mitgliedschaften in zweiten Firmen
+    for (const sl of Object.values(slots)) {
+      if (sl.cid) await ref(`companies/${sl.cid}/members/${uid}`).delete().catch(() => {});
+      await ref(`slots/${uid}/jobs/${sl.id}`).delete();
+    }
     // 5. Lohnabrechnungen, eigene Daten und Push-Abos
     for (const d of (await fb.db.collection(`payslips/${uid}/docs`).get()).docs) await d.ref.delete();
     await ref('private/' + uid).delete();
@@ -451,9 +591,11 @@ function accountHtml() {
   else if (isOwner()) firm = `<button class="row" onclick="openTopic('team')"><span>Geschäftsführer von <b>${esc(company.name)}</b></span><span class="muted">Team ›</span></button>
     <button class="row" onclick="companyEdit()"><span>Firmendaten & Kontakt bearbeiten</span><span class="muted">›</span></button>
     ${myFirms().length > 1 ? `<div class="row"><span>Deine Firmen<div class="muted small">${myFirms().map(c => esc(c.name)).join(', ')}</div></span></div>` : ''}
-    <button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>${isFounder() ? '' : `
+    <button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>
+    <button class="row" onclick="joinForm('', true)"><span>+ Andere Firma beitreten (weiterer Job)</span><span class="muted">›</span></button>${isFounder() ? '' : `
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`}`;
   else if (membership?.status === 'active') firm = `<div class="row"><span>Mitarbeiter bei <b>${esc(company?.name || membership.companyName)}</b></span></div>
+    <button class="row" onclick="joinForm('', true)"><span>+ Zweite Firma beitreten (weiterer Job)</span><span class="muted">›</span></button>
     <button class="row" onclick="leaveCompany()"><span class="red">Firma verlassen</span></button>`;
   else if (membership?.status === 'pending') firm = `<div class="row"><span>Anfrage an <b>${esc(membership.companyName)}</b> gesendet. Der Geschäftsführer muss dich noch freigeben.</span></div>
     <button class="row" onclick="leaveCompany()"><span class="red">Anfrage zurückziehen</span></button>`;
@@ -551,13 +693,14 @@ async function createCompany(extra) {
 
 // Firma beitreten: Vollbild, oben der Name (nur wenn noch keiner da ist), darunter je Zeichen eine Kachel.
 // Technisch ein einziges unsichtbares Eingabefeld über den Kacheln, so klappen Tippen, Einfügen und Autovervollständigen.
-function joinForm(code = '') {
+function joinForm(code = '', second = false) {
   const has = data.settings.name || me.displayName || '';
+  second = second || !!cid;
   sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet()">‹ Zurück</button><span></span></div>
   <div class="joinwrap">
     <div class="joinicon">🏢</div>
     <h1 class="center">Firma beitreten</h1>
-    <p class="center muted">Gib den Einladungscode von deinem Geschäftsführer ein.</p>
+    <p class="center muted">${second ? 'Für deinen weiteren Job: Gib den Einladungscode dieser Firma ein. Sie sieht nur die Zeiten, die du dort stempelst, nicht die deiner anderen Firma.' : 'Gib den Einladungscode von deinem Geschäftsführer ein.'}</p>
     <div class="group" id="jnamebox" ${has ? 'hidden' : ''}><label class="row"><span>Dein Name</span><input id="jname2" value="${esc(has)}" placeholder="Vor- und Nachname" autocomplete="name" oninput="otpPaint()"></label></div>
     ${has ? `<p class="center small" id="jnameinfo">Du trittst bei als <b>${esc(has)}</b> · <button class="link" onclick="$('#jnamebox').hidden = false; $('#jnameinfo').remove(); $('#jname2').focus()">ändern</button></p>` : ''}
     <div class="otp">${'<span></span>'.repeat(6)}<input id="jcode" aria-label="Einladungscode" autocapitalize="characters" autocomplete="one-time-code" autocorrect="off" spellcheck="false" oninput="otpInput()" onpaste="otpPaste(event)" onfocus="otpEnd()" onclick="otpEnd()" onselect="otpEnd()" onkeyup="otpEnd()" onblur="otpPaint()" onkeydown="event.key === 'Enter' && !$('#jbtn').disabled && joinCompany()"></div>
@@ -618,6 +761,16 @@ async function joinCompany() {
     const inv = await ref('invites/' + code).get();
     if (!inv.exists) return alert('Diesen Code gibt es nicht. Frag deinen Geschäftsführer nach dem aktuellen Code.');
     const { cid: id, name: companyName, notify = [] } = inv.data();
+    if (cid && (id === cid || (slots[id] && slots[id].status !== 'gone'))) return alert('In dieser Firma bist du schon.');
+    if (cid) {   // schon in einer Firma → zweiter Arbeitsplatz, nur diese Firma sieht seine Zeiten
+      await ref(`companies/${id}/members/${me.uid}`).set({ name, email: me.email || '', status: 'pending', code, companyName, slot: true, requested: firebase.firestore.FieldValue.serverTimestamp() });
+      slots[id] = slots[id] || { id, cid: id, name: companyName, settings: { soll: [0, 0, 0, 0, 0, 0, 0], since: today() }, sessions: [], absences: [], adjustments: [] };
+      slots[id].status = 'pending'; writeSlot(id);
+      if (notify.length) notifyPush({ kind: 'join', to: notify, body: name, firm: companyName });
+      closeSheet(); useSlot(id, true); render();
+      alert(`Anfrage an ${companyName} gesendet. Das ist dein zweiter Arbeitsplatz: ${companyName} sieht nur die Zeiten, die du dort stempelst. Trag unter Setup → Arbeitsplätze noch die Sollstunden ein.`);
+      return true;
+    }
     await ref(`companies/${id}/members/${me.uid}`).set({ name, email: me.email || '', status: 'pending', code, companyName, requested: firebase.firestore.FieldValue.serverTimestamp() });
     data.settings.name = name;
     await ref('data/' + me.uid).update({ cid: id, 'settings.name': name });
@@ -725,7 +878,7 @@ function removeMember(uid) {
 function viewMember(uid) {
   closeSheet();
   if (uid === actingUid()) return go('cal');   // eigene Zeiten: einfach den eigenen Kalender öffnen
-  viewAs(uid, teamPeople().find(x => x.uid === uid)?.name || 'Mitarbeiter');
+  viewAs(uid, teamPeople().find(x => x.uid === uid)?.name || 'Mitarbeiter', 'cal', false, empPath(uid) !== 'data/' + uid ? empPath(uid) : null);
 }
 // Weiteren Geschäftsführer ernennen bzw. Rechte entziehen (nicht beim Gründer)
 async function setBoss(uid, on) {
@@ -748,9 +901,10 @@ function migrateAdminSettings(id) {
   if (Object.keys(up).length) ref(`companies/${id}/admin/settings`).set(up, { merge: true }).catch(() => {});
 }
 const saveAdmin = patch => { Object.assign(companyAdmin, patch); return ref(`companies/${company.id}/admin/settings`).set(patch, { merge: true }); };
-function viewAs(uid, name, startTab = 'cal', preview = false) {  // preview: Entwickler sieht die App wie dieser Nutzer
+function viewAs(uid, name, startTab = 'cal', preview = false, path = null) {  // preview: Entwickler sieht die App wie dieser Nutzer
   viewUnsub?.(); viewUnsub = null;
-  viewing = { uid, name, preview };
+  if (curSlot !== 'main') useSlot('main', true);
+  viewing = { uid, name, preview, path };
   tab = startTab; calView = 'week'; calDay = today();
   view.innerHTML = '<p class="center muted" style="margin-top:40vh">Lädt …</p>';
   updateTabs();
@@ -758,7 +912,7 @@ function viewAs(uid, name, startTab = 'cal', preview = false) {  // preview: Ent
   const support = preview && ADMIN_APP && isAdmin();
   let shared, priv = null, privSeen = !support;
   const apply = () => { if (!viewing || shared === undefined || !privSeen) return; data = shared ? merged(shared, priv) : normalize({}); refresh(); };
-  const u1 = ref('data/' + uid).onSnapshot(s => {
+  const u1 = ref(path || 'data/' + uid).onSnapshot(s => {
     if (s.metadata.hasPendingWrites || !viewing) return;
     shared = s.exists ? s.data() : null; apply();
   }, e => { alert('Zeiten konnten nicht geladen werden: ' + e.message); stopViewing(); });
@@ -770,7 +924,7 @@ function stopViewing() {
   if (!viewing) return;
   const preview = viewing.preview;
   viewing = null;
-  data = merged(own.shared, own.priv);
+  setOwnData();
   if (!preview && ADMIN_APP && role === 'as' && asUser) return setRole('as', asUser.uid, 'team');   // zurück zur Sicht des Nutzers
   if (preview) return setRole('dev');
   updateTabs(); closeSheet(); go('setup'); openTopic('team');
@@ -791,7 +945,7 @@ async function setRole(r, id, then) {
   viewUnsub?.(); viewUnsub = null; viewing = null; closeSheet();
   role = r;
   if (r !== 'as') asUser = null;
-  data = merged(own.shared, own.priv);
+  setOwnData();
   if (r === 'dev') { showTabs(false); tab = 'admin'; render(); view.scrollTop = 0; return loadAdmin(); }
   showTabs(true);
   if (r === 'self') { watchCompany(own.shared.cid || null); return go('start'); }

@@ -298,7 +298,7 @@ const teamData = {};   // uid -> { d, at } geladene Daten der Mitarbeiter (für 
 async function teamLoad(uids, force) {
   await Promise.all(uids.map(async uid => {
     if (!force && teamData[uid] && Date.now() - teamData[uid].at < 60000) return;
-    try { const s = await ref('data/' + uid).get(); teamData[uid] = { d: s.exists ? merged(s.data(), null) : normalize({}), at: Date.now() }; }
+    try { teamData[uid] = { d: (await empLoad(uid)) || normalize({}), at: Date.now() }; }
     catch (e) { teamData[uid] = { err: e.message, at: Date.now() }; }
   }));
 }
@@ -574,9 +574,9 @@ async function doTeamExport() {
     await loadScript(XLSX_SRC);
     const wb = XLSX.utils.book_new(), over = [['Name', 'Soll', 'Gearbeitet', 'Differenz', `Überstundenkonto (${dmy(stand)})`, 'Urlaubstage', 'Krankheitstage']], sheets = [];
     for (const mem of teamPeople()) {
-      const s = await ref('data/' + mem.uid).get();
-      if (!s.exists) continue;
-      const d = merged(s.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
+      const d = await empLoad(mem.uid);
+      if (!d) continue;
+      const c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
       over.push([mem.name, hm(sum(days, 'soll')), hm(sum(days, 'net')), hm(sum(past, 'diff'), true), hm(c.balance(stand), true), countAbs(days, 'urlaub'), countAbs(days, 'krank')]);
       sheets.push([mem.name.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31) || 'Mitarbeiter', [cols.map(k => COLS[k]), ...rowsFor(d, from, to, cols, dec)]]);
     }
@@ -691,8 +691,8 @@ async function doPayroll() {
         ? [['Personalnummer', 'Name', 'Lohnart', 'Bezeichnung', 'Menge', 'Einheit', 'Von', 'Bis']]
         : [['Personalnummer', 'Name', 'Datum', 'Beginn', 'Ende', 'Pause (Std.)', 'Stunden', 'Lohnart', 'Abwesenheit']];
       for (const mem of teamPeople().filter(m => uids.includes(m.uid))) {
-        const snap = await ref('data/' + mem.uid).get(); if (!snap.exists) continue;
-        const d = merged(snap.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
+        const d = await empLoad(mem.uid); if (!d) continue;
+        const c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
         const pnr = cfg.pnr[mem.uid] || '';
         if (content === 'sum') {
           const val = { work: sum(days, 'net') / HOUR, over: Math.max(0, sum(past, 'diff')) / HOUR, vac: countAbs(days, 'urlaub'), sick: countAbs(days, 'krank') };
@@ -717,8 +717,8 @@ async function doTeamExportRange(from, to, uids, fname) {
   await loadScript(XLSX_SRC);
   const wb = XLSX.utils.book_new(), over = [['Personalnr.', 'Name', 'Soll', 'Gearbeitet', 'Differenz', `Überstundenkonto (${dmy(stand)})`, 'Urlaubstage', 'Krankheitstage']], sheets = [];
   for (const mem of teamPeople().filter(m => uids.includes(m.uid))) {
-    const s = await ref('data/' + mem.uid).get(); if (!s.exists) continue;
-    const d = merged(s.data(), null), c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
+    const d = await empLoad(mem.uid); if (!d) continue;
+    const c = makeCalc(d, Date.now()), days = c.range(from, to), past = days.filter(x => x.d <= stand);
     over.push([cfg.pnr[mem.uid] || '', mem.name, hm(sum(days, 'soll')), hm(sum(days, 'net')), hm(sum(past, 'diff'), true), hm(c.balance(stand), true), countAbs(days, 'urlaub'), countAbs(days, 'krank')]);
     sheets.push([mem.name.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31) || 'Mitarbeiter', [cols.map(k => COLS[k]), ...rowsFor(d, from, to, cols, dec)]]);
   }
@@ -819,6 +819,7 @@ function locForm(i, keep) {
   <div class="group"><label class="row"><input id="lname" style="max-width:none;flex:1" value="${esc(l.name)}" placeholder="z. B. Büro"></label></div>
   <div class="label">Ort</div>
   <div class="group"><button class="row" onclick="locPick()"><span id="lpos" class="${l.lat == null ? 'muted' : ''}" style="text-align:left">${l.lat == null ? 'Wähle einen Ort' : locPosText(l) + `<div class="muted small">Umkreis ${l.r} m</div>`}</span><span class="muted">›</span></button></div>
+  ${typeof hasSlots === 'function' && hasSlots() ? `<div class="group"><label class="row"><span>Arbeitsplatz</span><select id="lslot">${['main', ...slotList().map(x => x.id)].map(id => `<option value="${id}" ${(l.slot || 'main') === id ? 'selected' : ''}>${esc(slotName(id))}</option>`).join('')}</select></label></div>` : ''}
   <div class="group"><label class="row"><span>Farbe</span><input id="lcolor" type="color" value="${esc(l.color)}" class="colorpick"></label></div>
   <div class="label">Standardort</div>
   <div class="group"><label class="row"><span>Als Standardort verwenden</span>${sw('ldef', l.def)}</label></div>
@@ -856,6 +857,7 @@ function locCollect() {
   const l = locDraft;
   Object.assign(l, { name: $('#lname').value.trim(), color: $('#lcolor').value, def: $('#ldef').checked, arch: $('#larch').checked,
     minLen: Math.max(0, Math.round(num($('#lmin').value))), from: $('#lfrom').value || '00:00', to: $('#lto').value || '23:59' });
+  if ($('#lslot')) l.slot = $('#lslot').value;
   l.enter = { act: $('#lenteract').value, off: $('#lenteroff').checked, shift: Math.round(num($('#lentershift').value)) };
   l.leave = { act: $('#lleaveact').value, off: $('#lleaveoff').checked, shift: Math.round(num($('#lleaveshift').value)) };
 }
@@ -1007,6 +1009,7 @@ function locApply(c) {
 }
 function locEvent(l, kind) {
   const a = l[kind]; if (!a || a.act === 'none') return;
+  if (l.slot && typeof slots !== 'undefined' && (l.slot === 'main' || slots[l.slot]) && l.slot !== curSlot) useSlot(l.slot, true);
   const now = new Date(), hhmm = pad(now.getHours()) + ':' + pad(now.getMinutes());
   const inWindow = l.from <= l.to ? hhmm >= l.from && hhmm <= l.to : hhmm >= l.from || hhmm <= l.to;
   if (!inWindow) return;
