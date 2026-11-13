@@ -164,13 +164,15 @@ const haptic = (() => {
     return !best || d < best.d ? { b, d } : best;
   }, null)?.b;
   // Finger auf dem aktiven Feld: Die Linse wächst sofort, wie bei iOS
-  const down = (x, t) => { start = { x, t }; dragging = false; hoverBtn = null; if (under(x - nav.getBoundingClientRect().left)?.dataset.tab === tab) nav.classList.add('press'); };
+  // Fingerposition in Leisten-Koordinaten, auch wenn die Leiste beim Halten geschrumpft ist
+  const local = x => { const r = nav.getBoundingClientRect(); return (x - r.left) * nav.offsetWidth / r.width; };
+  const down = (x, t) => { start = { x, t }; dragging = false; hoverBtn = null; if (under(local(x))?.dataset.tab === tab) nav.classList.add('press'); };
   const move = x => {
     if (!start) return false;
     if (!dragging && Math.abs(x - start.x) < 8) return false;
     if (!dragging) { dragging = true; nav.classList.add('press', 'drag'); ind.style.transition = 'width .2s,top .25s,bottom .25s,background .25s,box-shadow .25s'; }
-    const r = nav.getBoundingClientRect(), w = ind.offsetWidth, rx = x - r.left;
-    const left = Math.max(5, Math.min(r.width - 5 - w, rx - w / 2));
+    const w = ind.offsetWidth, rx = local(x);
+    const left = Math.max(5, Math.min(nav.offsetWidth - 5 - w, rx - w / 2));
     const u = under(rx);
     if (u !== hoverBtn) { if (hoverBtn) haptic(); hoverBtn = u; }
     btns().forEach(b => b.classList.toggle('hover', b === u));
@@ -184,8 +186,8 @@ const haptic = (() => {
     dragging = false; eatClick = true; setTimeout(() => { eatClick = false; }, 400);
     nav.classList.remove('press', 'drag'); ind.style.transition = '';
     btns().forEach(b => b.classList.remove('hover')); tabHi();
-    const r = nav.getBoundingClientRect(), list = btns(), cur = list.findIndex(b => b.dataset.tab === tab);
-    let target = under(x - r.left);
+    const list = btns(), cur = list.findIndex(b => b.dataset.tab === tab);
+    let target = under(local(x));
     const dx = x - s.x, v = Math.abs(dx) / Math.max(1, t - s.t);
     if (!cancel && target === list[cur] && v > 0.5) target = list[Math.max(0, Math.min(list.length - 1, cur + Math.sign(dx)))];
     if (cancel || !target || target.dataset.tab === tab) { moveTabInd(); return; }
