@@ -337,7 +337,8 @@ html.light .hticks{background:repeating-conic-gradient(rgba(0,0,0,.22) 0 .7deg,t
 .joinwrap{max-width:420px;margin:4vh auto 0}
 .joinicon{font-size:52px;text-align:center}
 .joinwrap h1{margin:6px 0 4px}
-.otp{position:relative;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:22px 0 18px}
+.otp{position:relative;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:22px 0 10px}
+.pastebtn{display:block;margin:0 auto 18px}
 .otp span{aspect-ratio:.8;border-radius:16px;background:var(--card);border:1.5px solid var(--line);display:grid;place-items:center;font-size:30px;font-weight:600;font-variant-numeric:tabular-nums;transition:border-color .15s,transform .15s}
 .otp span.on{border-color:color-mix(in srgb,var(--txt) 30%,transparent)}
 .otp span.cur{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}

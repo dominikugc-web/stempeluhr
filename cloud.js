@@ -544,7 +544,8 @@ function joinForm(code = '') {
     <p class="center muted">Gib den Einladungscode von deinem Geschäftsführer ein.</p>
     <div class="group" id="jnamebox" ${has ? 'hidden' : ''}><label class="row"><span>Dein Name</span><input id="jname2" value="${esc(has)}" placeholder="Vor- und Nachname" autocomplete="name" oninput="otpPaint()"></label></div>
     ${has ? `<p class="center small" id="jnameinfo">Du trittst bei als <b>${esc(has)}</b> · <button class="link" onclick="$('#jnamebox').hidden = false; $('#jnameinfo').remove(); $('#jname2').focus()">ändern</button></p>` : ''}
-    <div class="otp">${'<span></span>'.repeat(6)}<input id="jcode" aria-label="Einladungscode" autocapitalize="characters" autocomplete="one-time-code" autocorrect="off" spellcheck="false" oninput="otpInput()" onfocus="otpPaint()" onblur="otpPaint()" onkeydown="event.key === 'Enter' && !$('#jbtn').disabled && joinCompany()"></div>
+    <div class="otp">${'<span></span>'.repeat(6)}<input id="jcode" aria-label="Einladungscode" autocapitalize="characters" autocomplete="one-time-code" autocorrect="off" spellcheck="false" oninput="otpInput()" onpaste="otpPaste(event)" onfocus="otpPaint()" onblur="otpPaint()" onkeydown="event.key === 'Enter' && !$('#jbtn').disabled && joinCompany()"></div>
+    <button class="pill sm pastebtn" onclick="otpClipboard()">📋 Code einfügen</button>
     <button class="big" id="jbtn" onclick="joinCompany()" disabled>Beitreten</button>
     <p class="hint center">Nach der Freigabe sieht dein Geschäftsführer deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>
   </div>`);
@@ -552,6 +553,18 @@ function joinForm(code = '') {
   $('#jcode').value = code ? cleanCode(code) : '';
   otpPaint();
   setTimeout(() => (has ? $('#jcode') : $('#jname2'))?.focus(), 350);
+}
+// Einfügen ersetzt immer alle Kacheln (egal in welche Kachel), aus Link oder Nachricht wird nur der Code genommen
+function otpSet(text) {
+  const c = cleanCode(text).slice(0, 6);
+  if (!c) return toast('In der Zwischenablage ist kein Code.');
+  $('#jcode').value = c; otpPaint(); haptic();
+  if (c.length === 6 && !$('#jname2').value.trim()) $('#jname2').focus();
+}
+function otpPaste(e) { e.preventDefault(); otpSet(e.clipboardData?.getData('text') || ''); }
+async function otpClipboard() {
+  try { otpSet(await navigator.clipboard.readText()); }
+  catch { $('#jcode').focus(); toast('Tippe lange auf die Kacheln und wähle „Einsetzen“.'); }
 }
 function otpInput() {
   const i = $('#jcode'), raw = i.value;
