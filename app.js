@@ -369,6 +369,16 @@ function renderStart() {
   </div></div>`;
   updateStart();
 }
+// Ring um die Uhr: eine Umdrehung = Sollzeit. Erste Runde rot → orange (¼) → gelb (½) → grün (voll).
+// Überstunden: Ring bleibt grün, eine zweite Runde startet hellblau (nah am Grün) → dunkelblau → lila.
+const RING1 = 'conic-gradient(#e8455a, #f0883c 25%, #f2c94c 50%, #a8d14a 75%, #8cc63f 100%)';
+const RING2 = 'conic-gradient(#5fd6b8, #4fb3ff 30%, #2f6bff 60%, #3a3fd8 80%, #8e44ff 100%)';
+function dialRing(f) {
+  const track = 'var(--ringtrack)';
+  if (f <= 1) return `conic-gradient(transparent 0 ${f * 100}%, ${track} 0), ${RING1}`;
+  const q = Math.min(1, f - 1) * 100;
+  return `conic-gradient(transparent 0 ${q}%, #8cc63f 0), ${RING2}`;
+}
 function updateStart() {
   if (!$('#clock')) return;
   const now = Date.now(), t = calc().day(today());
@@ -381,8 +391,7 @@ function updateStart() {
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
-  $('#dial').style.setProperty('--p', Math.min(100, pct));
-  $('#dial').style.setProperty('--pc', progColor(pct));
+  $('#dial').style.background = dialRing(t.soll ? t.net / t.soll : 0);
   $('#finish').textContent = !t.soll ? 'Heute frei' : done ? 'Ziel erreicht ✓' : `fertig um ${tod(finish)}`;
   $('#tdiff').textContent = hm(t.diff, true);
   $('#tdiff').className = t.sess.length ? cls(t.diff) : '';
@@ -395,9 +404,10 @@ function updateStart() {
   $('#b0').textContent = t.sess.length ? tod(first) : '';
   $('#b1').textContent = t.sess.length ? tod((first + end) / 2) : '';
   $('#b2').textContent = t.sess.length ? (running ? 'jetzt' : tod(end)) : '';
+  // feste Höhe (3 Zeilen), damit die Uhr beim Stempeln nicht springt; ältere Abschnitte stehen in der Zeitleiste
   const rows = t.sess.slice(-3);
-  $('#tsess').innerHTML = t.sess.length ? `<div class="tsess">${t.sess.length > 3 ? `<div class="muted small">+ ${t.sess.length - 3} frühere</div>` : ''}${rows.map((x, i) => `<div><i class="${(t.sess.length - rows.length + i) % 2 ? 'alt' : ''}"></i><span>${tod(x.s)} – ${x.e ? tod(x.e) : 'läuft'}</span><span class="muted">${dur((x.e ?? now) - x.s)}</span></div>`).join('')}</div>
-` : '<p class="muted small center" style="margin:6px 0 0">Heute noch nicht gestempelt</p>';
+  $('#tsess').innerHTML = t.sess.length ? `<div class="tsess">${rows.map((x, i) => `<div><i class="${(t.sess.length - rows.length + i) % 2 ? 'alt' : ''}"></i><span>${tod(x.s)} – ${x.e ? tod(x.e) : 'läuft'}</span><span class="muted">${dur((x.e ?? now) - x.s)}</span></div>`).join('')}</div>`
+    : '<p class="muted small center tsempty">Heute noch nicht gestempelt</p>';
   $('#tnet').innerHTML = t.sess.length ? `<span class="muted small">netto</span> <b>${dur(t.net)}</b>` : '';
   $('#toggle').textContent = running ? 'Stop' : 'Start';
   $('#toggle').classList.toggle('stop', running);

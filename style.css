@@ -108,7 +108,9 @@ input.file{max-width:50%;background:none;padding:0;font-size:13px}
 .badge{color:var(--blue);margin:-6px 0 6px}
 .money{font-size:min(11vw,46px);font-weight:300;text-align:center;font-variant-numeric:tabular-nums;margin:2px 0 0;white-space:nowrap}
 .phead{display:flex;align-items:baseline;gap:8px;margin-bottom:12px}.pct.sm{font-size:34px}
-.bar.thin{height:26px;border-radius:13px}.bar.thin .fill{border-radius:13px}
+.bar.thin{height:26px;border-radius:13px;--bh:26px}.bar.thin .fill{border-radius:13px}
+/* Ladebalken: vorne immer rund wie der Start-Knopf, auch bei 1 % (sonst wäre es nur ein Strich) */
+.bar{--bh:44px}.fill[style]:not([style*="width:0%"]):not([style*="width: 0%"]){min-width:var(--bh)}
 .trow{display:grid;grid-template-columns:1.25fr .8fr 1fr 1fr;gap:6px}.trow>span{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.trow>span:first-child{text-align:left}
 .trow.head{min-height:40px;padding-top:10px;padding-bottom:6px}.trow.sum{font-weight:600}
 .row.nb{border-bottom:0;padding-bottom:2px;min-height:0}.row.subrow{min-height:0;padding-top:0;padding-bottom:12px;font-size:13px;color:var(--mut)}
@@ -288,7 +290,7 @@ main:has(> .startfix){overflow:hidden}
 .sgrid{display:grid;grid-template-columns:1.15fr 1fr;gap:10px}
 .sbig{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:14px 16px;border-radius:24px}
 .sbig b{font-size:44px;font-weight:300;line-height:1.05;font-variant-numeric:tabular-nums;white-space:nowrap}
-.sbig .bar{margin-top:8px;height:8px}.sbig .fill{border-radius:4px}
+.sbig .bar{margin-top:8px;height:8px;--bh:8px}.sbig .fill{border-radius:4px}
 .scol{display:grid;gap:10px}
 .ssm{padding:10px 14px;border-radius:20px;display:flex;flex-direction:column;justify-content:center}
 .ssm b{font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
@@ -296,25 +298,30 @@ main:has(> .startfix){overflow:hidden}
 .sdh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
 .tl{position:relative;height:12px;border-radius:6px;background:var(--track)}
 .tl i,.tsess i{position:absolute;top:0;bottom:0;border-radius:6px;background:var(--ok)}
+.tl i{min-width:12px}
 .tl i.alt,.tsess i.alt{background:color-mix(in srgb,var(--ok) 60%,#fff)}
-.sday .barlabels{font-size:12px;margin-top:4px}
+.sday .barlabels{font-size:12px;margin-top:4px;height:16px}
+.sdh{min-height:24px}
+#tsess{--rows:3;height:calc(var(--rows) * 26px + 6px);overflow:hidden}
 .tsess{margin-top:6px;font-size:15px;font-variant-numeric:tabular-nums}
-.tsess>div{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;padding:3px 0}
+.tsempty{margin:0;height:100%;display:grid;place-items:center}
+.tsess>div{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;height:26px}
 .tsess i{position:static;display:block;width:12px;height:12px;border-radius:4px}
 .startfix .tip{padding:10px 14px}
 .sclock{flex:1 1 0;min-height:150px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px;border-radius:28px;container-type:size}
 .sclock .big{margin:0;flex:none;height:56px}
-.dial{--p:0;--pc:var(--ok);position:relative;flex:none;aspect-ratio:1;height:min(100cqh - 66px,100cqw - 8px);border-radius:50%;display:grid;place-items:center;text-align:center;
-  background:conic-gradient(var(--pc) calc(var(--p) * 1%),var(--track) 0);container-type:inline-size;transition:background .4s}
+.dial{position:relative;flex:none;aspect-ratio:1;height:min(100cqh - 66px,100cqw - 8px);border-radius:50%;display:grid;place-items:center;text-align:center;
+  background:var(--ringtrack);container-type:inline-size}
 .dial::before{content:"";position:absolute;inset:7%;border-radius:50%;background:color-mix(in srgb,var(--bg) 80%,#000)}
 .dial::after{content:"";position:absolute;inset:10%;border-radius:50%;background:repeating-conic-gradient(rgba(255,255,255,.28) 0 .7deg,transparent .7deg 6deg);
   -webkit-mask:radial-gradient(closest-side,transparent 88%,#000 89%);mask:radial-gradient(closest-side,transparent 88%,#000 89%)}
 .dial>div{position:relative;z-index:1;display:flex;flex-direction:column;gap:2px}
 .dial b{font-size:15cqw;font-weight:300;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:#ddd6d0}
+:root{--ringtrack:#0e0b0a}html.light{--ringtrack:#e2e2e7}
 html.light .dial::before{background:#fff}
 html.light .dial::after{background:repeating-conic-gradient(rgba(0,0,0,.22) 0 .7deg,transparent .7deg 6deg)}
 html.light .dial b{color:#2c2c2e}
 /* Tipp nur, wenn genug Platz ist; sonst bekommt die Uhr den Platz */
 @container (max-height:780px){.startfix>.tip{display:none}}
-@container (max-height:640px){.sbig b{font-size:36px}.tsess>div:nth-last-child(n+3){display:none}}
+@container (max-height:640px){.sbig b{font-size:36px}#tsess{--rows:2}.tsess>div:nth-last-child(n+3){display:none}}
 @container (max-height:560px){#tsess{display:none}.sbig{padding:10px 14px}.sbig b{font-size:32px}.ssm{padding:6px 12px}.ssm b{font-size:20px}.shead h1{font-size:28px}.iconbtn{width:36px;height:36px}}
