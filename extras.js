@@ -1044,6 +1044,7 @@ function feedbackWatch() {
   fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
   if (!me) return feedbackBadge();
   fbMetaUnsub = ref('feedback/' + me.uid).onSnapshot(s => { fbMeta = s.exists ? s.data() : null; feedbackBadge(); }, () => {});
+  if (pushOn()) enablePush(true);
 }
 function feedbackBadge() { const b = $('#fbbtn'); if (b) b.classList.toggle('unread', !!fbMeta?.unreadUser); }
 function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eines Nutzers
@@ -1052,6 +1053,7 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
   fbUnsub?.();
   fbMsgs = [];
   sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeFeedback(${admin})">${admin ? '‹ Feedback' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px"></span></div>
+    ${admin ? '' : pushAskHtml('Benachrichtigen, wenn wir antworten')}
     <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
     <div class="chatbar"><textarea id="fbtext" rows="1" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
@@ -1084,9 +1086,11 @@ async function sendFeedback(admin) {
     if (admin) {
       await fb.db.collection(`feedback/${fbThread}/msgs`).add({ text, from: 'admin', at });
       await ref('feedback/' + fbThread).set({ last: at, lastText: text.slice(0, 120), unreadUser: true, unreadAdmin: false }, { merge: true });
+      notifyPush({ to: fbThread, title: '💬 Antwort auf dein Feedback', body: text, url: './?fb=1' });
     } else {
       await fb.db.collection(`feedback/${me.uid}/msgs`).add({ text, from: 'user', type: fbType, at, name: displayName() || '', ver: document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] || '', device: navigator.userAgent.slice(0, 160) });
       await ref('feedback/' + me.uid).set({ name: displayName() || '', email: me.email || '', company: company?.name || '', last: at, lastText: text.slice(0, 120), lastType: fbType, unreadAdmin: true, unreadUser: false }, { merge: true });
+      notifyPush({ to: 'admin', title: `${FB_TYPES[fbType][0]} ${displayName() || 'Nutzer'}${company?.name ? ' · ' + company.name : ''}`, body: text, url: './admin/?fb=' + me.uid });
     }
   } catch (e) { ta.value = text; alert('Senden fehlgeschlagen: ' + e.message); }
 }
@@ -1112,3 +1116,38 @@ function feedbackAdminHtml() {
       <div class="muted small fbprev">${t.lastType && FB_TYPES[t.lastType] ? FB_TYPES[t.lastType][0] + ' ' : ''}${esc(t.lastText || '')}</div></span>
     <span class="muted small">${t.last?.toDate ? t.last.toDate().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : ''} ›</span></button>`).join('')}</div>`;
 }
+
+// ---------- Push-Benachrichtigungen fürs Feedback ----------
+// Der kleine Sende-Dienst läuft kostenlos bei Cloudflare (Ordner push/). Auf dem iPhone geht Push nur
+// in der installierten App (ab iOS 16.4) und erst, nachdem man es einmal erlaubt hat.
+const PUSH_URL = 'https://stempeluhr-push.stempeluhr.workers.dev';
+const PUSH_KEY = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbWQDlZwtvh7dVrhBWNT2oOpY5yI';
+const pushOk = () => 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
+const pushOn = () => pushOk() && Notification.permission === 'granted';
+async function pushCall(path, body) {
+  const r = await fetch(PUSH_URL + path, { method: 'POST', headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Push-Dienst antwortet nicht');
+  return r.json();
+}
+// Gerät anmelden. quiet = beim Start still auffrischen, ohne nachzufragen.
+async function enablePush(quiet) {
+  if (!pushOk() || !me) return;
+  try {
+    if (!quiet && await Notification.requestPermission() !== 'granted') return toast('Benachrichtigungen sind nicht erlaubt. Du kannst sie in den iPhone-Einstellungen unter Mitteilungen einschalten.');
+    if (Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription()
+      || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(PUSH_KEY.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)) });
+    await pushCall('/subscribe', { sub: sub.toJSON(), app: ADMIN_APP ? 'admin' : 'user' });
+    if (!quiet) { toast('🔔 Benachrichtigungen sind an'); document.querySelectorAll('.pushask').forEach(e => e.remove()); }
+  } catch (e) { if (!quiet) alert('Benachrichtigungen konnten nicht eingeschaltet werden: ' + e.message); }
+}
+const pushAskHtml = text => pushOk() && !pushOn() ? `<button class="pill wide pushask" onclick="enablePush()">🔔 ${text}</button>` : '';
+function notifyPush(body) { if (me) pushCall('/notify', body).catch(() => {}); }
+// Tipp auf eine Benachrichtigung: Chat öffnen (?fb=1 im Nutzer-App, ?fb=<uid> in der Admin-App)
+function openFromPush(url) {
+  const fbp = new URL(url, location.href).searchParams.get('fb');
+  if (!fbp || !me) return;
+  if (ADMIN_APP) { if (isAdmin()) { closeSheet(); openFeedback(fbp); loadFeedbackAdmin(); } } else openFeedback();
+}
+navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.open) openFromPush(e.data.open); });

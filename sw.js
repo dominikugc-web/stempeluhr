@@ -12,3 +12,21 @@ self.addEventListener('fetch', e => {
       .catch(() => caches.match(e.request))
   );
 });
+
+// Push-Benachrichtigungen (Feedback-Chat). Tipp darauf öffnet die App bzw. bringt sie nach vorn und öffnet den Chat.
+self.addEventListener('push', e => {
+  let d = {}; try { d = e.data.json(); } catch { d = { title: 'Stempeluhr', body: e.data?.text() || '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Stempeluhr', {
+    body: d.body || '', tag: d.tag, renotify: true, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' },
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  const admin = url.includes('/admin/');
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const c = list.find(w => w.url.includes('/admin/') === admin);
+    if (c) { c.postMessage({ open: url }); return c.focus(); }
+    return self.clients.openWindow(url);
+  }));
+});

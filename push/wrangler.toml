@@ -1,0 +1,8 @@
+name = "stempeluhr-push"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "SUBS"
+id = "84f2c3f3e6c542a0a8633363e2ddac6b"

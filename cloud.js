@@ -19,6 +19,9 @@ let membersOn = false;
 let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mitarbeiter ansieht
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
 let joinCode = new URLSearchParams(location.search).get('join');
+// Aus einer Benachrichtigung geöffnet (?fb=…): nach dem Laden einmal den Chat öffnen
+let pushOpen = new URLSearchParams(location.search).get('fb');
+function pushStartOpen() { if (!pushOpen) return; const u = '?fb=' + pushOpen; pushOpen = null; history.replaceState(null, '', location.pathname); setTimeout(() => openFromPush(u), 300); }
 
 // Entwickler-App (admin/index.html): dieselbe Oberfläche mit Umschalter Entwickler / Geschäftsführer / Mitarbeiter / Ich.
 // Die UID muss auch in firestore.rules (isAdmin) stehen, sonst verweigert der Server den Zugriff.
@@ -155,7 +158,7 @@ function onOwn(kind, s) {
   if (s.metadata.hasPendingWrites && own.ready) return;  // eigene Änderung, data ist schon aktuell
   own.ready = true;
   if (!viewing) data = merged(own.shared, own.priv);
-  if (ADMIN_APP && !own.roleSet) { own.roleSet = true; return isAdmin() ? setRole('dev') : renderNoAccess(); }
+  if (ADMIN_APP && !own.roleSet) { own.roleSet = true; if (!isAdmin()) return renderNoAccess(); setRole('dev'); if (pushOn()) enablePush(true); return pushStartOpen(); }
   if (ADMIN_APP && !isAdmin()) return;
   if (ADMIN_APP && role === 'dev') return;
   showTabs(true);
@@ -163,6 +166,7 @@ function onOwn(kind, s) {
   refresh();
   if (joinCode && !cid) { const c = joinCode; joinCode = null; history.replaceState(null, '', location.pathname); joinForm(c); }
   restoreFirm();
+  pushStartOpen();
 }
 // Zuletzt gewählte Firma wieder öffnen
 function restoreFirm() {
@@ -703,7 +707,7 @@ function renderAdmin() {
   ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
     <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
   <div class="label">Feedback ${fbAdmin?.some(t => t.unreadAdmin) ? `<span class="badge-gf">${fbAdmin.filter(t => t.unreadAdmin).length} neu</span>` : ''}</div>
-  <div id="fblist">${feedbackAdminHtml()}</div>
+  ${pushAskHtml('Bei neuem Feedback benachrichtigen')}<div id="fblist">${feedbackAdminHtml()}</div>
   <div class="label">Nutzer</div>
   <div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
   <div id="ulist">${adminUsers()}</div>
