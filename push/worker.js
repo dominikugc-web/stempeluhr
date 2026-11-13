@@ -100,6 +100,17 @@ export default {
       return out({ ok: true });
     }
 
+    // Neue Lohnabrechnung: jeder Angemeldete darf, aber nur mit festem Text (kein Spam mit eigenem Inhalt möglich)
+    if (path === '/notify' && b.kind === 'payslip') {
+      if (typeof b.to !== 'string' || !/^\w{10,40}$/.test(b.to)) return out({ error: 'Empfänger fehlt' }, 400);
+      const period = /^[A-Za-zÄÖÜäöü]+ \d{4}$/.test(b.body || '') ? b.body : '';
+      const data = { title: '📄 Neue Lohnabrechnung', body: period ? `Deine Abrechnung für ${period} ist da.` : 'Deine Lohnabrechnung ist da.', url: './?slips=1', tag: 'slip' };
+      const list = JSON.parse(await env.SUBS.get(b.to) || '[]');
+      let sent = 0;
+      for (const s of list.filter(s => s.app === 'user')) if (await push(s, data, env).catch(() => 0) < 300) sent++;
+      return out({ ok: true, sent });
+    }
+
     if (path === '/notify') {
       // Nutzer dürfen nur den Entwickler benachrichtigen, der Entwickler jeden Nutzer.
       const fromAdmin = ADMIN_UIDS.includes(uid) && b.to && b.to !== 'admin';

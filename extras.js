@@ -1165,6 +1165,7 @@ const pushAskHtml = text => pushOk() && !pushOn() ? `<button class="pill wide pu
 function notifyPush(body) { if (me) pushCall('/notify', body).catch(() => {}); }
 // Tipp auf eine Benachrichtigung: Chat öffnen (?fb=1 im Nutzer-App, ?fb=<uid> in der Admin-App)
 function openFromPush(url) {
+  if (new URL(url, location.href).searchParams.has('slips')) return me && !ADMIN_APP && openSlips();
   const fbp = new URL(url, location.href).searchParams.get('fb');
   if (!fbp || !me) return;
   if (ADMIN_APP) { if (isAdmin()) { closeSheet(); openFeedback(fbp); loadFeedbackAdmin(); } } else openFeedback();
@@ -1176,6 +1177,16 @@ navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.open) op
 // die Einstellungen (Steuerklasse, Freibeträge, Kasse, Gehalt), nicht das PDF selbst.
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/';
 let slipFound = null;
+// Textstücke einer PDF (pdf.js, lädt beim ersten Mal von cdnjs)
+async function pdfItems(file) {
+  const pdfjs = await import(PDFJS + 'pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.mjs';
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise, items = [];
+  for (let p = 1; p <= Math.min(doc.numPages, 4); p++)
+    for (const it of (await (await doc.getPage(p)).getTextContent()).items) items.push({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width, p });
+  return { items, bytes, pages: doc.numPages };
+}
 function pickPayslip() {
   if (supportReadOnly()) return;
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
@@ -1185,11 +1196,7 @@ function pickPayslip() {
 async function readPayslip(file) {
   try {
     toast('Abrechnung wird gelesen …');
-    const pdfjs = await import(PDFJS + 'pdf.min.mjs');
-    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.mjs';
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise, items = [];
-    for (let p = 1; p <= Math.min(doc.numPages, 4); p++)
-      for (const it of (await (await doc.getPage(p)).getTextContent()).items) items.push({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width, p });
+    const { items } = await pdfItems(file);
     if (!items.some(i => i.s.trim())) return alert('In diesem PDF ist kein Text, vermutlich ein Foto oder Scan. Bitte die Original-PDF aus der Lohnsoftware nehmen.');
     slipFound = parsePayslip(items);
     if (!slipFound.stkl && !slipFound.brutto) return alert('In dieser Datei wurden keine Lohndaten erkannt. Ist das eine Lohnabrechnung als PDF?');
@@ -1232,4 +1239,82 @@ function applyPayslip() {
     else st.jobs.push({ name: f.firm || '', type: f.type || 'haupt', brutto: f.brutto, since: f.since || '', sach: f.sach || 0, cut: true, rvFrei: true });
   }
   save(); render(); toast('✓ Werte aus der Lohnabrechnung übernommen'); openTopic('pay');
+}
+
+
+// ---------- Lohnabrechnungen verteilen (Geschäftsführer) und ansehen (Mitarbeiter) ----------
+// payslips/{uid}/docs/{ym-cid}: { cid, firm, ym, period, name, size, data (PDF als Base64), at, by, read }
+// Der Geschäftsführer lädt die PDFs aus Lexware & Co. hoch, die App ordnet sie über Personalnummer oder Name zu.
+let slipQueue = [];
+const SLIP_MAX = 700 * 1024;
+const normName = n => String(n || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z ]/g, '').trim();
+function slipMatch(f) {
+  const ppl = teamPeople(), pnr = payCfg().pnr || {};
+  const byNr = f.pnr && Object.entries(pnr).find(([u, n]) => n && String(n) === String(f.pnr) && ppl.some(p => p.uid === u));
+  if (byNr) return byNr[0];
+  const n = normName(f.employee); if (!n) return '';
+  const hit = ppl.find(p => normName(p.name) === n) || ppl.find(p => { const a = normName(p.name).split(' '), b = n.split(' '); return a.at(-1) === b.at(-1) && a[0] === b[0]; });
+  return hit?.uid || '';
+}
+function openSlipUpload() {
+  if (!isOwner()) return;
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf'; inp.multiple = true;
+  inp.onchange = async () => {
+    if (!inp.files.length) return;
+    toast('Abrechnungen werden gelesen …');
+    slipQueue = [];
+    for (const file of inp.files) {
+      try {
+        const { items, bytes } = await pdfItems(file), f = parsePayslip(items);
+        slipQueue.push({ file, bytes, f, uid: slipMatch(f), ym: f.ym || '', err: bytes.length > SLIP_MAX ? 'Datei zu groß (max. 700 KB)' : '' });
+      } catch (e) { slipQueue.push({ file, f: {}, uid: '', ym: '', err: 'Keine lesbare PDF' }); }
+    }
+    renderSlipQueue();
+  };
+  inp.click();
+}
+function renderSlipQueue() {
+  const ppl = teamPeople(), ok = slipQueue.filter(q => !q.err && q.uid && q.ym).length;
+  sheet(`<div class="sheet-head"><button class="pill sm red" onclick="backToTopic()">Abbrechen</button><button class="pill sm green" onclick="sendSlips()" ${ok ? '' : 'disabled'}>Verteilen (${ok})</button></div>
+  <h2>Lohnabrechnungen verteilen</h2>
+  <p class="hint">Die App hat jede Abrechnung über Personalnummer oder Namen einem Mitarbeiter zugeordnet. Bitte kurz prüfen. Jeder Mitarbeiter sieht nur seine eigene und bekommt eine Benachrichtigung.</p>
+  ${slipQueue.map((q, i) => `<div class="group">
+    <div class="row"><span>📄 ${esc(q.file.name)}<div class="muted small">${q.f.employee ? esc(q.f.employee) : 'Name nicht erkannt'}${q.f.pnr ? ' · Personalnr. ' + esc(q.f.pnr) : ''}</div>${q.err ? `<div class="red small">${esc(q.err)}</div>` : ''}</span></div>
+    ${q.err ? '' : `<label class="row"><span>Mitarbeiter</span><select onchange="slipQueue[${i}].uid = this.value; renderSlipQueue()"><option value="">– wählen –</option>${ppl.map(p => `<option value="${p.uid}" ${p.uid === q.uid ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="row"><span>Monat</span><input type="month" value="${q.ym}" onchange="slipQueue[${i}].ym = this.value; renderSlipQueue()"></label>`}
+  </div>`).join('')}
+  <p class="hint">Tipp: In Lexware jede Abrechnung einzeln als PDF speichern. Eine Sammel-PDF mit allen Mitarbeitern kann die App noch nicht aufteilen.</p>`);
+}
+const b64 = bytes => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
+async function sendSlips() {
+  const todo = slipQueue.filter(q => !q.err && q.uid && q.ym);
+  let n = 0;
+  try {
+    for (const q of todo) {
+      const [y, m] = q.ym.split('-'), period = MONTHS[+m - 1] + ' ' + y;
+      await ref(`payslips/${q.uid}/docs/${q.ym}-${company.id}`).set({ cid: company.id, firm: company.name, ym: q.ym, period, name: q.file.name, size: q.bytes.length, data: b64(q.bytes), at: firebase.firestore.FieldValue.serverTimestamp(), by: me.uid, read: false });
+      if (q.uid !== me.uid) notifyPush({ kind: 'payslip', to: q.uid, body: period });
+      n++;
+    }
+    toast(`✓ ${n} Abrechnung${n === 1 ? '' : 'en'} verteilt`); slipQueue = []; openTopic('team');
+  } catch (e) { alert(`Nach ${n} von ${todo.length} abgebrochen: ${e.message}`); }
+}
+// Mitarbeiter: eigene Abrechnungen
+let slipList = null;
+async function openSlips() {
+  const uid = actingUid();
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="${currentTopic ? 'backToTopic()' : 'closeSheet()'}">‹ Zurück</button><h2 class="pick-title">Lohnabrechnungen</h2><span style="width:60px"></span></div><div id="slips"><p class="muted center">Lädt …</p></div>`);
+  try {
+    slipList = (await fb.db.collection(`payslips/${uid}/docs`).orderBy('ym', 'desc').get()).docs.map(d => ({ id: d.id, ...d.data() }));
+    $('#slips').innerHTML = slipList.length ? `<div class="group">${slipList.map(d => `<button class="row" onclick="openSlip('${d.id}')"><span style="text-align:left">${d.read ? '' : '<span class="dotnew"></span>'}<b>${esc(d.period)}</b><div class="muted small">${esc(d.firm || '')} · ${Math.round(d.size / 1024)} KB</div></span><span class="muted">Öffnen ›</span></button>`).join('')}</div>
+      <p class="hint">Dein Arbeitgeber stellt die Abrechnungen hier bereit. Nur du siehst sie. Mit „Teilen“ kannst du sie in Dateien sichern oder weiterschicken.</p>`
+      : '<p class="muted center">Noch keine Lohnabrechnungen. Sobald dein Arbeitgeber eine hochlädt, bekommst du eine Benachrichtigung.</p>';
+  } catch (e) { $('#slips').innerHTML = `<p class="red center">Konnte nicht geladen werden: ${esc(e.message)}</p>`; }
+}
+function openSlip(id) {
+  const d = slipList.find(x => x.id === id); if (!d) return;
+  const bin = atob(d.data), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  deliver(new Blob([bytes], { type: 'application/pdf' }), `Lohnabrechnung ${d.period}.pdf`);
+  if (!d.read && !asSelf()) { d.read = true; ref(`payslips/${actingUid()}/docs/${id}`).update({ read: true }).catch(() => {}); }
 }

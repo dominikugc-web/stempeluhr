@@ -20,8 +20,8 @@ let viewing = null;         // { uid, name } wenn der Geschäftsführer einen Mi
 let unsubs = [], companyUnsubs = [], viewUnsub = null;
 let joinCode = new URLSearchParams(location.search).get('join');
 // Aus einer Benachrichtigung geöffnet (?fb=…): nach dem Laden einmal den Chat öffnen
-let pushOpen = new URLSearchParams(location.search).get('fb');
-function pushStartOpen() { if (!pushOpen) return; const u = '?fb=' + pushOpen; pushOpen = null; history.replaceState(null, '', location.pathname); setTimeout(() => openFromPush(u), 300); }
+let pushOpen = new URLSearchParams(location.search).get('fb') || (new URLSearchParams(location.search).has('slips') ? '#slips' : null);
+function pushStartOpen() { if (!pushOpen) return; const u = pushOpen === '#slips' ? '?slips=1' : '?fb=' + pushOpen; pushOpen = null; history.replaceState(null, '', location.pathname); setTimeout(() => openFromPush(u), 300); }
 
 // Entwickler-App (admin/index.html): dieselbe Oberfläche mit Umschalter Entwickler / Geschäftsführer / Mitarbeiter / Ich.
 // Die UID muss auch in firestore.rules (isAdmin) stehen, sonst verweigert der Server den Zugriff.
@@ -403,7 +403,8 @@ async function deleteAccount() {
     // 4. Feedback-Chat
     for (const d of (await fb.db.collection(`feedback/${uid}/msgs`).get()).docs) await d.ref.delete();
     await ref('feedback/' + uid).delete();
-    // 5. Eigene Daten und Push-Abos
+    // 5. Lohnabrechnungen, eigene Daten und Push-Abos
+    for (const d of (await fb.db.collection(`payslips/${uid}/docs`).get()).docs) await d.ref.delete();
     await ref('private/' + uid).delete();
     await ref('data/' + uid).delete();
     await pushCall('/forget', {}).catch(() => {});
@@ -593,6 +594,7 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   ${people.length ? `<div class="label">Lohn & Export</div>${payDueHtml()}
     <div class="group">
       <button class="row" onclick="openPayroll()"><span>📤 Lohn-Export<div class="muted small">${payHas() ? PAY_SOFT[payCfg().soft].name + (payCfg().last ? ' · zuletzt ' + ymName(payCfg().last) : '') : 'Lexware, DATEV, CSV oder Excel'}</div></span><span class="muted">›</span></button>
+      <button class="row" onclick="openSlipUpload()"><span>📄 Lohnabrechnungen verteilen<div class="muted small">PDFs aus Lexware & Co. hochladen, jeder sieht seine eigene</div></span><span class="muted">›</span></button>
       <button class="row" onclick="openPaySettings()"><span>⚙︎ Schnittstelle einrichten<div class="muted small">Lohnsoftware, Stichtag, Lohnarten, Personalnummern</div></span><span class="muted">›</span></button>
     </div>` : ''}`;
 }

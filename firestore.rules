@@ -43,6 +43,17 @@ service cloud.firestore {
       allow write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Lohnabrechnungen: Geschäftsführer der Firma lädt hoch, nur der Mitarbeiter selbst (und der GF) sieht sie.
+    match /payslips/{uid}/docs/{id} {
+      allow read: if signedIn() && (request.auth.uid == uid || bossOf(resource.data.cid, uid));
+      allow create: if signedIn() && bossOf(request.resource.data.cid, uid)
+        && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
+      allow update: if signedIn() && ((bossOf(resource.data.cid, uid) && request.resource.data.cid == resource.data.cid
+          && request.resource.data.data is string && request.resource.data.data.size() < 1000000)
+        || (request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])));
+      allow delete: if signedIn() && (request.auth.uid == uid || bossOf(resource.data.cid, uid));
+    }
+
     match /invites/{code} {
       allow get: if signedIn();
       allow create: if signedIn() && isOwner(request.resource.data.cid);

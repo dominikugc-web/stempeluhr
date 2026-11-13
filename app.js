@@ -786,6 +786,7 @@ function openTopic(id, keepStats) {
       ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
       <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
       <button class="pill wide" onclick="pickPayslip()">📄 Lohnabrechnung einlesen (PDF)</button>
+      <div class="group" style="margin-top:14px"><button class="row" onclick="openSlips()"><span>🗂 Meine Lohnabrechnungen<div class="muted small">Von deinem Arbeitgeber bereitgestellt</div></span><span class="muted">›</span></button></div>
       <p class="hint">Brutto pro Monat laut Vertrag. Damit rechnet der Tab Verdienst Brutto und Netto aus.</p>
       <div class="label">Steuer und Sozialversicherung</div>
       <div class="group">

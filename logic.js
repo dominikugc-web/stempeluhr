@@ -284,6 +284,7 @@ function hourlyRate(st) {
 // ---------- Lohnabrechnung (PDF) auslesen ----------
 // items: Textstücke aus pdf.js [{ s, x, y, w, p }] (p = Seite). Ausgelegt auf Lexware-Abrechnungen, mit Rückfall
 // auf allgemeine Suchmuster. Gibt nur gefundene Felder zurück; die App zeigt sie vor dem Übernehmen an.
+const MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 function parsePayslip(items) {
   const money = t => { const m = String(t).match(/-?\d{1,3}(?:\.\d{3})*,\d{2}/); return m ? +m[0].replace(/\./g, '').replace(',', '.') : null; };
   const rowsOf = p => {
@@ -309,7 +310,9 @@ function parsePayslip(items) {
   };
   const lineAmount = re => { const r = rows.find(r => re.test(r.text)); if (!r) return null; const m = r.text.match(/-?\d{1,3}(?:\.\d{3})*,\d{2}/g); return m ? money(m[m.length - 1]) : null; };
   const out = {};
-  const period = all.match(/Abrechnung für (\w+) (\d{4})/); if (period) out.period = period[1] + ' ' + period[2];
+  const period = all.match(/Abrechnung für (\S+) (\d{4})(?: - (.+))?/);
+  if (period) { out.period = period[1] + ' ' + period[2]; const mi = MONTHS_DE.indexOf(period[1]); if (mi >= 0) out.ym = `${period[2]}-${String(mi + 1).padStart(2, '0')}`; if (period[3]) out.employee = period[3].trim(); }
+  const pnr = below('Personal-Nr'); if (pnr && /^\w{1,12}$/.test(pnr)) out.pnr = pnr;
   const firm = rows.find(r => /GmbH|UG|AG\b|KG\b|e\.K\.|GbR|OHG|Ltd/.test(r.text) && !/Abrechnung/.test(r.text)); if (firm) out.firm = firm.items[0].s.trim();
   const stkl = below('Steuerklasse') ?? all.match(/Steuerklasse\s*:?\s*([1-6])\b/)?.[1];
   if (/^[1-6]$/.test(stkl || '')) out.stkl = +stkl;

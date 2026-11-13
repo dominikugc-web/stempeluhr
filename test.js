@@ -170,6 +170,6 @@ const slip = L.parsePayslip([
   it(1, 265, 62, 'laufend'), it(1, 265, 138, '3.000,00 €'), it(1, 233, 62, 'laufend'), it(1, 233, 145, '256,05 €'),
   it(1, 185, 62, 'Netto'), it(1, 185, 495, '1.950,00 €'),
 ]);
-assert.deepEqual(slip, { period: 'April 2026', firm: 'Muster GmbH', stkl: 1, zkf: 0.5, kirche: true, pv: '1', since: '2024-03-01', midi: false, brutto: 3000, gesamtbrutto: 3000, netto: 1950, kvz: 2.47 });
+assert.deepEqual(slip, { period: 'April 2026', ym: '2026-04', employee: 'Max Muster', pnr: '7', firm: 'Muster GmbH', stkl: 1, zkf: 0.5, kirche: true, pv: '1', since: '2024-03-01', midi: false, brutto: 3000, gesamtbrutto: 3000, netto: 1950, kvz: 2.47 });
 
 console.log('ok');
