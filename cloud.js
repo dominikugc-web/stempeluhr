@@ -544,7 +544,7 @@ function joinForm(code = '') {
     <p class="center muted">Gib den Einladungscode von deinem Geschäftsführer ein.</p>
     <div class="group" id="jnamebox" ${has ? 'hidden' : ''}><label class="row"><span>Dein Name</span><input id="jname2" value="${esc(has)}" placeholder="Vor- und Nachname" autocomplete="name" oninput="otpPaint()"></label></div>
     ${has ? `<p class="center small" id="jnameinfo">Du trittst bei als <b>${esc(has)}</b> · <button class="link" onclick="$('#jnamebox').hidden = false; $('#jnameinfo').remove(); $('#jname2').focus()">ändern</button></p>` : ''}
-    <div class="otp">${'<span></span>'.repeat(6)}<input id="jcode" aria-label="Einladungscode" autocapitalize="characters" autocomplete="one-time-code" autocorrect="off" spellcheck="false" oninput="otpInput()" onpaste="otpPaste(event)" onfocus="otpPaint()" onblur="otpPaint()" onkeydown="event.key === 'Enter' && !$('#jbtn').disabled && joinCompany()"></div>
+    <div class="otp">${'<span></span>'.repeat(6)}<input id="jcode" aria-label="Einladungscode" autocapitalize="characters" autocomplete="one-time-code" autocorrect="off" spellcheck="false" oninput="otpInput()" onpaste="otpPaste(event)" onfocus="otpEnd()" onclick="otpEnd()" onselect="otpEnd()" onkeyup="otpEnd()" onblur="otpPaint()" onkeydown="event.key === 'Enter' && !$('#jbtn').disabled && joinCompany()"></div>
     <button class="pill sm pastebtn" onclick="otpClipboard()">📋 Code einfügen</button>
     <button class="big" id="jbtn" onclick="joinCompany()" disabled>Beitreten</button>
     <p class="hint center">Nach der Freigabe sieht dein Geschäftsführer deine Zeiten und Abwesenheiten und kann sie korrigieren. Gehalt und Steuerdaten sieht er nicht.</p>
@@ -561,6 +561,14 @@ function otpSet(text) {
   $('#jcode').value = c; otpPaint(); haptic();
   if (c.length === 6 && !$('#jname2').value.trim()) $('#jname2').focus();
 }
+// Wie ein Textfeld: egal welche Kachel man antippt, die Eingabe geht immer ans Ende (nächste freie Kachel)
+function otpEnd() {
+  const i = $('#jcode'); if (!i) return;
+  const end = () => { const n = i.value.length; if (i.selectionStart !== n || i.selectionEnd !== n) i.setSelectionRange(n, n); };
+  end(); setTimeout(end, 0); setTimeout(end, 60);   // iOS setzt den Cursor erst nach dem Tippen, darum zweimal nachziehen
+  otpPaint();
+}
+document.addEventListener('selectionchange', () => { if (document.activeElement?.id === 'jcode') otpEnd(); });
 function otpPaste(e) { e.preventDefault(); otpSet(e.clipboardData?.getData('text') || ''); }
 async function otpClipboard() {
   try { otpSet(await navigator.clipboard.readText()); }
