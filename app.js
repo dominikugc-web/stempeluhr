@@ -897,7 +897,7 @@ function setupTopics() {
   ].map(g => g.filter(Boolean)).filter(g => g.length);
 }
 function renderSetup() {
-  view.innerHTML = `<h1 class="center">Setup${!viewing || asSelf() ? ' ' + proBadge() : ''}</h1>
+  view.innerHTML = `<h1 class="center">Setup</h1>
   ${viewing && !asSelf() ? `<p class="hint center">Einstellungen von ${esc(viewing.name)}. Gehalt und Steuerdaten sind privat.</p>` : ''}
   ${setupTopics().map(g => `<div class="group">${g.map(([id, icon, title, sub]) => `<button class="row topic" onclick="openTopic('${id}')">
     <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
