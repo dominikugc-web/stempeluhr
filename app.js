@@ -876,22 +876,24 @@ function setupTopics() {
   const firm = !(asSelf() ? company : cid) ? 'Keine Firma' : isOwner() ? 'Geschäftsführer von ' + (company?.name || '…') : membership?.status === 'active' ? 'Mitarbeiter bei ' + (company?.name || membership.companyName)
     : membership?.status === 'pending' ? 'Anfrage an ' + membership.companyName + ' offen' : 'Firma';
   const act = (typeof teamPeople === 'function' ? teamPeople().filter(p => !p.self).length : 0), pend = members.filter(m => m.status === 'pending').length;
+  // Unterzeile: kurz, was man dort einstellen kann (Wichtiges wie offene Anfragen in Rot)
+  const alert = t => `<span class="red">${t}</span>`;
   return [
     [mine && me && ['pro', '⭐', 'Stempeluhr Pro ' + proBadge(), isPro() ? '<span class="green">Aktiv</span> · kostenlos in der Testphase' : 'Alle Funktionen freischalten']],
     [
-      mine && me && ['account', '👤', 'Konto & Firma', `${asSelf() ? asUser.email || asUser.name : me.email || me.displayName || ''} · ${firm}`],
-      mine && isOwner() && ['team', '👥', 'Team', `${company?.name || ''} · ${act} ${act === 1 ? 'Person' : 'Personen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''}</span>` : ''}${payDue() ? ' · <span class="red">Lohn-Export fällig</span>' : ''}`],
+      mine && me && ['account', '👤', 'Konto & Firma', 'Anmeldung, Firma, Konto löschen'],
+      mine && isOwner() && ['team', '👥', 'Team', pend ? alert(`${pend} neue Anfrage${pend > 1 ? 'n' : ''}`) : payDue() ? alert('Lohn-Export fällig') : 'Mitarbeiter, Einladung, Lohn-Export'],
     ],
     [
-      mine && ['slots', '🧳', 'Arbeitsplätze', typeof hasSlots === 'function' && hasSlots() ? ['main', ...slotList().map(x => x.id)].map(id => esc(slotName(id))).join(', ') : 'Mehrere Jobs getrennt erfassen'],
-      ['work', '🕘', 'Arbeitszeit' + (typeof hasSlots === 'function' && hasSlots() ? ' · ' + esc(slotName(curSlot)) : ''), `${STATES[st.state] || 'Bundesweite Feiertage'} · ${week.toLocaleString('de-DE')} Std./Woche · ${st.pause} Min. Pause`],
-      ['balance', '⚖️', 'Überstunden & Urlaub', `seit ${dmy(st.since)} · ${st.vacation} Urlaubstage`],
-      mine && ['loc', '📍', 'Standort', (st.locs || []).filter(l => !l.arch).length ? (st.locs || []).filter(l => !l.arch).map(l => esc(l.name)).join(', ') + ' · automatisch starten/stoppen' : 'Orte für automatischen Start und Stopp'],
-      mine && ['pay', '💶', 'Verdienst & Steuern', `${st.jobs.length ? st.jobs.length + (st.jobs.length === 1 ? ' Job' : ' Jobs') : 'Kein Job'} · Steuerklasse ${ROMAN[st.stkl - 1]}`],
+      mine && ['slots', '🧳', 'Arbeitsplätze', 'Mehrere Jobs getrennt erfassen'],
+      ['work', '🕘', 'Arbeitszeit', 'Sollstunden, Pausen, Bundesland'],
+      ['balance', '⚖️', 'Überstunden & Urlaub', 'Startwert, Urlaubstage, Konto'],
+      mine && ['loc', '📍', 'Standort', 'Automatisch stempeln vor Ort'],
+      mine && ['pay', '💶', 'Verdienst & Steuern', 'Jobs, Steuerklasse, Abrechnungen'],
     ],
     [
-      ['export', '📤', 'Export & Sicherung', 'PDF, Excel, CSV, Kalender, Backup'],
-      mine && ['look', '🎨', 'Darstellung', `${(BGS[st.theme?.bg] || BGS.kaffee)[0]} · Tipps ${st.tips !== false ? 'an' : 'aus'}`],
+      ['export', '📤', 'Export & Sicherung', 'PDF, Excel, Kalender, Backup'],
+      mine && ['look', '🎨', 'Darstellung', 'Hintergrund, Farben, Tipps'],
       mine && ['help', '❓', 'Hilfe', 'Tutorial, Begriffe, Einführung'],
     ],
   ].map(g => g.filter(Boolean)).filter(g => g.length);
@@ -965,7 +967,7 @@ function openTopic(id, keepStats) {
       </div>`,
   }[id];
   if (!body) return;
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet(); render()">‹ ${tab === 'setup' ? 'Setup' : 'Zurück'}</button><h2>${TOPIC_TITLE[id]}</h2></div><div style="height:12px"></div>${body()}`);
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="closeSheet(); render()">‹</button><h2>${TOPIC_TITLE[id]}</h2></div><div style="height:12px"></div>${body()}`);
   currentTopic = id;
   if (id === 'team' && !keepStats) loadTeamStats();
 }

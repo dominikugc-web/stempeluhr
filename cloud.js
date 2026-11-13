@@ -625,7 +625,7 @@ const COMPANY_FIELDS = [
 function companyEdit() {
   if (!isOwner()) return;
   const info = { ...(company.info || {}), ...(companyAdmin.firmPriv || data.settings.firmPriv || {}) };
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openTopic('team')">‹ Team</button><button class="pill sm green" onclick="companySave()">Speichern</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="openTopic('team')">‹</button><button class="pill sm green" onclick="companySave()">Speichern</button></div>
   <h2>Firmendaten</h2>
   <div class="group"><label class="row"><span>Name der Firma</span><input id="cf_name" value="${esc(company.name)}" placeholder="z. B. Muster GmbH"></label></div>
   ${COMPANY_FIELDS.map(([title, fields]) => `<div class="label">${title}</div><div class="group">${fields.map(([k, label, ph, type]) =>
@@ -696,7 +696,7 @@ async function createCompany(extra) {
 function joinForm(code = '', second = false) {
   const has = data.settings.name || me.displayName || '';
   second = second || !!cid;
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet()">‹ Zurück</button><span></span></div>
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="closeSheet()">‹</button><span></span></div>
   <div class="joinwrap">
     <div class="joinicon">🏢</div>
     <h1 class="center">Firma beitreten</h1>

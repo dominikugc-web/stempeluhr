@@ -619,7 +619,7 @@ function payDueHtml() {
 function openPayroll(month) {
   const cfg = payCfg(), act = teamPeople();
   const k = month || payDueMonth(cfg);
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openTopic('team')">‹ Team</button><button class="pill sm" onclick="openPaySettings()">⚙︎ Schnittstelle</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="openTopic('team')">‹</button><button class="pill sm" onclick="openPaySettings()">⚙︎ Schnittstelle</button></div>
   <h2>Lohn-Export</h2>
   <div class="label">Zeitraum</div>
   <div class="group">
@@ -643,7 +643,7 @@ function openPayroll(month) {
 }
 function openPaySettings() {
   const cfg = payCfg(), act = teamPeople();
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openPayroll()">‹ Lohn-Export</button><button class="pill sm green" onclick="savePaySettings()">Speichern</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="openPayroll()">‹</button><button class="pill sm green" onclick="savePaySettings()">Speichern</button></div>
   <h2>Schnittstelle</h2>
   <div class="group">
     <label class="row"><span>Lohnsoftware</span><select id="ssoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${v}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>
@@ -737,7 +737,7 @@ function openPlanner(y) {
   const used = countAbs(c.range(planYear + '-01-01', to), 'urlaub'), rest = Math.max(0, st.vacation - used);
   const ideas = rest ? bridgeIdeas(c, from, to, rest) : [];
   const wd = d => WD[parseYmd(d).getDay()].slice(0, 2) + ' ' + dmy(d).slice(0, 6);
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="openAbsences()">‹ Zurück</button><h2>Urlaubsplaner</h2></div>
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="openAbsences()">‹</button><h2>Urlaubsplaner</h2></div>
   <div class="navrow" style="margin-top:12px"><button class="pill sm" onclick="openPlanner(${planYear - 1})" ${planYear <= +t.slice(0, 4) ? 'disabled style="opacity:.4"' : ''}>‹</button><button class="pill sm">${planYear}</button><button class="pill sm" onclick="openPlanner(${planYear + 1})">›</button></div>
   <div class="ot-grid"><div class="ot"><b>${rest}</b><span>Resturlaub</span></div><div class="ot"><b>${used}</b><span>schon verplant</span></div></div>
   ${!st.state ? '<p class="badge">Tipp: Stell unter Setup dein Bundesland ein, dann werden auch die regionalen Feiertage berücksichtigt.</p>' : ''}
@@ -768,7 +768,7 @@ let ferienYear = null;
 async function openFerien(y) {
   const st = data.settings, t = today();
   ferienYear = y || ferienYear || +t.slice(0, 4);
-  const head = `<div class="sheet-head"><button class="pill sm" onclick="openAbsences()">‹ Zurück</button><h2>Schulferien</h2></div>
+  const head = `<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="openAbsences()">‹</button><h2>Schulferien</h2></div>
   <div class="navrow" style="margin-top:12px"><button class="pill sm" onclick="openFerien(${ferienYear - 1})">‹</button><button class="pill sm">${ferienYear}${st.state ? ' · ' + STATES[st.state] : ''}</button><button class="pill sm" onclick="openFerien(${ferienYear + 1})">›</button></div>`;
   if (!st.state) return sheet(head + '<p class="muted center">Stell zuerst unter Setup dein Bundesland ein.</p>');
   sheet(head + '<p class="muted center">Lädt …</p>');
@@ -813,7 +813,7 @@ function locForm(i, keep) {
   i = l._i < 0 ? null : l._i;
   const sw = (id, on) => `<input id="${id}" type="checkbox" switch ${on ? 'checked' : ''}>`;
   const act = (k, opts) => `<select id="l${k}act">${Object.entries(opts).map(([v, t]) => `<option value="${v}" ${l[k].act === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="backToTopic()">‹ Standort</button><button class="pill sm green" onclick="locSave()">Speichern</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="backToTopic()">‹</button><button class="pill sm green" onclick="locSave()">Speichern</button></div>
   <h2>${i == null ? 'Neuer Ort' : 'Ort bearbeiten'}</h2>
   <div class="label">Name des Ortes</div>
   <div class="group"><label class="row"><input id="lname" style="max-width:none;flex:1" value="${esc(l.name)}" placeholder="z. B. Büro"></label></div>
@@ -1068,7 +1068,7 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
   fbThread = uid || me.uid;
   fbUnsub?.();
   fbMsgs = [];
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeFeedback(${admin})">${admin ? '‹ Feedback' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px"></span></div>
+  sheet(`<div class="sheet-head"><button class="pill sm${admin ? ' back' : ''}" ${admin ? 'aria-label="Zurück"' : ''} onclick="closeFeedback(${admin})">${admin ? '‹' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px"></span></div>
     ${admin ? '' : pushAskHtml('Benachrichtigen, wenn wir antworten')}
     <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
@@ -1308,7 +1308,7 @@ async function sendSlips() {
 let slipList = null;
 async function openSlips() {
   const uid = actingUid();
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="${currentTopic ? 'backToTopic()' : 'closeSheet()'}">‹ Zurück</button><h2 class="pick-title">Lohnabrechnungen</h2><span style="width:60px"></span></div><div id="slips"><p class="muted center">Lädt …</p></div>`);
+  sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="${currentTopic ? 'backToTopic()' : 'closeSheet()'}">‹</button><h2 class="pick-title">Lohnabrechnungen</h2><span style="width:60px"></span></div><div id="slips"><p class="muted center">Lädt …</p></div>`);
   try {
     slipList = (await fb.db.collection(`payslips/${uid}/docs`).orderBy('ym', 'desc').get()).docs.map(d => ({ id: d.id, ...d.data() }));
     $('#slips').innerHTML = slipList.length ? `<div class="group">${slipList.map(d => `<button class="row" onclick="openSlip('${d.id}')"><span style="text-align:left">${d.read ? '' : '<span class="dotnew"></span>'}<b>${esc(d.period)}</b><div class="muted small">${esc(d.firm || '')} · ${Math.round(d.size / 1024)} KB</div></span><span class="muted">Öffnen ›</span></button>`).join('')}</div>
