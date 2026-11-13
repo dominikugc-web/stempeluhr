@@ -1337,7 +1337,7 @@ const PRO_FEATURES = [
   ['🧳', 'Mehrere Arbeitsplätze', 'Hauptjob, Zweitjob und Minijob getrennt erfassen'],
   ['📍', 'Standort-Automatik', 'Zeit startet und stoppt automatisch an deinem Arbeitsort'],
   ['💶', 'Verdienst-Rechner', 'Brutto, Netto und Überstunden in Euro, nach amtlicher Formel'],
-  ['📊', 'Export & Statistik', 'PDF-Nachweis, Excel, CSV, Kalender und Jahresauswertung'],
+  ['📊', 'Export & Statistik', 'Excel, CSV, Kalender und Jahresauswertung'],
   ['🔔', 'Benachrichtigungen', 'Push bei Anfragen, Antworten und neuen Lohnabrechnungen'],
 ];
 function proHtml() {
@@ -1350,6 +1350,6 @@ function proHtml() {
   <div class="label">Das ist in Pro enthalten</div>
   <div class="group">${PRO_FEATURES.map(([i, t, d]) => `<div class="row profeat"><span class="ti">${i}</span><span class="tt"><b>${t}</b><span class="muted small">${d}</span></span><span class="green">✓</span></div>`).join('')}</div>
   <div class="label">Immer kostenlos</div>
-  <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Überstunden und Urlaub</span><span class="green">✓</span></div></div>
+  <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Überstunden und Urlaub</span><span class="green">✓</span></div><div class="row"><span>PDF-Arbeitszeitnachweis</span><span class="green">✓</span></div></div>
   <p class="hint">Sobald die Stempeluhr im App Store ist, gibt es Pro als Abo. Wer die App in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>`;
 }
