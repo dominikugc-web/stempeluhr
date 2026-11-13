@@ -7,6 +7,7 @@ const TYPES = { urlaub: 'Urlaub', krank: 'Krank', kindkrank: 'Kind krank', unbez
 const JOBTYPES = { haupt: 'Hauptjob', neben: 'Nebenjob (Klasse VI)', mini: 'Minijob' };
 const PVOPT = { z: 'Kinderlos', u23: 'Kinderlos, unter 23', 1: '1 Kind', 2: '2 Kinder', 3: '3 Kinder', 4: '4 Kinder', 5: '5+ Kinder' };
 const ICON = {
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>',
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4M12 12H3"/></svg>',
   cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 14h.01M12 14h.01M16 14h.01" stroke-width="2.6" stroke-linecap="round"/></svg>',
 };
@@ -354,10 +355,11 @@ function renderStart() {
       <div class="card ssm"><span class="muted small">Pause</span><b id="tpause"></b></div>
     </div>
   </div>
-  <div class="two"><button class="pill" onclick="openOverview()">${ICON.chart} Übersicht</button><button class="pill" onclick="openAbsences()">${ICON.cal} Abwesenheiten</button></div>
+  <div class="two"><button class="pill" onclick="openOverview()">${ICON.list} Übersicht</button><button class="pill" onclick="openAbsences()">${ICON.cal} Abwesenheiten</button></div>
   ${tipHtml()}
   <div class="card sclock">
-    <div class="dial" id="dial"><span class="caps" id="caps"></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
+    <div class="dial" id="dial"><span class="caps" id="caps"></span>
+      <span class="analog" aria-hidden="true"><i class="mk"></i><i class="mk"></i><i class="mk"></i><i class="mk"></i><i class="hh" id="hh"></i><i class="mh" id="mh"></i><i class="ctr"></i></span><div><span class="muted small">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
     <button id="toggle" class="big" onclick="toggle()">Start</button>
   </div></div>`;
   updateStart();
@@ -387,6 +389,10 @@ function updateStart() {
   const finish = now + Math.max(0, t.soll - t.net + left), first = t.sess[0]?.s ?? now;
   const running = data.sessions.some(x => x.e == null);
   $('#clock').textContent = clockStr(t.gross);
+  // dezente Analoguhr mit der aktuellen Uhrzeit
+  const d = new Date(now), mi = d.getMinutes() + d.getSeconds() / 60;
+  $('#hh').style.transform = `rotate(${(d.getHours() % 12 + mi / 60) * 30}deg)`;
+  $('#mh').style.transform = `rotate(${mi * 6}deg)`;
   $('#pct').textContent = pct + ' %';
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
