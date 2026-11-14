@@ -464,10 +464,8 @@ function renderLogin(mode = 'login') {
   </div>
   <p class="hint red" id="lerr"></p>
   <button class="big" onclick="${signup ? 'emailSignup()' : 'emailLogin()'}">${signup ? 'Konto erstellen' : 'Anmelden'}</button>
-  <div class="center" style="margin-top:18px">
-    <button class="pill sm" onclick="renderLogin('${signup ? 'login' : 'signup'}')">${signup ? 'Ich habe schon ein Konto' : 'Neues Konto erstellen'}</button>
-    ${signup ? '' : '<p><button class="muted small" onclick="resetPassword()">Passwort vergessen?</button></p>'}
-  </div>
+  <button class="pill sm mid" onclick="renderLogin('${signup ? 'login' : 'signup'}')">${signup ? 'Ich habe schon ein Konto' : 'Neues Konto erstellen'}</button>
+  ${signup ? '' : '<p class="center"><button class="muted small" onclick="resetPassword()">Passwort vergessen?</button></p>'}
   ${joinCode ? `<p class="hint center">Nach der Anmeldung trittst du der Firma mit dem Code ${esc(joinCode)} bei.</p>` : ''}
   <p class="hint center">${signup ? 'Mit dem Erstellen des Kontos gilt unsere ' : ''}<a class="link" href="${WEB}datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> · <a class="link" href="${WEB}impressum.html" target="_blank" rel="noopener">Impressum</a></p>`;
   $('#lpass').addEventListener('keydown', e => e.key === 'Enter' && (signup ? emailSignup() : emailLogin()));
@@ -605,7 +603,8 @@ function accountHtml() {
   return `<div class="label">Konto</div>
   <div class="group">
     ${asSelf() ? `<div class="row"><span>${esc(asUser.email || asUser.name)}<div class="muted small">Ansicht als dieser Nutzer</div></span></div>`
-      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'} · ${isPro() ? 'Stempeluhr Pro ' + proBadge() : 'Kostenlos'}</div></span><button class="pill sm" onclick="logout()">Abmelden</button></div>
+      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'} · ${isPro() ? 'Stempeluhr Pro ' + proBadge() : 'Kostenlos'}</div></span></div>
+    <button class="row" onclick="logout()"><span>Abmelden</span></button>
     <button class="row" onclick="deleteAccount()"><span class="red">Konto löschen</span></button>`}
   </div>
   <div class="label">Firma</div>
@@ -617,7 +616,7 @@ function accountHtml() {
 // Name, Adresse, Kontakt liegen im Firmen-Dokument (freigegebene Mitarbeiter sehen sie). Steuer- und Lohnnummern
 // liegen in companies/{cid}/admin/settings, das nur Geschäftsführer lesen.
 const COMPANY_FIELDS = [
-  ['Firma', [['legal', 'Rechtsform', 'z. B. GmbH, Einzelunternehmen'], ['owner', 'Inhaber / Geschäftsführer', 'Vor- und Nachname']]],
+  ['Firma', [['legal', 'Rechtsform', 'z. B. GmbH, e. K.'], ['owner', 'Inhaber / Geschäftsführer', 'Vor- und Nachname']]],
   ['Adresse', [['street', 'Straße und Nr.', 'Musterstraße 1'], ['zip', 'PLZ', '12345', 'numeric'], ['city', 'Ort', 'Musterstadt']]],
   ['Kontakt', [['contact', 'Ansprechpartner', 'Name'], ['phone', 'Telefon', '0123 456789', 'tel'], ['mobile', 'Mobil', '0170 1234567', 'tel'], ['email', 'E-Mail', 'info@firma.de', 'email'], ['web', 'Website', 'www.firma.de', 'url']]],
   ['Steuer & Lohn', [['taxno', 'Steuernummer', '12/345/67890'], ['vat', 'USt-IdNr.', 'DE123456789'], ['bnr', 'Betriebsnummer', '8-stellig', 'numeric'], ['hrb', 'Handelsregister', 'z. B. HRB 12345, AG Musterstadt']]],
@@ -804,9 +803,9 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   <div class="card center">
     <div class="muted small">Einladungscode</div>
     <div class="code">${esc(company.code)}</div>
-    <div class="two" style="margin:14px 0 0"><button class="pill" onclick="shareInvite()">Link teilen</button><button class="pill" onclick="rotateCode()">Neuer Code</button></div>
+    <div class="two"><button class="pill" onclick="shareInvite()">Link teilen</button><button class="pill" onclick="rotateCode()">Neuer Code</button></div>
   </div>
-  <p class="hint" style="margin-top:8px">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig. Ein zweiter Geschäftsführer tritt genauso bei, du machst ihn danach zum Geschäftsführer.</p>
+  <p class="hint">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig. Ein zweiter Geschäftsführer tritt genauso bei, du machst ihn danach zum Geschäftsführer.</p>
   ${pending.length ? `<div class="label">Anfragen</div><div class="group">${pending.map(m => `<div class="row reqrow"><span>${esc(m.name)}<div class="muted small">${esc(m.email)}</div></span>
     <span class="reqbtns"><button class="pill red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
   <div class="label">Team</div>

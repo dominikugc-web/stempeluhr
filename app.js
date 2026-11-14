@@ -356,7 +356,7 @@ function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $
 // unten die Uhr mit Start/Stop. Die Uhr nimmt den restlichen Platz ein, so passt alles auf jedes Handy.
 function renderStart() {
   view.innerHTML = `<div class="startfix">
-  <div class="shead"><h1>Heute</h1>${typeof slotBar === 'function' ? slotBar(true) : ''}</div>
+  <div class="shead"><div class="shrow"><h1>Heute</h1>${typeof slotBar === 'function' ? slotBar(true) : ''}</div><p class="shint" id="shint"></p></div>
   <div class="sgrid">
     <div class="card sbig"><span class="muted small">Vom Soll</span><b id="pct">0 %</b><span class="small" id="finish"></span>
       <div class="bar thin"><div class="fill" id="fill"></div></div></div>
@@ -370,7 +370,6 @@ function renderStart() {
   <div class="card sclock">
     <div class="dial" id="dial"><span class="caps" id="caps"></span>
       <span class="hticks"></span><div><span class="muted small" id="dlabel">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
-    <p class="shint" id="shint"></p>
     <div class="acts" id="acts"></div>
   </div></div>`;
   updateStart();
@@ -421,17 +420,19 @@ function updateStart() {
     hcls = pe >= need ? 'green' : '';
   } else if (state === 'work') {
     const blk = workBlock(t.sess, now);
-    if (blk >= 6 * HOUR) { hint = '⚠️ Über 6 Std. ohne Pause – bitte jetzt Pause machen'; hcls = 'red'; }
+    if (blk >= 6 * HOUR) { hint = '⚠️ Über 6 Std. ohne Pause – jetzt Pause machen'; hcls = 'red'; }
     else if (blk >= 5.75 * HOUR) { hint = `In ${Math.ceil((6 * HOUR - blk) / MIN)} Min. brauchst du eine Pause`; hcls = 'near'; }
   }
   const all = typeof todayAllGross === 'function' ? todayAllGross() : null;   // alle Jobs zusammen (ArbZG: max. 10 Std.)
   if (all != null && all > t.gross && !hint) {
-    hint = all > 10 * HOUR ? `⚠️ Alle Jobs zusammen heute ${hm(all)} Std. – mehr als 10 Std. sind nicht erlaubt` : `Alle Jobs zusammen heute: ${hm(all)} Std.`;
+    hint = all > 10 * HOUR ? `⚠️ Alle Jobs zusammen ${hm(all)} Std. – max. 10 Std. erlaubt` : `Alle Jobs zusammen heute: ${hm(all)} Std.`;
     hcls = all > 10 * HOUR ? 'red' : all > 9.5 * HOUR ? 'near' : '';
   }
   $('#dlabel').textContent = state === 'pause' ? '☕ Pause' : 'Arbeitszeit';
   $('#tpause').textContent = hm(t.breakTotal + (state === 'pause' ? now - pz.e : 0));   // laufende Pause zählt gleich mit
-  $('#shint').textContent = hint; $('#shint').className = 'shint ' + hcls;
+  // Statuszeile unter „Heute“: Hinweis, sonst das Datum (immer gleich hoch, damit nichts springt)
+  $('#shint').textContent = hint || new Date(now).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#shint').className = 'shint ' + (hint ? hcls : '');
   const acts = $('#acts');
   if (acts.dataset.state !== state) {
     acts.dataset.state = state;
@@ -543,7 +544,7 @@ function openAbsences() {
   const c = calc(), list = data.absences.slice().sort((a, b) => b.from.localeCompare(a.from));
   sheet(`<div class="sheet-head"><h2>Abwesenheiten</h2><button class="pill sm" onclick="closeSheet()">Fertig</button></div>
   <button class="pill wide" onclick="absenceForm()">+ Abwesenheit hinzufügen</button>
-  <div class="two" style="margin:0 0 14px"><button class="pill" onclick="openPlanner()">🏖 Urlaubsplaner</button><button class="pill" onclick="openFerien()">🎒 Schulferien</button></div>
+  <div class="two"><button class="pill" onclick="openPlanner()">🏖 Urlaubsplaner</button><button class="pill" onclick="openFerien()">🎒 Schulferien</button></div>
   ${list.length ? `<div class="group">${list.map(a => `<div class="row"><div><b>${TYPES[a.type]}</b>${a.type === 'reduzierung' ? ` -${a.hours} Std./Tag` : ''}
     <div class="muted small">${dmy(a.from)}${a.to !== a.from ? ' – ' + dmy(a.to) : ''} · ${workdays(c, a.from, a.to)} Arbeitstage${a.comment ? ' · ' + esc(a.comment) : ''}</div></div>
     <button class="del" onclick="delAbsence('${a.id}')">Löschen</button></div>`).join('')}</div>`
@@ -743,7 +744,7 @@ function payTopicHtml() {
       ${st.jobs.length ? `<div class="group">${st.jobs.map((j, i) => `<button class="row" onclick="jobForm(${i})"><span>${esc(j.name || JOBTYPES[j.type])}<div class="muted small">${JOBTYPES[j.type]}${j.since ? ' · seit ' + dmy(j.since) : ''}</div></span><span>${eur(j.brutto)} ›</span></button>`).join('')}</div>` : ''}
       <button class="pill wide" onclick="jobForm()">+ Job hinzufügen</button>
       <button class="pill wide" onclick="pickPayslip()">📄 Lohnabrechnung einlesen (PDF)</button>
-      <div class="group" style="margin-top:14px"><button class="row" onclick="openSlips()"><span>🗂 Meine Lohnabrechnungen<div class="muted small">Von deinem Arbeitgeber bereitgestellt</div></span><span class="muted">›</span></button></div>
+      <div class="group"><button class="row" onclick="openSlips()"><span>🗂 Meine Lohnabrechnungen<div class="muted small">Von deinem Arbeitgeber bereitgestellt</div></span><span class="muted">›</span></button></div>
       <p class="hint">Brutto pro Monat laut Vertrag. Damit rechnet die App Brutto und Netto aus.</p>
       <div class="label">Steuer und Sozialversicherung</div>
       <div class="group">

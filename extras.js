@@ -78,10 +78,10 @@ function onboardLook() {
   if (tab !== 'start') { tab = 'start'; render(); }
   const cur = data.settings.theme?.bg || 'kaffee';
   sheet(`<h2>Wie soll deine App aussehen?</h2>
-    <p class="muted small" style="margin:-6px 0 12px">Tippe auf einen Hintergrund, oben siehst du sofort, wie es wirkt.</p>
+    <p class="muted small" style="margin:-4px 0 12px">Tippe auf einen Hintergrund, oben siehst du sofort, wie es wirkt.</p>
     ${swatchesHtml(cur, 'lookPick')}
-    <button class="big" style="margin-top:16px" onclick="lookPick('bg', document.querySelector('.swatch.on')?.dataset.bg || 'kaffee', true)">Weiter</button>
-    <p class="hint center" style="margin-top:10px">Später änderbar unter Setup → Darstellung.</p>`);
+    <button class="big" onclick="lookPick('bg', document.querySelector('.swatch.on')?.dataset.bg || 'kaffee', true)">Weiter</button>
+    <p class="hint center">Später änderbar unter Setup → Darstellung.</p>`);
   $('#sheet').classList.add('preview');
 }
 function lookPick(k, v, done) {
@@ -395,7 +395,7 @@ function statsHtml(d, who) {  // who: null = eigene Daten, sonst { uid, name } e
   </div>
 
   <div class="label">Verlauf (${short ? 'Wochen' : 'Monate'})</div>
-  <div class="card">${chart(buckets)}<p class="hint" style="margin:10px 0 0">Balken = gearbeitete Stunden, Strich = Soll. Die Farbe zeigt, wie viel vom Soll erreicht ist.</p></div>
+  <div class="card">${chart(buckets)}<p class="hint" style="margin:8px 0 0">Balken = gearbeitete Stunden, Strich = Soll. Die Farbe zeigt, wie viel vom Soll erreicht ist.</p></div>
 
   <div class="label">Arbeitszeiten</div>
   <div class="group">
@@ -404,7 +404,7 @@ function statsHtml(d, who) {  // who: null = eigene Daten, sonst { uid, name } e
     ${row('Längster Tag', longest ? `${dur(longest.net)} · ${dmy(longest.d).slice(0, 6)}` : '–')}
     ${row('Frühester Beginn', earliest ? `${tod(earliest.sess[0].s)} · ${dmy(earliest.d).slice(0, 6)}` : '–')}
   </div>
-  <div class="card">${chart(wd, 90)}<p class="hint" style="margin:10px 0 0">Ø Stunden pro Wochentag</p></div>
+  <div class="card">${chart(wd, 90)}<p class="hint" style="margin:8px 0 0">Ø Stunden pro Wochentag</p></div>
 
   <div class="label">Abwesenheiten</div>
   <div class="group">
@@ -442,7 +442,7 @@ function openBalance() {
     return out.join('');
   };
   sheet(`<div class="sheet-head"><h2>Überstunden</h2><button class="pill sm" onclick="closeSheet()">Fertig</button></div>
-  <p class="hint" style="margin:6px 4px 12px">Die Werte rechts laufen fortlaufend: Jeder Tag addiert seine Differenz (Netto minus Soll). An Tagen ohne Soll und ohne Arbeit ändert sich nichts.</p>
+  <p class="hint">Die Werte rechts laufen fortlaufend: Jeder Tag addiert seine Differenz (Netto minus Soll). An Tagen ohne Soll und ohne Arbeit ändert sich nichts.</p>
   <div class="group">
     <div class="row"><span>Startsaldo (${dmy(st.since)})</span><span class="${cls(st.startBalance * MIN)}">${hm(st.startBalance * MIN, true)}</span></div>
     <div class="row"><span><b>Stand heute</b></span><span class="${cls(c.balance(t))}"><b>${hm(c.balance(t), true)}</b></span></div>
@@ -918,7 +918,7 @@ function locPick() { locCollect(); locPickView(); }
 function locPickView(results) {
   const l = locDraft, has = l.lat != null;
   if (locMap) { locMap.remove(); locMap = null; }
-  sheet(`<div class="sheet-head"><button class="pill sm backbtn" onclick="locPickBack()" aria-label="Zurück">‹</button><h2 class="pick-title">Wähle einen Ort</h2>
+  sheet(`<div class="sheet-head"><button class="pill sm back" onclick="locPickBack()" aria-label="Zurück">‹</button><h2 class="pick-title">Wähle einen Ort</h2>
       ${has ? `<span style="display:flex;gap:8px"><button class="pill sm red" onclick="locPickClear()" aria-label="Ort entfernen">🗑</button><button class="pill sm green" onclick="locPickSave()">Speichern</button></span>` : '<span></span>'}</div>
     <div class="locsearch"><input id="lq" placeholder="Suche einen Ort" enterkeyhint="search" onkeydown="event.key === 'Enter' && locFind()"><button class="pill sm sel" onclick="locFind()">Suche</button></div>
     <div id="lres">${(results || []).map((h, i) => `<button class="row card locres" onclick="locChoose(${i})"><span class="locpin">📍</span><span class="tt"><b>${esc(h.title)}</b><span class="muted small">${esc(h.sub)}</span></span></button>`).join('')}</div>
@@ -1343,8 +1343,8 @@ const PRO_FEATURES = [
 function proHtml() {
   return `<div class="card procard center">
     <div class="prologo">PRO</div>
-    <h2 style="margin:10px 0 4px">Stempeluhr Pro</h2>
-    <p class="green" style="margin:0 0 6px"><b>✓ Aktiv</b></p>
+    <h2 style="margin:12px 0 4px">Stempeluhr Pro</h2>
+    <p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p>
     <p class="muted small" style="margin:0">Während der Testphase ist Pro für alle kostenlos. Du nutzt schon jetzt alle Funktionen.</p>
   </div>
   <div class="label">Das ist in Pro enthalten</div>
