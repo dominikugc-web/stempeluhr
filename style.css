@@ -510,3 +510,6 @@ label.row:has(>input:not([type=checkbox]):not([type=color]):not(.full)),label.ro
   .tabs button.hover,.tab-hi span.hover,.tabs button:active{transform:none!important}
   html{scroll-behavior:auto}
 }
+/* Statistik: „Dieses Jahr | Zeitraum“ als zwei gleich breite Knöpfe auf den Kanten der Kacheln darunter */
+.statbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--gap)}
+.statbar .pill{width:100%;justify-content:center;overflow:hidden;text-overflow:ellipsis}
