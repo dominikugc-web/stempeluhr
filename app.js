@@ -881,7 +881,7 @@ function setupTopics() {
   // Unterzeile: kurz, was man dort einstellen kann (Wichtiges wie offene Anfragen in Rot)
   const alert = t => `<span class="red">${t}</span>`;
   return [
-    [mine && me && ['pro', '⭐', 'Stempeluhr Pro ' + proBadge(), isPro() ? '<span class="green">Aktiv</span> · kostenlos in der Testphase' : 'Alle Funktionen freischalten']],
+    [mine && me && ['pro', '⭐', 'Dayliner Pro ' + proBadge(), isPro() ? '<span class="green">Aktiv</span> · kostenlos in der Testphase' : 'Alle Funktionen freischalten']],
     [
       mine && me && ['account', '👤', 'Konto & Firma', 'Anmeldung, Firma, Konto löschen'],
       mine && isOwner() && ['team', '👥', 'Team', pend ? alert(`${pend} neue Anfrage${pend > 1 ? 'n' : ''}`) : payDue() ? alert('Lohn-Export fällig') : 'Mitarbeiter, Einladung, Lohn-Export'],
@@ -911,7 +911,7 @@ function renderSetup() {
       <button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
   ${viewing && !viewing.preview && viewing.uid === company?.owner ? '<p class="hint center">Gründer der Firma. Geschäftsführer-Rechte und Mitgliedschaft lassen sich hier nicht ändern.</p>' : ''}`;
 }
-const TOPIC_TITLE = { pro: 'Stempeluhr Pro', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
+const TOPIC_TITLE = { pro: 'Dayliner Pro', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {
   const st = data.settings, now = new Date();
   const body = {
@@ -1051,7 +1051,7 @@ async function deliver(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 function backup() {
-  deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), `stempeluhr-backup-${today()}.json`);
+  deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), `dayliner-backup-${today()}.json`);
 }
 function restore(el) {
   const f = el.files[0];
@@ -1063,10 +1063,10 @@ function restore(el) {
       data = normalize({ ...data, settings: { ...data.settings, ...d.settings } }); save(); render(); alert('Einstellungen übernommen.');
       return;
     }
-    if (!Array.isArray(d.sessions) || !Array.isArray(d.absences) || typeof d.settings !== 'object') throw new Error('keine Stempeluhr-Sicherung');
+    if (!Array.isArray(d.sessions) || !Array.isArray(d.absences) || typeof d.settings !== 'object') throw new Error('keine Dayliner-Sicherung');
     if (!confirm('Backup laden? Die aktuellen Daten auf diesem Gerät werden ersetzt.')) return;
     data = normalize(d); save(); render(); alert('Backup geladen.');
-  }).catch(e => alert('Datei konnte nicht geladen werden: ' + (e instanceof SyntaxError ? 'keine Stempeluhr-Datei' : e.message))).finally(() => { el.value = ''; });
+  }).catch(e => alert('Datei konnte nicht geladen werden: ' + (e instanceof SyntaxError ? 'keine Dayliner-Datei' : e.message))).finally(() => { el.value = ''; });
 }
 
 function exportPdf(y, m) {

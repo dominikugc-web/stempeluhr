@@ -54,7 +54,7 @@ const off = list => { list.forEach(f => f()); list.length = 0; };
 const ref = path => fb.db.doc(path);
 
 // ---------- nur als App (Handy) ----------
-// Auf dem Handy läuft die Stempeluhr nur als installierte App vom Home-Bildschirm. Im Browser erscheint stattdessen
+// Auf dem Handy läuft Dayliner nur als installierte App vom Home-Bildschirm. Im Browser erscheint stattdessen
 // eine Anleitung. So meldet man sich gleich in der App an (Safari und Home-Bildschirm-App teilen keine Anmeldung).
 // Zum Testen im Handy-Browser: ?web anhängen.
 const UA = navigator.userAgent;
@@ -86,16 +86,16 @@ function renderInstall() {
     ${step(1, `Tippe ${crios ? 'oben in der Adressleiste' : 'unten'} auf ${share} <b>Teilen</b>.<div class="muted small">Neues iOS: erst auf <b>•••</b> tippen, dann auf Teilen.</div>`)}
     ${step(2, `Scrolle nach unten und tippe auf ${plus} <b>„Zum Home-Bildschirm“</b>.`)}
     ${step(3, `„Als Web-App öffnen“ eingeschaltet lassen und auf <b>Hinzufügen</b> tippen.`)}
-    ${step(4, `Öffne die <b>Stempeluhr</b> auf deinem Home-Bildschirm und melde dich dort an.`)}`;
+    ${step(4, `Öffne <b>Dayliner</b> auf deinem Home-Bildschirm und melde dich dort an.`)}`;
   else steps = `<button class="big" id="instbtn" ${installEvt ? '' : 'hidden'} onclick="doInstall()">App installieren</button>
-    <p class="center green" id="instdone" hidden>Installiert! Öffne jetzt die Stempeluhr auf deinem Startbildschirm.</p>
+    <p class="center green" id="instdone" hidden>Installiert! Öffne jetzt Dayliner auf deinem Startbildschirm.</p>
     ${step(1, `Tippe oben rechts auf <b>⋮</b> (Menü).`)}
     ${step(2, `Wähle <b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b>.`)}
-    ${step(3, `Öffne die <b>Stempeluhr</b> auf deinem Startbildschirm und melde dich dort an.`)}`;
+    ${step(3, `Öffne <b>Dayliner</b> auf deinem Startbildschirm und melde dich dort an.`)}`;
   view.innerHTML = `<div class="install">
     <img src="icon-192.png" alt="" class="appicon">
-    <h1 class="center">Stempeluhr als App</h1>
-    <p class="center muted">Die Stempeluhr läuft auf dem Handy als App. So legst du sie in wenigen Sekunden auf deinen ${IS_IOS ? 'Home-Bildschirm' : 'Startbildschirm'}:</p>
+    <h1 class="center">Dayliner als App</h1>
+    <p class="center muted">Dayliner läuft auf dem Handy als App. So legst du sie in wenigen Sekunden auf deinen ${IS_IOS ? 'Home-Bildschirm' : 'Startbildschirm'}:</p>
     <div class="card isteps">${steps}</div>
     ${code ? `<p class="hint center">Dein Einladungscode <b>${esc(code)}</b> wird mitgenommen. Falls die App ihn nicht vorschlägt, gib ihn nach der Anmeldung unter Setup → Konto & Firma ein.</p>` : ''}
     <p class="hint center">Die Anmeldung passiert danach in der App. Im Browser kannst du nicht weitermachen, damit deine Zeiten immer am selben Ort landen.</p>
@@ -453,7 +453,7 @@ function updateTabs() {
 function renderLogin(mode = 'login') {
   tab = 'login';
   const signup = mode === 'signup';
-  view.innerHTML = `<h1 class="center" style="margin-top:8vh">Stempeluhr</h1>
+  view.innerHTML = `<h1 class="center" style="margin-top:8vh">Dayliner</h1>
   <p class="center muted">${signup ? 'Neues Konto erstellen' : 'Melde dich an. Deine Zeiten werden gespeichert und sind auf allen Geräten gleich.'}</p>
   <button class="pill wide gbtn" onclick="googleLogin()">${G_ICON} Mit Google ${signup ? 'registrieren' : 'anmelden'}</button>
   <div class="label center">oder mit E-Mail</div>
@@ -603,7 +603,7 @@ function accountHtml() {
   return `<div class="label">Konto</div>
   <div class="group">
     ${asSelf() ? `<div class="row"><span>${esc(asUser.email || asUser.name)}<div class="muted small">Ansicht als dieser Nutzer</div></span></div>`
-      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'} · ${isPro() ? 'Stempeluhr Pro ' + proBadge() : 'Kostenlos'}</div></span></div>
+      : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'} · ${isPro() ? 'Dayliner Pro ' + proBadge() : 'Kostenlos'}</div></span></div>
     <button class="row" onclick="logout()"><span>Abmelden</span></button>
     <button class="row" onclick="deleteAccount()"><span class="red">Konto löschen</span></button>`}
   </div>
@@ -822,7 +822,7 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
 }
 async function shareInvite() {
   const link = APP_URL + '?join=' + company.code;
-  const text = `Tritt ${company.name} in der Stempeluhr bei: ${link} (Code ${company.code})`;
+  const text = `Tritt ${company.name} in Dayliner bei: ${link} (Code ${company.code})`;
   if (navigator.share) { try { await navigator.share({ text }); } catch {} return; }
   try { await navigator.clipboard.writeText(link); alert('Link kopiert:\n' + link); } catch { prompt('Link kopieren:', link); }
 }
@@ -938,7 +938,7 @@ function renderNoAccess() {
   showTabs(false);
   view.innerHTML = `<div class="card center" style="margin-top:20vh"><h2>Kein Zugriff</h2>
     <p class="muted">Dieser Bereich ist nur für Entwickler. Angemeldet als ${esc(me.email || me.uid)}.</p>
-    <button class="pill wide" onclick="fb.auth.signOut()">Abmelden</button><a class="pill wide" href="${APP_URL}">Zur Stempeluhr</a></div>`;
+    <button class="pill wide" onclick="fb.auth.signOut()">Abmelden</button><a class="pill wide" href="${APP_URL}">Zu Dayliner</a></div>`;
 }
 async function setRole(r, id, then) {
   viewUnsub?.(); viewUnsub = null; viewing = null; closeSheet();

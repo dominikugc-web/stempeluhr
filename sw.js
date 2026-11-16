@@ -15,8 +15,8 @@ self.addEventListener('fetch', e => {
 
 // Push-Benachrichtigungen (Feedback-Chat). Tipp darauf öffnet die App bzw. bringt sie nach vorn und öffnet den Chat.
 self.addEventListener('push', e => {
-  let d = {}; try { d = e.data.json(); } catch { d = { title: 'Stempeluhr', body: e.data?.text() || '' }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'Stempeluhr', {
+  let d = {}; try { d = e.data.json(); } catch { d = { title: 'Dayliner', body: e.data?.text() || '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Dayliner', {
     body: d.body || '', tag: d.tag, renotify: true, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' },
   }));
 });

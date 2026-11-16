@@ -111,7 +111,7 @@ function onboard(step) {
       <button class="pill wide" onclick="onboard(1)">Ich habe noch keinen Code</button>
       <button class="pill wide" onclick="onboardRole = ''; onboard(0)">‹ Zurück</button>`
     : `<h2>Willkommen 👋</h2>
-      <p>Die Stempeluhr erfasst Arbeitszeiten und rechnet das Überstundenkonto aus. Wer bist du?</p>
+      <p>Dayliner erfasst Arbeitszeiten und rechnet das Überstundenkonto aus. Wer bist du?</p>
       <button class="choice" onclick="onboardRole = 'boss'; onboard(0)"><span class="ci">🏢</span><span><b>Geschäftsführer</b><span class="muted small">Ich lege meine Firma an, lade Mitarbeiter ein und sehe ihre Zeiten.</span></span></button>
       <button class="choice" onclick="onboardRole = 'emp'; onboard(0)"><span class="ci">👤</span><span><b>Mitarbeiter</b><span class="muted small">Ich erfasse meine Zeiten. Den Einladungscode habe ich von meinem Geschäftsführer.</span></span></button>
       <button class="pill wide" onclick="onboardRole = 'solo'; onboard(1)">Ich nutze die App nur für mich</button>
@@ -801,7 +801,7 @@ function locListHtml() {
       <span>${esc(l.name || 'Ohne Namen')}${l.def ? ' <span class="muted small">· Standard</span>' : ''}<div class="muted small">${l.arch ? 'Archiviert' : l.lat == null ? 'Kein Ort gewählt' : locSummary(l)}</div></span></span>
       <span class="muted">›</span></button>`).join('')}</div>` : ''}
     <button class="pill wide" onclick="locForm()">+ Ort hinzufügen</button>
-    <p class="hint">Kommst du an einem Ort an, kann die Zeiterfassung automatisch starten, beim Verlassen stoppt sie. Wichtig: Als Web-App sieht die Stempeluhr deinen Standort nur, solange sie geöffnet ist. Öffne die App also kurz, wenn du ankommst oder gehst. Mit dem Zeitversatz kannst du die Zeit dann passend vor- oder zurückstellen. Deine Orte sieht nur du, dein Geschäftsführer nicht. Der App-Support kann sie bei Problemen nur lesen.</p>`;
+    <p class="hint">Kommst du an einem Ort an, kann die Zeiterfassung automatisch starten, beim Verlassen stoppt sie. Wichtig: Als Web-App sieht Dayliner deinen Standort nur, solange sie geöffnet ist. Öffne die App also kurz, wenn du ankommst oder gehst. Mit dem Zeitversatz kannst du die Zeit dann passend vor- oder zurückstellen. Deine Orte sieht nur du, dein Geschäftsführer nicht. Der App-Support kann sie bei Problemen nur lesen.</p>`;
 }
 function locSummary(l) {
   const a = { start: 'startet', none: '' }[l.enter.act], b = { stop: 'stoppt', none: '' }[l.leave.act];
@@ -891,9 +891,9 @@ async function locAsk(then) {
   const d = document.createElement('div'); d.className = 'ask';
   d.innerHTML = st === 'denied'
     ? `<div class="askcard"><div class="askicon">📍</div><h3>Standort ist gesperrt</h3>
-       <p>Du hast der Stempeluhr den Standort nicht erlaubt. So schaltest du ihn frei:<br><b>Einstellungen → Datenschutz & Sicherheit → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“</b><br>Danach die App einmal schließen und neu öffnen.</p>
+       <p>Du hast Dayliner den Standort nicht erlaubt. So schaltest du ihn frei:<br><b>Einstellungen → Datenschutz & Sicherheit → Ortungsdienste → Safari-Websites → „Beim Verwenden der App“</b><br>Danach die App einmal schließen und neu öffnen.</p>
        <button class="pill wide" onclick="this.closest('.ask').remove()">Verstanden</button></div>`
-    : `<div class="askcard"><div class="askicon">📍</div><h3>Darf die Stempeluhr deinen Standort verwenden?</h3>
+    : `<div class="askcard"><div class="askicon">📍</div><h3>Darf Dayliner deinen Standort verwenden?</h3>
        <p>Damit kann die Zeiterfassung starten, wenn du an deinem Arbeitsort ankommst, und stoppen, wenn du gehst. Dein Standort wird nur auf deinem Handy geprüft und nicht gespeichert, nur der Ort, den du festlegst.</p>
        <p class="muted small">Gleich fragt dein iPhone nach. Wähle dort „Erlauben“ bzw. „Beim Verwenden der App erlauben“.</p>
        <button class="big" id="askok">Weiter</button>
@@ -1324,7 +1324,7 @@ function openSlip(id) {
   if (!d.read && !asSelf()) { d.read = true; ref(`payslips/${actingUid()}/docs/${id}`).update({ read: true }).catch(() => {}); }
 }
 
-// ---------- Stempeluhr Pro ----------
+// ---------- Dayliner Pro ----------
 // Bis die App im App Store ist, hat jeder Pro kostenlos (Testphase). Später schaltet ein Abo im App Store Pro frei;
 // dann entscheidet isPro() anhand des Kaufs, und PRO_BETA wird ausgeschaltet.
 const PRO_BETA = true;
@@ -1343,7 +1343,7 @@ const PRO_FEATURES = [
 function proHtml() {
   return `<div class="card procard center">
     <div class="prologo">PRO</div>
-    <h2 style="margin:12px 0 4px">Stempeluhr Pro</h2>
+    <h2 style="margin:12px 0 4px">Dayliner Pro</h2>
     <p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p>
     <p class="muted small" style="margin:0">Während der Testphase ist Pro für alle kostenlos. Du nutzt schon jetzt alle Funktionen.</p>
   </div>
@@ -1351,5 +1351,5 @@ function proHtml() {
   <div class="group">${PRO_FEATURES.map(([i, t, d]) => `<div class="row profeat"><span class="ti">${i}</span><span class="tt"><b>${t}</b><span class="muted small">${d}</span></span><span class="green">✓</span></div>`).join('')}</div>
   <div class="label">Immer kostenlos</div>
   <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Überstunden und Urlaub</span><span class="green">✓</span></div><div class="row"><span>PDF-Arbeitszeitnachweis</span><span class="green">✓</span></div></div>
-  <p class="hint">Sobald die Stempeluhr im App Store ist, gibt es Pro als Abo. Wer die App in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>`;
+  <p class="hint">Sobald Dayliner im App Store ist, gibt es Pro als Abo. Wer die App in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>`;
 }

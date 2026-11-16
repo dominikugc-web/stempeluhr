@@ -1,6 +1,6 @@
 {
-  "name": "Stempeluhr",
-  "short_name": "Stempeluhr",
+  "name": "Dayliner",
+  "short_name": "Dayliner",
   "scope": "./",
   "display": "standalone",
   "background_color": "#140d09",
