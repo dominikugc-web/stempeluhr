@@ -460,6 +460,12 @@ input[type=checkbox]{margin:0}
 .shrow{display:flex;align-items:center;justify-content:space-between;gap:var(--gap)}
 .shint{margin:2px 0 0;height:18px;font-size:13px;line-height:18px;text-align:left;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .shint.red{color:var(--minus)}.shint.near{color:var(--near)}.shint.green{color:var(--ok)}
+/* „Pause gemacht“ neben der Pausen-Warnung: sichtbar 20 px hoch (Zeile springt nicht), Tippfläche 44 px */
+.shline{display:flex;align-items:center;gap:var(--gap-s);margin-top:2px;height:20px}
+.shline .shint{margin:0;flex:1;min-width:0}
+.shbtn{position:relative;flex:none;height:20px;padding:0 10px;border-radius:10px;font-size:12px;font-weight:600;line-height:20px;color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,transparent);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent)}
+.shbtn[hidden]{display:none}
+.shbtn::before{content:'';position:absolute;inset:-12px -4px}
 .sbig,.ssm{padding:14px var(--pad)}
 .sbig .bar{margin-top:6px}   /* + 2 px Zeilenabstand der Kachel = 8 */
 .sclock{padding:var(--pad);gap:var(--pad);justify-content:center}

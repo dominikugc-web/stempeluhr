@@ -356,7 +356,7 @@ function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; $
 // unten die Uhr mit Start/Stop. Die Uhr nimmt den restlichen Platz ein, so passt alles auf jedes Handy.
 function renderStart() {
   view.innerHTML = `<div class="startfix">
-  <div class="shead"><div class="shrow"><h1>Heute</h1>${typeof slotBar === 'function' ? slotBar(true) : ''}</div><p class="shint" id="shint"></p></div>
+  <div class="shead"><div class="shrow"><h1>Heute</h1>${typeof slotBar === 'function' ? slotBar(true) : ''}</div><div class="shline"><p class="shint" id="shint"></p><button class="shbtn" id="pauseok" hidden onclick="pauseDone()">✓ Pause gemacht</button></div></div>
   <div class="sgrid">
     <div class="card sbig"><span class="muted small">Vom Soll</span><b id="pct">0 %</b><span class="small" id="finish"></span>
       <div class="bar thin"><div class="fill" id="fill"></div></div></div>
@@ -409,7 +409,7 @@ function updateStart() {
   $('#fill').style.width = Math.min(100, pct) + '%';
   $('#fill').style.background = progColor(pct);
   const pz = pauseRun(data.sessions, now), state = running ? 'work' : pz ? 'pause' : 'idle';
-  let ring = dialRing(t.soll ? t.net / t.soll : 0), hint = '', hcls = '';
+  let ring = dialRing(t.soll ? t.net / t.soll : 0), hint = '', hcls = '', pauseOk = false;
   if (state === 'pause') {
     // Pausen-Uhr: Ring füllt sich bis zur Pflichtpause, die Pause zählt erst ab 15 Min.
     const req = t.gross > 9 * HOUR && data.settings.pauseRule !== 'fix' ? Math.max(P, 45 * MIN) : (t.gross > 6 * HOUR || t.soll > 6 * HOUR) ? P : 15 * MIN;
@@ -419,9 +419,10 @@ function updateStart() {
     hint = pe < 15 * MIN ? `Noch ${Math.ceil((15 * MIN - pe) / MIN)} Min., dann zählt die Pause` : pe < need ? `Noch ${Math.ceil((need - pe) / MIN)} Min. bis zur Pflichtpause` : '✓ Pflichtpause erreicht';
     hcls = pe >= need ? 'green' : '';
   } else if (state === 'work') {
-    const blk = workBlock(t.sess, now);
-    if (blk >= 6 * HOUR) { hint = '⚠️ Über 6 Std. ohne Pause – jetzt Pause machen'; hcls = 'red'; }
-    else if (blk >= 5.75 * HOUR) { hint = `In ${Math.ceil((6 * HOUR - blk) / MIN)} Min. brauchst du eine Pause`; hcls = 'near'; }
+    const blk = workBlock(t.sess, now), ack = data.settings.pauseAck === today();   // „Pause gemacht“ bestätigt: heute keine Pausen-Warnung mehr
+    if (ack) {}
+    else if (blk >= 6 * HOUR) { hint = '⚠️ Über 6 Std. ohne Pause'; hcls = 'red'; pauseOk = true; }
+    else if (blk >= 5.75 * HOUR) { hint = `In ${Math.ceil((6 * HOUR - blk) / MIN)} Min. brauchst du eine Pause`; hcls = 'near'; pauseOk = true; }
   }
   const all = typeof todayAllGross === 'function' ? todayAllGross() : null;   // alle Jobs zusammen (ArbZG: max. 10 Std.)
   if (all != null && all > t.gross && !hint) {
@@ -433,6 +434,7 @@ function updateStart() {
   // Statuszeile unter „Heute“: Hinweis, sonst das Datum (immer gleich hoch, damit nichts springt)
   $('#shint').textContent = hint || new Date(now).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   $('#shint').className = 'shint ' + (hint ? hcls : '');
+  $('#pauseok').hidden = !pauseOk;
   const acts = $('#acts');
   if (acts.dataset.state !== state) {
     acts.dataset.state = state;
@@ -489,6 +491,11 @@ function doEnd() {
   save(); haptic(); updateStart();
 }
 // Wie lange schon am Stück gearbeitet (Unterbrechungen unter 15 Min. zählen nicht als Pause)
+// Pause schon gemacht (wird pauschal abgezogen): Warnung für heute ausblenden, gilt auf allen Geräten
+function pauseDone() {
+  haptic(); setS('pauseAck', today());
+  toast('✓ Pause erledigt, wird pauschal abgezogen');
+}
 function workBlock(sess, now) {
   const list = sess.slice().sort((a, b) => a.s - b.s);
   let i = list.length - 1; if (i < 0 || list[i].e != null) return 0;
