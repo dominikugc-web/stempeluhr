@@ -8,7 +8,7 @@
 const PROJECT = 'stempeluhr-6faae';
 const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
 const VAPID_PUBLIC = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbWQDlZwtvh7dVrhBWNT2oOpY5yI';
-const ORIGINS = ['https://dominikugc-web.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765'];
+const ORIGINS = ['https://dayliner.de', 'https://www.dayliner.de', 'https://dominikugc-web.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765'];
 
 const enc = new TextEncoder();
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
