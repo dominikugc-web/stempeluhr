@@ -519,3 +519,8 @@ label.row:has(>input:not([type=checkbox]):not([type=color]):not(.full)),label.ro
 /* Statistik: „Dieses Jahr | Zeitraum“ als zwei gleich breite Knöpfe auf den Kanten der Kacheln darunter */
 .statbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--gap)}
 .statbar .pill{width:100%;justify-content:center;overflow:hidden;text-overflow:ellipsis}
+/* Nur hochkant: Android hält sich an "orientation" im Manifest, iPhones erlauben Web-Apps keine Drehsperre.
+   Dort deckt quer gehalten ein Hinweis die App ab, statt sie mit verrutschten Kacheln zu zeigen. */
+@media (orientation:landscape) and (max-height:500px) and (pointer:coarse){
+  body::after{content:"📱\A\A Bitte halte dein Handy hochkant.\A Dayliner ist fürs Hochformat gemacht.";white-space:pre;position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;text-align:center;font-size:20px;line-height:1.4;color:#f4ece4;background:#140d09}
+}

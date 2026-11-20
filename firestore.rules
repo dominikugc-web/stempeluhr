@@ -48,6 +48,26 @@ service cloud.firestore {
         || (bossOf(jid, uid) && request.resource.data.cid == resource.data.cid));
     }
 
+    // Dayliner Pro in der Testphase: die ersten 30 Plätze (Dominik, 20.11.2026). beta/info zählt die vergebenen Plätze,
+    // betaSlots/{uid} ist der eigene Platz. Beides entsteht nur zusammen in einer Transaktion: Zähler +1 und Platz mit
+    // derselben Nummer, höchstens 30. Ein Platz lässt sich nicht ändern, nur beim Konto-Löschen entfernen (zählt weiter mit).
+    function betaInfo() { return /databases/$(db)/documents/beta/info; }
+    function slotOf(uid) { return /databases/$(db)/documents/betaSlots/$(uid); }
+    function betaCount() { return exists(betaInfo()) ? get(betaInfo()).data.count : 0; }
+    match /beta/info {
+      allow read: if true;
+      allow create, update: if signedIn() && request.resource.data.keys().hasOnly(['count'])
+        && request.resource.data.count == betaCount() + 1 && request.resource.data.count <= 30
+        && !exists(slotOf(request.auth.uid)) && getAfter(slotOf(request.auth.uid)).data.n == request.resource.data.count;
+    }
+    match /betaSlots/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['n', 'at'])
+        && request.resource.data.n == betaCount() + 1 && request.resource.data.at == request.time
+        && getAfter(betaInfo()).data.count == request.resource.data.n;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
     match /private/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if signedIn() && request.auth.uid == uid;

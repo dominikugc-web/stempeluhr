@@ -493,6 +493,7 @@ function exportPrefs() {
   try { return { cols: DEF_COLS, dec: false, ...JSON.parse(localStorage.getItem('stempeluhr-export')) }; } catch { return { cols: DEF_COLS, dec: false }; }
 }
 function openExport(from, to) {
+  if (needPro()) return;
   const p = exportPrefs(), [mf, mt] = monthBounds(month.y, month.m);
   sheet(`<div class="sheet-head"><h2>Exportieren</h2><button class="pill sm" onclick="closeSheet()">Abbrechen</button></div>
   <div class="group">
@@ -1164,7 +1165,7 @@ async function enablePush(quiet) {
     if (!quiet) { toast('🔔 Benachrichtigungen sind an'); document.querySelectorAll('.pushask').forEach(e => e.remove()); }
   } catch (e) { if (!quiet) alert('Benachrichtigungen konnten nicht eingeschaltet werden: ' + e.message); }
 }
-const pushAskHtml = text => pushOk() && !pushOn() ? `<button class="pill wide pushask" onclick="enablePush()">🔔 ${text}</button>` : '';
+const pushAskHtml = text => pushOk() && !pushOn() && isPro() ? `<button class="pill wide pushask" onclick="enablePush()">🔔 ${text}</button>` : '';
 function notifyPush(body) { if (me) pushCall('/notify', body).catch(() => {}); }
 // Tipp auf eine Benachrichtigung: Chat öffnen (?fb=1 im Nutzer-App, ?fb=<uid> in der Admin-App)
 function openFromPush(url) {
@@ -1325,10 +1326,43 @@ function openSlip(id) {
 }
 
 // ---------- Dayliner Pro ----------
-// Bis die App im App Store ist, hat jeder Pro kostenlos (Testphase). Später schaltet ein Abo im App Store Pro frei;
-// dann entscheidet isPro() anhand des Kaufs, und PRO_BETA wird ausgeschaltet.
-const PRO_BETA = true;
-const isPro = () => PRO_BETA;
+// Testphase (Dominik, 20.11.2026): Die ersten 30 Konten sichern sich Pro kostenlos, bis Dayliner im App Store ist.
+// Pro haben außerdem: Konten von vor dem Start der Aktion (zählen nicht mit), Mitglieder einer Firma (zahlt später der
+// Arbeitgeber) und der Entwickler. Alle anderen haben die Basis, Pro gibt es für sie erst mit dem Abo im App Store.
+// Plätze: beta/info (Zähler) und betaSlots/{uid} (eigener Platz), abgesichert in firestore.rules.
+const PRO_PLACES = 30;
+const PRO_OLD = Date.parse('2026-11-19T00:00:00+01:00');   // die 5 Konten bis 17.11. behalten Pro
+let proSlot, proCount = null;   // proSlot: undefined = lädt noch, null = kein Platz; proCount: vergebene Plätze
+const proFirm = () => !!(myCompanies.length || (cid && (membership?.status === 'active' || company?.owner === me?.uid)));
+const isPro = () => !!me && (isAdmin() || Date.parse(me.metadata.creationTime) < PRO_OLD || !!proSlot || proFirm());
+const proFree = () => Math.max(0, PRO_PLACES - (proCount ?? 0));
+// Pro-Funktion ohne Pro: stattdessen den Pro-Bildschirm zeigen (Platz sichern bzw. Hinweis aufs Abo)
+const needPro = () => { if (isPro()) return false; openTopic('pro'); return true; };
+// Offenes Pro-Fenster nur im Inhalt auffrischen (sonst gleitet es bei jedem neuen Zählerstand neu herein)
+function proChanged() { if (!own.ready) return; const v = currentTopic === 'pro' && $('#sheet #proview'); if (v) v.outerHTML = proHtml(); else refresh(); }
+async function claimPro() {
+  const info = ref('beta/info');
+  try {
+    await fb.db.runTransaction(async t => {
+      const s = await t.get(info), n = (s.exists ? s.data().count : 0) + 1;
+      if (n > PRO_PLACES) throw new Error('voll');
+      t.set(info, { count: n });
+      t.set(ref('betaSlots/' + me.uid), { n, at: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+    toast('Dein Platz ist gesichert. Pro ist jetzt aktiv.');
+  } catch (e) {
+    alert(e.message === 'voll' ? `Leider sind alle ${PRO_PLACES} Plätze vergeben.` : 'Das hat nicht geklappt. Prüf deine Internetverbindung und versuch es noch einmal.');
+  }
+}
+// Direkt nach der Anmeldung einmal „Platz sichern“ zeigen (je Konto und Gerät einmal), solange Plätze frei sind.
+// Nicht bei Firmen-Mitgliedern oder offenem Beitritt, die bekommen Pro über die Firma.
+function maybeProOffer() {
+  if (ADMIN_APP || viewing || !me || !own.ready || cid || own.shared?.cid || joinCode || proSlot === undefined || proCount == null
+    || isPro() || !proFree() || data.settings.onboarded === false || !$('#sheet').hidden) return;
+  const k = 'dayliner-pro-angebot-' + me.uid;
+  try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch { return; }
+  openTopic('pro');
+}
 const proBadge = () => isPro() ? '<span class="badge-pro">PRO</span>' : '';
 const PRO_FEATURES = [
   ['👥', 'Team & Geschäftsführer', 'Mitarbeiter einladen, Zeiten sehen und korrigieren, mehrere Geschäftsführer und Firmen'],
@@ -1337,19 +1371,25 @@ const PRO_FEATURES = [
   ['🧳', 'Mehrere Arbeitsplätze', 'Hauptjob, Zweitjob und Minijob getrennt erfassen'],
   ['📍', 'Standort-Automatik', 'Zeit startet und stoppt automatisch an deinem Arbeitsort'],
   ['💶', 'Verdienst-Rechner', 'Brutto, Netto und Überstunden in Euro, nach amtlicher Formel'],
-  ['📊', 'Export & Statistik', 'Excel, CSV, Kalender und Jahresauswertung'],
+  ['📊', 'Export', 'Excel, CSV und Kalender (.ics) für jeden Zeitraum'],
   ['🔔', 'Benachrichtigungen', 'Push bei Anfragen, Antworten und neuen Lohnabrechnungen'],
 ];
 function proHtml() {
-  return `<div class="card procard center">
+  const why = isAdmin() ? 'Als Entwickler' : proSlot ? `Platz ${proSlot.n} von ${PRO_PLACES}, kostenlos bis Dayliner im App Store ist` : proFirm() ? 'Über deine Firma' : 'Kostenlos in der Testphase';
+  const top = isPro() ? `<p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p><p class="muted small" style="margin:0">${why}. Du nutzt alle Funktionen.</p>`
+    : proCount == null ? '<p class="muted small" style="margin:0">Lädt …</p>'
+    : proFree() ? `<p style="margin:0 0 4px"><b>Noch ${proFree()} von ${PRO_PLACES} Plätzen frei</b></p>
+      <p class="muted small" style="margin:0 0 12px">Dayliner ist noch in der Testphase. Die ersten ${PRO_PLACES} nutzen Pro kostenlos, bis Dayliner im App Store ist.</p>
+      <button class="big" onclick="claimPro()">Platz sichern</button>`
+    : `<p style="margin:0 0 4px"><b>Alle ${PRO_PLACES} Plätze sind vergeben</b></p><p class="muted small" style="margin:0">Pro gibt es als Abo, sobald Dayliner im App Store ist. Die Basis bleibt kostenlos.</p>`;
+  return `<div id="proview"><div class="card procard center">
     <div class="prologo">PRO</div>
     <h2 style="margin:12px 0 4px">Dayliner Pro</h2>
-    <p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p>
-    <p class="muted small" style="margin:0">Während der Testphase ist Pro für alle kostenlos. Du nutzt schon jetzt alle Funktionen.</p>
+    ${top}
   </div>
   <div class="label">Das ist in Pro enthalten</div>
-  <div class="group">${PRO_FEATURES.map(([i, t, d]) => `<div class="row profeat"><span class="ti">${i}</span><span class="tt"><b>${t}</b><span class="muted small">${d}</span></span><span class="green">✓</span></div>`).join('')}</div>
+  <div class="group">${PRO_FEATURES.map(([i, t, d]) => `<div class="row profeat"><span class="ti">${i}</span><span class="tt"><b>${t}</b><span class="muted small">${d}</span></span>${isPro() ? '<span class="green">✓</span>' : '<span class="muted">🔒</span>'}</div>`).join('')}</div>
   <div class="label">Immer kostenlos</div>
-  <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Überstunden und Urlaub</span><span class="green">✓</span></div><div class="row"><span>PDF-Arbeitszeitnachweis</span><span class="green">✓</span></div></div>
-  <p class="hint">Sobald Dayliner im App Store ist, gibt es Pro als Abo. Wer die App in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>`;
+  <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Statistik, Überstunden und Urlaub</span><span class="green">✓</span></div><div class="row"><span>PDF-Arbeitszeitnachweis</span><span class="green">✓</span></div></div>
+  <p class="hint">Mitarbeiter einer Firma bekommen Pro über ihre Firma. Sobald Dayliner im App Store ist, gibt es Pro als Abo. Wer Pro in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p></div>`;
 }

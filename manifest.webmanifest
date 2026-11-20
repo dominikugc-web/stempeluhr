@@ -3,6 +3,7 @@
   "short_name": "Dayliner",
   "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#140d09",
   "theme_color": "#140d09",
   "lang": "de",

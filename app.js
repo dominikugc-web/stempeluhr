@@ -90,6 +90,7 @@ function render() {
   if (viewing && !asSelf() && (tab === 'pay' || (tab === 'start' && !viewing.preview))) tab = 'cal';
   renderPage();
   maybeOnboard();
+  maybeProOffer();
 }
 function renderPage() {
   applyTheme();
@@ -98,7 +99,7 @@ function renderPage() {
     if (tab === 'pay' && curSlot !== 'main') { slotBeforePay = curSlot; useSlot('main', true); }
     else if (tab !== 'pay' && slotBeforePay) { const b = slotBeforePay; slotBeforePay = null; useSlot(b, true); }
   }
-  ({ start: renderStart, cal: renderCal, stats: renderStats, pay: renderPay, setup: renderSetup, admin: renderAdmin })[tab]();
+  ({ start: renderStart, cal: renderCal, stats: renderStats, pay: isPro() ? renderPay : () => { view.innerHTML = '<h1 class="center">Verdienst</h1>' + proHtml(); }, setup: renderSetup, admin: renderAdmin })[tab]();
   view.insertAdjacentHTML('afterbegin', adminBar() + viewBanner() + (['cal', 'stats'].includes(tab) && typeof slotBar === 'function' ? slotBar() : ''));
 }
 function go(t) { tab = t; render(); view.scrollTop = 0; }
@@ -888,7 +889,7 @@ function setupTopics() {
   // Unterzeile: kurz, was man dort einstellen kann (Wichtiges wie offene Anfragen in Rot)
   const alert = t => `<span class="red">${t}</span>`;
   return [
-    [mine && me && ['pro', '⭐', 'Dayliner Pro ' + proBadge(), isPro() ? '<span class="green">Aktiv</span> · kostenlos in der Testphase' : 'Alle Funktionen freischalten']],
+    [mine && me && ['pro', '⭐', 'Dayliner Pro ' + proBadge(), isPro() ? '<span class="green">Aktiv</span> · kostenlos in der Testphase' : proCount == null ? 'Lädt …' : proFree() ? `<span class="red">Noch ${proFree()} von ${PRO_PLACES} Plätzen frei</span>` : 'Alle Plätze vergeben']],
     [
       mine && me && ['account', '👤', 'Konto & Firma', 'Anmeldung, Firma, Konto löschen'],
       mine && isOwner() && ['team', '👥', 'Team', pend ? alert(`${pend} neue Anfrage${pend > 1 ? 'n' : ''}`) : payDue() ? alert('Lohn-Export fällig') : 'Mitarbeiter, Einladung, Lohn-Export'],
@@ -920,6 +921,7 @@ function renderSetup() {
 }
 const TOPIC_TITLE = { pro: 'Dayliner Pro', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {
+  if (['slots', 'loc', 'pay'].includes(id) && needPro()) return;
   const st = data.settings, now = new Date();
   const body = {
     account: () => accountHtml(),

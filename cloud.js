@@ -137,11 +137,13 @@ function startCloud() {
     off(unsubs); off(companyUnsubs); viewUnsub?.(); viewUnsub = null;
     fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
     me = u; own = {}; cid = undefined; company = undefined; membership = undefined; members = []; viewing = null; membersOn = false;
-    slots = {}; curSlot = 'main'; mainData = null;
+    slots = {}; curSlot = 'main'; mainData = null; proSlot = undefined; proCount = null;
     document.querySelectorAll('.ask').forEach(e => e.remove());   // offene Fenster des vorherigen Kontos schließen
     if (!u) { data = normalize({}); showTabs(false); renderLogin(); return; }
     watchSlots(u.uid);
     unsubs.push(
+      ref('betaSlots/' + u.uid).onSnapshot(s => { proSlot = s.exists ? s.data() : null; proChanged(); }, () => { proSlot = null; }),
+      ref('beta/info').onSnapshot(s => { proCount = s.exists ? s.data().count : 0; proChanged(); }, () => {}),
       ref('data/' + u.uid).onSnapshot(s => onOwn('shared', s), cloudError),
       ref('private/' + u.uid).onSnapshot(s => onOwn('priv', s), cloudError),
       fb.db.collection('companies').where('owner', '==', u.uid).onSnapshot(q => {
@@ -561,6 +563,7 @@ async function deleteAccount() {
     for (const d of (await fb.db.collection(`payslips/${uid}/docs`).get()).docs) await d.ref.delete();
     await ref('private/' + uid).delete();
     await ref('data/' + uid).delete();
+    await ref('betaSlots/' + uid).delete().catch(() => {});
     await pushCall('/forget', {}).catch(() => {});
     // 6. Anmeldekonto
     await me.delete();
@@ -668,6 +671,7 @@ async function freeCode() {
 }
 
 function companyForm(extra) {
+  if (needPro()) return;
   extra = extra === true || !!cid;
   sheet(`<div class="sheet-head"><button class="pill sm red" onclick="${extra && company ? "openTopic('team')" : 'closeSheet()'}">Abbrechen</button><button class="pill sm green" onclick="createCompany(${extra})">Anlegen</button></div>
   <h2>${extra ? 'Weitere Firma anlegen' : 'Firma anlegen'}</h2>
@@ -676,6 +680,7 @@ function companyForm(extra) {
     : 'Du bekommst einen Einladungscode. Mitarbeiter geben ihn in ihrer App ein, du gibst sie dann frei und siehst ihre Zeiten.'}</p>`);
 }
 async function createCompany(extra) {
+  if (needPro()) return false;
   const name = $('#cname').value.trim();
   if (!name) return alert('Bitte einen Namen eintragen.');
   try {
