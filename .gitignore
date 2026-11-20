@@ -2,3 +2,4 @@
 .impeccable/
 *-debug.log
 node_modules/
+.dev.vars

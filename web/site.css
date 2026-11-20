@@ -90,3 +90,6 @@ footer a{color:var(--mut)}
   section{padding:40px 0}
   header.top .hide-sm{display:none}
 }
+.kform label{display:block;margin:14px 0 6px;font-weight:600}
+.kform input,.kform select,.kform textarea{width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:inherit;font:inherit}
+@media print{header,footer,.btn{display:none}}

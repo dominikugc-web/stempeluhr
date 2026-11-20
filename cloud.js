@@ -137,10 +137,11 @@ function startCloud() {
     off(unsubs); off(companyUnsubs); viewUnsub?.(); viewUnsub = null;
     fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
     me = u; own = {}; cid = undefined; company = undefined; membership = undefined; members = []; viewing = null; membersOn = false;
-    slots = {}; curSlot = 'main'; mainData = null; proSlot = undefined; proCount = null;
+    slots = {}; curSlot = 'main'; mainData = null; proSlot = undefined; proCount = null; proAbo = null; clearInterval(watchAbo.t);
     document.querySelectorAll('.ask').forEach(e => e.remove());   // offene Fenster des vorherigen Kontos schließen
     if (!u) { data = normalize({}); showTabs(false); renderLogin(); return; }
     watchSlots(u.uid);
+    startAbo();
     unsubs.push(
       ref('betaSlots/' + u.uid).onSnapshot(s => { proSlot = s.exists ? s.data() : null; proChanged(); }, () => { proSlot = null; }),
       ref('beta/info').onSnapshot(s => { proCount = s.exists ? s.data().count : 0; proChanged(); }, () => {}),
@@ -609,6 +610,7 @@ function accountHtml() {
       : `<div class="row"><span>${esc(me.email || me.displayName)}<div class="muted small">${me.providerData.some(p => p.providerId === 'google.com') ? 'Google-Konto' : 'E-Mail-Konto'} · ${isPro() ? 'Dayliner Pro ' + proBadge() : 'Kostenlos'}</div></span></div>
     <button class="row" onclick="logout()"><span>Abmelden</span></button>
     <button class="row" onclick="deleteAccount()"><span class="red">Konto löschen</span></button>`}
+    <a class="row" href="${WEB}kuendigen.html" target="_blank" rel="noopener"><span>Verträge hier kündigen</span><span class="muted">↗</span></a>
   </div>
   <div class="label">Firma</div>
   <div class="group">${firm}</div>

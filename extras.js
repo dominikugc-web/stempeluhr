@@ -1143,7 +1143,8 @@ function feedbackAdminHtml() {
 // ---------- Push-Benachrichtigungen fürs Feedback ----------
 // Der kleine Sende-Dienst läuft kostenlos bei Cloudflare (Ordner push/). Auf dem iPhone geht Push nur
 // in der installierten App (ab iOS 16.4) und erst, nachdem man es einmal erlaubt hat.
-const PUSH_URL = 'https://stempeluhr-push.stempeluhr.workers.dev';
+// Lokal mit Emulator (?emu): Push- und Abo-Dienst aus „wrangler dev --var DEV:1“
+const PUSH_URL = ['localhost', '127.0.0.1'].includes(location.hostname) && new URLSearchParams(location.search).has('emu') ? 'http://127.0.0.1:8787' : 'https://stempeluhr-push.stempeluhr.workers.dev';
 const PUSH_KEY = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbWQDlZwtvh7dVrhBWNT2oOpY5yI';
 const pushOk = () => 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 const pushOn = () => pushOk() && Notification.permission === 'granted';
@@ -1328,13 +1329,17 @@ function openSlip(id) {
 // ---------- Dayliner Pro ----------
 // Testphase (Dominik, 20.11.2026): Die ersten 30 Konten sichern sich Pro kostenlos, bis Dayliner im App Store ist.
 // Pro haben außerdem: Konten von vor dem Start der Aktion (zählen nicht mit), Mitglieder einer Firma (zahlt später der
-// Arbeitgeber) und der Entwickler. Alle anderen haben die Basis, Pro gibt es für sie erst mit dem Abo im App Store.
+// Arbeitgeber), wer ein Abo bezahlt (Stripe über den Push-Dienst, push/worker.js) und der Entwickler.
 // Plätze: beta/info (Zähler) und betaSlots/{uid} (eigener Platz), abgesichert in firestore.rules.
 const PRO_PLACES = 30;
 const PRO_OLD = Date.parse('2026-11-19T00:00:00+01:00');   // die 5 Konten bis 17.11. behalten Pro
+const PRO_PRICE = { monat: '2,99 €', jahr: '24,99 €' };   // muss zu den Preisen in Stripe passen (pro_monat, pro_jahr)
 let proSlot, proCount = null;   // proSlot: undefined = lädt noch, null = kein Platz; proCount: vergebene Plätze
+let proAbo = null;              // { aktiv, plan, bis, endet } vom Abo-Dienst, auf dem Gerät zwischengespeichert
+const aboTest = new URLSearchParams(location.search).has('abotest');   // dayliner.de/?abotest zeigt die Abo-Knöpfe auch bei freien Plätzen (Kauf testen)
+const aboOn = () => !!proAbo?.aktiv && proAbo.bis > Date.now() - 3 * 864e5;   // ohne Netz noch 3 Tage Kulanz
 const proFirm = () => !!(myCompanies.length || (cid && (membership?.status === 'active' || company?.owner === me?.uid)));
-const isPro = () => !!me && (isAdmin() || Date.parse(me.metadata.creationTime) < PRO_OLD || !!proSlot || proFirm());
+const isPro = () => !!me && (isAdmin() || Date.parse(me.metadata.creationTime) < PRO_OLD || !!proSlot || proFirm() || aboOn());
 const proFree = () => Math.max(0, PRO_PLACES - (proCount ?? 0));
 // Pro-Funktion ohne Pro: stattdessen den Pro-Bildschirm zeigen (Platz sichern bzw. Hinweis aufs Abo)
 const needPro = () => { if (isPro()) return false; openTopic('pro'); return true; };
@@ -1354,6 +1359,38 @@ async function claimPro() {
     alert(e.message === 'voll' ? `Leider sind alle ${PRO_PLACES} Plätze vergeben.` : 'Das hat nicht geklappt. Prüf deine Internetverbindung und versuch es noch einmal.');
   }
 }
+// ---------- Abo ----------
+async function loadAbo() {
+  const k = 'dayliner-abo-' + me.uid;
+  try { proAbo = JSON.parse(localStorage.getItem(k)); } catch {}
+  try { proAbo = await pushCall('/abo', {}); try { localStorage.setItem(k, JSON.stringify(proAbo)); } catch {} } catch {}
+  proChanged();
+}
+// Nach dem Bezahlen: Status abfragen, bis Stripe das Abo meldet (höchstens 3 Minuten). Die Bezahlseite öffnet sich in der
+// Home-Bildschirm-App in einem eigenen Fenster, Dayliner selbst bleibt dabei offen.
+function watchAbo() {
+  let n = 0; clearInterval(watchAbo.t);
+  watchAbo.t = setInterval(async () => {
+    await loadAbo();
+    if (!aboOn() && ++n < 45) return;
+    clearInterval(watchAbo.t);
+    try { sessionStorage.removeItem('dayliner-abo-offen'); } catch {}
+    if (aboOn()) toast('Danke! Dein Abo läuft, Pro ist aktiv.');
+  }, 4000);
+}
+function startAbo() { loadAbo(); try { if (sessionStorage.getItem('dayliner-abo-offen')) watchAbo(); } catch {} }
+async function buyPro(plan) {
+  try {
+    const { url } = await pushCall('/abo-kaufen', { plan });
+    try { sessionStorage.setItem('dayliner-abo-offen', '1'); } catch {}
+    watchAbo(); location.href = url;
+  } catch (e) { alert('Die Bezahlseite lässt sich gerade nicht öffnen: ' + e.message); }
+}
+async function manageAbo() {
+  try { location.href = (await pushCall('/abo-verwalten', {})).url; } catch (e) { alert('Das hat nicht geklappt: ' + e.message); }
+}
+const cancelBtn = () => `<a class="pill wide" href="${WEB}kuendigen.html" target="_blank" rel="noopener">Verträge hier kündigen</a>`;
+
 // Direkt nach der Anmeldung einmal „Platz sichern“ zeigen (je Konto und Gerät einmal), solange Plätze frei sind.
 // Nicht bei Firmen-Mitgliedern oder offenem Beitritt, die bekommen Pro über die Firma.
 function maybeProOffer() {
@@ -1375,13 +1412,19 @@ const PRO_FEATURES = [
   ['🔔', 'Benachrichtigungen', 'Push bei Anfragen, Antworten und neuen Lohnabrechnungen'],
 ];
 function proHtml() {
-  const why = isAdmin() ? 'Als Entwickler' : proSlot ? `Platz ${proSlot.n} von ${PRO_PLACES}, kostenlos bis Dayliner im App Store ist` : proFirm() ? 'Über deine Firma' : 'Kostenlos in der Testphase';
-  const top = isPro() ? `<p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p><p class="muted small" style="margin:0">${why}. Du nutzt alle Funktionen.</p>`
+  const day = t => new Date(t).toLocaleDateString('de-DE');
+  const why = isAdmin() ? 'Als Entwickler' : aboOn() ? `${proAbo.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo'}, ${proAbo.endet ? 'endet am' : 'verlängert sich am'} ${day(proAbo.bis)}`
+    : proSlot ? `Platz ${proSlot.n} von ${PRO_PLACES}, kostenlos bis Dayliner im App Store ist` : proFirm() ? 'Über deine Firma' : 'Kostenlos in der Testphase';
+  const buy = `<button class="big" onclick="buyPro('monat')">Monatlich · ${PRO_PRICE.monat}</button>
+    <button class="pill wide" style="margin-top:8px" onclick="buyPro('jahr')">Jährlich · ${PRO_PRICE.jahr} <span class="green">· 30 % gespart</span></button>
+    <p class="muted small" style="margin:12px 0 0">Endpreise, gemäß § 19 UStG ohne Umsatzsteuer. Das Abo verlängert sich automatisch und ist jederzeit zum Ende der Laufzeit kündbar. Es gelten die <a class="link" href="${WEB}agb.html" target="_blank" rel="noopener">AGB</a> mit <a class="link" href="${WEB}agb.html#widerruf" target="_blank" rel="noopener">Widerrufsbelehrung</a>.</p>`;
+  const top = isPro() ? `<p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p><p class="muted small" style="margin:0">${why}. Du nutzt alle Funktionen.</p>
+      ${aboOn() ? '<button class="pill wide" style="margin-top:12px" onclick="manageAbo()">Abo verwalten (Zahlungsart, Rechnungen)</button>' : ''}`
     : proCount == null ? '<p class="muted small" style="margin:0">Lädt …</p>'
-    : proFree() ? `<p style="margin:0 0 4px"><b>Noch ${proFree()} von ${PRO_PLACES} Plätzen frei</b></p>
+    : proFree() && !aboTest ? `<p style="margin:0 0 4px"><b>Noch ${proFree()} von ${PRO_PLACES} Plätzen frei</b></p>
       <p class="muted small" style="margin:0 0 12px">Dayliner ist noch in der Testphase. Die ersten ${PRO_PLACES} nutzen Pro kostenlos, bis Dayliner im App Store ist.</p>
       <button class="big" onclick="claimPro()">Platz sichern</button>`
-    : `<p style="margin:0 0 4px"><b>Alle ${PRO_PLACES} Plätze sind vergeben</b></p><p class="muted small" style="margin:0">Pro gibt es als Abo, sobald Dayliner im App Store ist. Die Basis bleibt kostenlos.</p>`;
+    : `<p style="margin:0 0 4px"><b>Alle ${PRO_PLACES} Gratis-Plätze sind vergeben</b></p><p class="muted small" style="margin:0 0 12px">Hol dir Pro als Abo. Die Basis bleibt kostenlos.</p>${buy}`;
   return `<div id="proview"><div class="card procard center">
     <div class="prologo">PRO</div>
     <h2 style="margin:12px 0 4px">Dayliner Pro</h2>
@@ -1391,5 +1434,6 @@ function proHtml() {
   <div class="group">${PRO_FEATURES.map(([i, t, d]) => `<div class="row profeat"><span class="ti">${i}</span><span class="tt"><b>${t}</b><span class="muted small">${d}</span></span>${isPro() ? '<span class="green">✓</span>' : '<span class="muted">🔒</span>'}</div>`).join('')}</div>
   <div class="label">Immer kostenlos</div>
   <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Statistik, Überstunden und Urlaub</span><span class="green">✓</span></div><div class="row"><span>PDF-Arbeitszeitnachweis</span><span class="green">✓</span></div></div>
-  <p class="hint">Mitarbeiter einer Firma bekommen Pro über ihre Firma. Sobald Dayliner im App Store ist, gibt es Pro als Abo. Wer Pro in der Testphase nutzt, bekommt vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p></div>`;
+  <p class="hint">Mitarbeiter einer Firma bekommen Pro über ihre Firma. Die ersten ${PRO_PLACES} nutzen Pro kostenlos, bis Dayliner im App Store ist, und bekommen vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>
+  ${cancelBtn()}</div>`;
 }

@@ -17,10 +17,12 @@ const concat = (...a) => { const o = new Uint8Array(a.reduce((n, x) => n + x.len
 
 // ---------- Firebase-Token prüfen ----------
 let jwks = null, jwksAt = 0;
-async function verifyToken(tok) {
+async function verifyToken(tok, env) {
   const [h, p, s] = (tok || '').split('.');
-  if (!s) throw new Error('kein Token');
+  if (!p) throw new Error('kein Token');
   const head = JSON.parse(new TextDecoder().decode(unb64u(h))), pay = JSON.parse(new TextDecoder().decode(unb64u(p)));
+  if (env.DEV === '1' && head.alg === 'none') return pay;   // nur lokal (wrangler dev --var DEV:1) mit dem Firebase-Emulator
+  if (!s) throw new Error('kein Token');
   if (!jwks || Date.now() - jwksAt > 3600e3) {
     jwks = (await (await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')).json()).keys;
     jwksAt = Date.now();
@@ -31,7 +33,7 @@ async function verifyToken(tok) {
   if (!await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, unb64u(s), enc.encode(h + '.' + p))) throw new Error('Signatur falsch');
   const now = Date.now() / 1000;
   if (pay.aud !== PROJECT || pay.iss !== 'https://securetoken.google.com/' + PROJECT || pay.exp < now || !pay.sub) throw new Error('Token ungültig');
-  return pay.sub;
+  return pay;
 }
 
 // ---------- Web Push (RFC 8291 Verschlüsselung, RFC 8292 VAPID) ----------
@@ -72,6 +74,46 @@ async function push(sub, data, env) {
   return r.status;
 }
 
+async function toAdmins(data, env) {
+  for (const a of ADMIN_UIDS) for (const s of JSON.parse(await env.SUBS.get(a) || '[]').filter(s => s.app === 'admin')) await push(s, data, env).catch(() => 0);
+}
+
+// ---------- Dayliner Pro als Abo (Stripe) ----------
+// Geheimnis STRIPE_KEY: wrangler secret put STRIPE_KEY (lokal in .dev.vars). Preise in Stripe mit lookup_key pro_monat / pro_jahr.
+// Stripe-Kunde je Nutzer in KV „kunde:<uid>“. Ob ein Abo läuft, fragt /abo jedes Mal direkt bei Stripe nach (kein Webhook nötig).
+async function stripe(env, path, params, method = 'POST') {
+  const q = params ? new URLSearchParams(params).toString() : '';
+  const r = await fetch(`https://api.stripe.com/v1/${path}${method === 'GET' && q ? '?' + q : ''}`, {
+    method, headers: { Authorization: 'Bearer ' + env.STRIPE_KEY, 'Content-Type': 'application/x-www-form-urlencoded' }, body: method === 'POST' ? q : undefined,
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return j;
+}
+const LIVE = ['active', 'trialing', 'past_due'];   // past_due: Stripe versucht die Zahlung noch, so lange bleibt Pro an
+const periodEnd = s => (s.items.data[0].current_period_end ?? s.current_period_end) * 1000;
+const liveSubs = async (env, cus) => (await stripe(env, 'subscriptions', { customer: cus, status: 'all', limit: '10' }, 'GET')).data.filter(x => LIVE.includes(x.status));
+async function aboStatus(env, uid) {
+  const cus = await env.SUBS.get('kunde:' + uid);
+  const s = cus && (await liveSubs(env, cus))[0];
+  if (!s) return { aktiv: false };
+  return { aktiv: true, plan: s.items.data[0].price.recurring?.interval === 'year' ? 'jahr' : 'monat', bis: periodEnd(s), endet: !!(s.cancel_at_period_end || s.cancel_at) };
+}
+// Kündigung ohne Anmeldung (Pflicht nach § 312k BGB): Abos zur E-Mail finden und zum Ende der Laufzeit beenden.
+// Jeder Eingang wird in KV festgehalten, der Entwickler bekommt eine Push-Nachricht und schickt die Bestätigung per E-Mail.
+async function kuendigen(b, env) {
+  const mail = String(b.email || '').trim().toLowerCase().slice(0, 120), name = String(b.name || '').trim().slice(0, 120);
+  if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return [{ error: 'Bitte Name und E-Mail-Adresse angeben.' }, 400];
+  const at = new Date().toISOString(), ende = [];
+  for (const c of (await stripe(env, 'customers', { email: mail, limit: '10' }, 'GET')).data)
+    for (const s of await liveSubs(env, c.id)) ende.push(periodEnd(await stripe(env, 'subscriptions/' + s.id, { cancel_at_period_end: 'true' })));
+  const art = b.art === 'ausserordentlich' ? 'außerordentlich' : 'ordentlich';
+  const e = { at, name, mail, art, grund: String(b.grund || '').slice(0, 1000), vertrag: String(b.vertrag || 'Dayliner Pro').slice(0, 200), ende };
+  await env.SUBS.put('kuendigung:' + at + ':' + mail, JSON.stringify(e));
+  await toAdmins({ title: '📮 Kündigung eingegangen', body: `${name} (${mail}), ${art}${ende.length ? '' : ', kein laufendes Abo gefunden'}. Bestätigung per E-Mail schicken!`, url: '', tag: 'kuendigung' }, env);
+  return [{ ok: true, at, ende }, 200];
+}
+
 // ---------- Anfragen ----------
 export default {
   async fetch(req, env) {
@@ -80,10 +122,38 @@ export default {
     const out = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
     if (req.method !== 'POST') return out({ ok: true, vapid: VAPID_PUBLIC });
-    let uid;
-    try { uid = await verifyToken((req.headers.get('Authorization') || '').replace('Bearer ', '')); } catch (e) { return out({ error: e.message }, 401); }
-    const b = await req.json().catch(() => ({}));
     const path = new URL(req.url).pathname;
+    if (path === '/kuendigen') {   // ohne Anmeldung, von dayliner.de/web/kuendigen.html
+      try { return out(...await kuendigen(await req.json().catch(() => ({})), env)); }
+      catch (e) { return out({ error: 'Das hat nicht geklappt. Bitte schreib an service@dayliner.de.' }, 500); }
+    }
+    let uid, tok;
+    try { tok = await verifyToken((req.headers.get('Authorization') || '').replace('Bearer ', ''), env); uid = tok.sub; } catch (e) { return out({ error: e.message }, 401); }
+    const b = await req.json().catch(() => ({}));
+    const back = (ORIGINS.includes(origin) ? origin : ORIGINS[0]) + '/web/abo.html';   // Rückkehrseite nach Stripe
+
+    try {
+      if (path === '/abo') return out(await aboStatus(env, uid));
+      if (path === '/abo-kaufen') {
+        if ((await aboStatus(env, uid)).aktiv) return out({ error: 'Du hast schon ein Abo.' }, 400);
+        let cus = await env.SUBS.get('kunde:' + uid);
+        if (!cus) { cus = (await stripe(env, 'customers', { email: tok.email || '', 'metadata[uid]': uid })).id; await env.SUBS.put('kunde:' + uid, cus); }
+        const price = (await stripe(env, 'prices', { 'lookup_keys[]': b.plan === 'jahr' ? 'pro_jahr' : 'pro_monat', active: 'true' }, 'GET')).data[0];
+        if (!price) return out({ error: 'Preis fehlt in Stripe.' }, 500);
+        const s = await stripe(env, 'checkout/sessions', {
+          mode: 'subscription', customer: cus, client_reference_id: uid, locale: 'de',
+          'line_items[0][price]': price.id, 'line_items[0][quantity]': '1', 'subscription_data[metadata][uid]': uid,
+          'custom_text[submit][message]': 'Mit „Abonnieren“ bestellst du Dayliner Pro zahlungspflichtig. Es gelten die AGB (dayliner.de/web/agb.html). Das Abo verlängert sich automatisch und ist jederzeit zum Ende der Laufzeit kündbar. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+          success_url: back + '?s=ok', cancel_url: back + '?s=abbruch',
+        });
+        return out({ url: s.url });
+      }
+      if (path === '/abo-verwalten') {
+        const cus = await env.SUBS.get('kunde:' + uid);
+        if (!cus) return out({ error: 'Kein Abo gefunden.' }, 404);
+        return out({ url: (await stripe(env, 'billing_portal/sessions', { customer: cus, return_url: back + '?s=portal', locale: 'de' })).url });
+      }
+    } catch (e) { return out({ error: e.message }, 502); }
 
     if (path === '/subscribe') {
       const s = b.sub;

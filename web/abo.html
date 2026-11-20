@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#140d09">
+<title>Abo – Dayliner</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="../icon-192.png">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<header class="top"><div class="wrap narrow">
+  <a class="brand" href="./"><img src="../icon-192.png" alt="">Dayliner</a>
+  <a class="btn sm" href="../">App öffnen</a>
+</div></header>
+
+<main class="wrap narrow legal">
+  <h1 id="t">Danke!</h1>
+  <p id="m"></p>
+  <div class="box">
+    <p><b>Du nutzt Dayliner als App vom Home-Bildschirm?</b> Dann tippe oben auf „Fertig“ bzw. schließe dieses Fenster. Dayliner ist darunter noch offen und aktualisiert sich von selbst.</p>
+    <a class="btn" href="../">Zurück zu Dayliner</a>
+  </div>
+</main>
+<script>
+const s = new URLSearchParams(location.search).get('s');
+const T = { ok: ['Danke!', 'Dein Abo ist abgeschlossen. Pro schaltet sich in Dayliner in wenigen Sekunden frei. Den Beleg bekommst du per E-Mail.'],
+  abbruch: ['Abgebrochen', 'Du hast nichts bezahlt und kein Abo abgeschlossen.'], portal: ['Fertig', 'Deine Änderungen am Abo sind gespeichert.'] }[s] || ['Dayliner', ''];
+document.getElementById('t').textContent = T[0]; document.getElementById('m').textContent = T[1];
+</script>
+<footer><div class="wrap narrow">
+  <span>© 2026 Dayliner</span>
+  <nav><a href="./">Startseite</a><a href="agb.html">AGB</a><a href="datenschutz.html">Datenschutz</a><a href="impressum.html">Impressum</a><a href="kuendigen.html">Verträge hier kündigen</a></nav>
+</div></footer>
+</body>
+</html>

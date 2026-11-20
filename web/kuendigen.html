@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#140d09">
+<title>Verträge hier kündigen – Dayliner</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="../icon-192.png">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<header class="top"><div class="wrap narrow">
+  <a class="brand" href="./"><img src="../icon-192.png" alt="">Dayliner</a>
+  <a class="btn sm" href="../">App öffnen</a>
+</div></header>
+
+<main class="wrap narrow legal">
+  <h1>Verträge hier kündigen</h1>
+  <p>Hier kündigst du dein Dayliner-Pro-Abo, ohne dich anzumelden. Gib die E-Mail-Adresse an, mit der du das Abo abgeschlossen hast.</p>
+
+  <form id="f" class="box kform">
+    <label for="art">Art der Kündigung</label>
+    <select id="art" name="art">
+      <option value="ordentlich">Ordentliche Kündigung</option>
+      <option value="ausserordentlich">Außerordentliche Kündigung (aus wichtigem Grund)</option>
+    </select>
+    <div id="grundbox" hidden>
+      <label for="grund">Kündigungsgrund</label>
+      <textarea id="grund" name="grund" rows="3"></textarea>
+    </div>
+    <label for="name">Vor- und Nachname</label>
+    <input id="name" name="name" autocomplete="name" required>
+    <label for="email">E-Mail-Adresse (für die Zuordnung und die Bestätigung)</label>
+    <input id="email" name="email" type="email" autocomplete="email" required>
+    <label for="vertrag">Vertrag</label>
+    <input id="vertrag" name="vertrag" value="Dayliner Pro">
+    <label for="zeit">Zeitpunkt</label>
+    <select id="zeit" name="zeit">
+      <option value="naechstmoeglich">Zum nächstmöglichen Zeitpunkt</option>
+    </select>
+    <p class="muted" style="margin-top:14px">Die Kündigung wirkt zum Ende deines laufenden Abrechnungszeitraums. Die Bestätigung bekommst du sofort hier und zusätzlich per E-Mail.</p>
+    <button class="btn" type="submit" style="margin-top:8px">Jetzt kündigen</button>
+    <p id="err" style="color:#ff8a8a"></p>
+  </form>
+
+  <div id="ok" class="box" hidden>
+    <h2 style="margin-top:0">Deine Kündigung ist eingegangen</h2>
+    <p id="okText"></p>
+    <p class="muted">Speichere oder drucke diese Seite als Nachweis. Die Bestätigung schicken wir dir zusätzlich per E-Mail.</p>
+    <button class="btn ghost" onclick="print()">Bestätigung speichern oder drucken</button>
+  </div>
+</main>
+<script>
+const API = ['localhost', '127.0.0.1'].includes(location.hostname) && location.search.includes('emu') ? 'http://127.0.0.1:8787' : 'https://stempeluhr-push.stempeluhr.workers.dev';
+const $ = s => document.querySelector(s);
+$('#art').onchange = () => { $('#grundbox').hidden = $('#art').value !== 'ausserordentlich'; };
+$('#f').onsubmit = async e => {
+  e.preventDefault();
+  const btn = $('#f button'); btn.disabled = true; $('#err').textContent = '';
+  const d = Object.fromEntries(new FormData($('#f')));
+  try {
+    const r = await fetch(API + '/kuendigen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Fehler');
+    const at = new Date(j.at).toLocaleString('de-DE', { dateStyle: 'long', timeStyle: 'medium' });
+    const ende = j.ende.length ? 'Dein Abo endet am ' + j.ende.map(t => new Date(t).toLocaleDateString('de-DE')).join(' und am ') + '. Bis dahin kannst du Pro weiter nutzen.'
+      : 'Zu dieser E-Mail-Adresse haben wir kein laufendes Abo gefunden. Wir prüfen deine Kündigung von Hand und melden uns per E-Mail.';
+    $('#okText').textContent = `Eingang: ${at} Uhr. ${d.art === 'ausserordentlich' ? 'Außerordentliche' : 'Ordentliche'} Kündigung von ${d.vertrag || 'Dayliner Pro'} für ${d.name} (${d.email}). ${ende}`;
+    $('#f').hidden = true; $('#ok').hidden = false;
+  } catch (err) {
+    $('#err').textContent = err.message === 'Failed to fetch' ? 'Keine Verbindung. Bitte versuch es noch einmal oder schreib an service@dayliner.de.' : err.message;
+    btn.disabled = false;
+  }
+};
+</script>
+<footer><div class="wrap narrow">
+  <span>© 2026 Dayliner</span>
+  <nav><a href="./">Startseite</a><a href="agb.html">AGB</a><a href="datenschutz.html">Datenschutz</a><a href="impressum.html">Impressum</a><a href="kuendigen.html">Verträge hier kündigen</a></nav>
+</div></footer>
+</body>
+</html>
