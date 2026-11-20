@@ -39,16 +39,14 @@
     <select id="zeit" name="zeit">
       <option value="naechstmoeglich">Zum nächstmöglichen Zeitpunkt</option>
     </select>
-    <p class="muted" style="margin-top:14px">Die Kündigung wirkt zum Ende deines laufenden Abrechnungszeitraums. Die Bestätigung bekommst du sofort hier und zusätzlich per E-Mail.</p>
+    <p class="muted" style="margin-top:14px">Die Kündigung wirkt zum Ende deines laufenden Abrechnungszeitraums. Die Bestätigung bekommst du per E-Mail.</p>
     <button class="btn" type="submit" style="margin-top:8px">Jetzt kündigen</button>
     <p id="err" style="color:#ff8a8a"></p>
   </form>
 
   <div id="ok" class="box" hidden>
-    <h2 style="margin-top:0">Deine Kündigung ist eingegangen</h2>
+    <h2 style="margin-top:0">✓ Gekündigt</h2>
     <p id="okText"></p>
-    <p class="muted">Speichere oder drucke diese Seite als Nachweis. Die Bestätigung schicken wir dir zusätzlich per E-Mail.</p>
-    <button class="btn ghost" onclick="print()">Bestätigung speichern oder drucken</button>
   </div>
 </main>
 <script>
@@ -63,10 +61,10 @@ $('#f').onsubmit = async e => {
     const r = await fetch(API + '/kuendigen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Fehler');
-    const at = new Date(j.at).toLocaleString('de-DE', { dateStyle: 'long', timeStyle: 'medium' });
+    const at = new Date(j.at).toLocaleString('de-DE', { dateStyle: 'long', timeStyle: 'short' });
     const ende = j.ende.length ? 'Dein Abo endet am ' + j.ende.map(t => new Date(t).toLocaleDateString('de-DE')).join(' und am ') + '. Bis dahin kannst du Pro weiter nutzen.'
       : 'Zu dieser E-Mail-Adresse haben wir kein laufendes Abo gefunden. Wir prüfen deine Kündigung von Hand und melden uns per E-Mail.';
-    $('#okText').textContent = `Eingang: ${at} Uhr. ${d.art === 'ausserordentlich' ? 'Außerordentliche' : 'Ordentliche'} Kündigung von ${d.vertrag || 'Dayliner Pro'} für ${d.name} (${d.email}). ${ende}`;
+    $('#okText').textContent = `Deine ${d.art === 'ausserordentlich' ? 'außerordentliche' : ''} Kündigung von ${d.vertrag || 'Dayliner Pro'} ist am ${at} Uhr eingegangen. ${ende} Die Bestätigung schicken wir an ${d.email}.`.replace('Deine  ', 'Deine ');
     $('#f').hidden = true; $('#ok').hidden = false;
   } catch (err) {
     $('#err').textContent = err.message === 'Failed to fetch' ? 'Keine Verbindung. Bitte versuch es noch einmal oder schreib an service@dayliner.de.' : err.message;
