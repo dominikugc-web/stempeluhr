@@ -1044,7 +1044,15 @@ setInterval(locCheck, 120000);
 const FB_TYPES = { idee: ['💡', 'Idee'], fehler: ['🐞', 'Fehler'], beschwerde: ['😕', 'Beschwerde'], frage: ['❓', 'Frage'] };
 let fbUnsub = null, fbThread = null, fbMsgs = [], fbType = 'idee', fbMeta = null, fbMetaUnsub = null, fbChatMeta = {}, fbReply = null, fbIsAdmin = false;
 // Reaktionen wie bei WhatsApp: je Seite ein Emoji pro Nachricht, gespeichert im Chat-Datensatz unter re.<Nachricht>.<user|admin>
-const FB_REACTS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const FB_REACTS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '💪'];
+const FB_MORE = ['👍', '❤️', '😂', '😮', '😢', '🙏', '💪', '🔥', '🎉', '👏', '😍', '🥰', '😅', '🤣', '😊', '😎', '🤔', '🙈', '😬', '😡', '👎', '👌', '✌️', '🙌', '💯', '✅', '❌', '⭐', '🚀', '☕'];
+const fbEmojiOk = e => typeof e === 'string' && e.length <= 8 && !/[\w<>&"']/.test(e);
+const FB_ICON = {
+  reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+  del: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
+};
+const fbIcon = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${FB_ICON[k]}</svg>`;
 const ms = t => t?.toMillis ? t.toMillis() : 0;
 // Haken wie bei WhatsApp: 🕓 wird gesendet, ✓ gesendet, ✓✓ grau angekommen, ✓✓ blau gelesen
 function fbTicks(m, admin) {
@@ -1096,7 +1104,7 @@ function fbRender(admin) {
   const el = $('#chat'); if (!el) return;
   const mine = m => admin ? m.from === 'admin' : m.from === 'user';
   el.innerHTML = (fbMsgs.length ? '' : `<div class="bubble them"><b>Hallo${admin ? '' : ' ' + esc((displayName() || '').split(' ')[0])}!</b> 👋<br>Hast du eine Idee für eine neue Funktion, stört dich etwas oder ist ein Fehler aufgetreten? Schreib es einfach hier rein. Wir lesen alles und antworten hier im Chat.</div>`)
-    + fbMsgs.map(m => { const re = Object.values(fbChatMeta.re?.[m.id] || {}).filter(e => FB_REACTS.includes(e)); return `<div class="bubble ${mine(m) ? 'me' : 'them'}${re.length ? ' hasre' : ''}" data-id="${esc(m.id)}">${m.reply?.text ? `<button class="quote" data-jump="${esc(m.reply.id)}"><b>${fbWho(m.reply.from)}</b><span>${esc(m.reply.text)}</span></button>` : ''}${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
+    + fbMsgs.map(m => { const re = Object.values(fbChatMeta.re?.[m.id] || {}).filter(fbEmojiOk); return `<div class="bubble ${mine(m) ? 'me' : 'them'}${re.length ? ' hasre' : ''}" data-id="${esc(m.id)}">${m.reply?.text ? `<button class="quote q-${m.reply.from === 'admin' ? 'admin' : 'user'}" data-jump="${esc(m.reply.id)}"><b>${fbWho(m.reply.from)}</b><span>${esc(m.reply.text)}</span></button>` : ''}${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
       <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}${mine(m) ? fbTicks(m, admin) : ''}</span>${re.length ? `<span class="reacts">${re.join('')}</span>` : ''}</div>`; }).join('');
   el.scrollTop = el.scrollHeight;
 }
@@ -1118,20 +1126,29 @@ function fbMenu(b) {
   const side = fbIsAdmin ? 'admin' : 'user', cur = fbChatMeta.re?.[m.id]?.[side], r = b.getBoundingClientRect();
   const el = document.createElement('div');
   el.className = 'msgmenu-bg';
-  // wie bei WhatsApp: Emojis über, Aktionen unter der Nachricht; passt es nicht, rutscht alles zusammen ins Bild
-  const up = r.top - 64, down = r.bottom + 8 + 112, dy = up < 12 ? 12 - up : down > innerHeight - 12 ? Math.max(12 - up, innerHeight - 12 - down) : 0;
-  el.innerHTML = `<div class="msgmenu reactbar" style="top:${Math.round(up + dy)}px">${FB_REACTS.map(e => `<button class="${e === cur ? 'sel' : ''}" data-e="${e}" aria-label="Reagieren mit ${e}">${e}</button>`).join('')}</div>
-    <div class="msgmenu group" style="top:${Math.round(r.bottom + 8 + dy)}px"><button class="row" data-a="reply"><span>Antworten</span><span>↩︎</span></button><button class="row" data-a="copy"><span>Kopieren</span><span>⧉</span></button></div>`;
+  // wie bei WhatsApp: Emojis über, Aktionen unter der Nachricht, auf der Seite der Nachricht; passt es nicht, rutscht alles zusammen ins Bild
+  const own = b.classList.contains('me'), acts = [['reply', 'Antworten'], ['copy', 'Kopieren'], ...(own ? [['del', 'Löschen']] : [])];
+  const up = r.top - 64, down = r.bottom + 8 + acts.length * 52, dy = up < 12 ? 12 - up : down > innerHeight - 12 ? Math.max(12 - up, innerHeight - 12 - down) : 0;
+  const x = own ? `right:${Math.round(Math.max(12, innerWidth - r.right))}px` : `left:${Math.round(Math.max(12, r.left))}px`;
+  const emo = list => list.map(e => `<button class="${e === cur ? 'sel' : ''}" data-e="${e}" aria-label="Reagieren mit ${e}">${e}</button>`).join('');
+  el.innerHTML = `<div class="msgmenu reactbar" style="top:${Math.round(up + dy)}px;${x}">${emo(FB_REACTS)}<button class="more" data-more aria-label="Mehr Emojis">+</button></div>
+    <div class="msgmenu mact" style="top:${Math.round(r.bottom + 8 + dy)}px;${x}">${acts.map(([k, l]) => `<button class="${k === 'del' ? 'red' : ''}" data-a="${k}">${fbIcon(k)}${l}</button>`).join('')}</div>`;
   const c = b.cloneNode(true);
   c.classList.remove('held'); c.removeAttribute('data-id');
   Object.assign(c.style, { position: 'fixed', left: r.left + 'px', top: r.top + dy + 'px', width: r.width + 'px', margin: 0, maxWidth: 'none', pointerEvents: 'none' });
   el.append(c);
   el.onclick = e => {
+    if (e.target.closest('[data-more]')) {   // große Auswahl: Nachricht und Menü weg, Leiste ganz ins Bild
+      const bar = el.querySelector('.reactbar'); bar.classList.add('emall'); bar.innerHTML = emo(FB_MORE); c.hidden = true; el.querySelector('.mact').hidden = true;
+      bar.style.top = Math.max(12, Math.min(parseFloat(bar.style.top), innerHeight - bar.offsetHeight - 12)) + 'px'; return;
+    }
+    if (e.target.closest('.reactbar.emall') && !e.target.closest('[data-e]')) return;
     const em = e.target.closest('[data-e]')?.dataset.e, a = e.target.closest('[data-a]')?.dataset.a;
     el.remove(); b.classList.remove('held');
     if (em) ref('feedback/' + fbThread).update({ [`re.${m.id}.${side}`]: em === cur ? firebase.firestore.FieldValue.delete() : em }).catch(err => alert('Reaktion fehlgeschlagen: ' + err.message));
     if (a === 'reply') fbSetReply(m);
     if (a === 'copy') navigator.clipboard?.writeText(m.text).then(() => toast('Kopiert'), () => {});
+    if (a === 'del' && confirm('Nachricht löschen?')) ref(`feedback/${fbThread}/msgs/${m.id}`).delete().catch(err => alert('Löschen fehlgeschlagen: ' + err.message));
   };
   document.body.append(el); b.classList.add('held');
 }

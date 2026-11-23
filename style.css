@@ -274,18 +274,24 @@ html.light .bubble.them{background:rgba(0,0,0,.06)}
 .bubble.hasre{margin-bottom:14px}
 .reacts{position:absolute;bottom:-15px;right:10px;font-size:14px;line-height:1;padding:3px 6px;border-radius:12px;background:var(--bg);box-shadow:0 0 0 1px var(--line);letter-spacing:1px}
 .bubble.them .reacts{right:auto;left:10px}
-.quote{display:block;width:100%;text-align:left;font-size:13px;line-height:1.3;background:rgba(0,0,0,.2);border-left:3px solid currentColor;border-radius:8px;padding:5px 8px;margin:0 0 6px;opacity:.9}
+.quote{display:block;width:100%;text-align:left;font-size:14px;line-height:1.3;background:rgba(0,0,0,.25);border-left:4px solid var(--qc,#e8a87c);border-radius:10px;padding:6px 10px;margin:0 0 6px}
+.quote.q-admin{--qc:#e8a87c}.quote.q-user{--qc:#b9a3ff}.quote b{color:var(--qc)}
 .quote b,.replybar b{display:block;font-size:12px}
 .quote span,.replybar .rq span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .replybar{display:flex;gap:8px;align-items:center;margin:0 0 8px;padding:8px 8px 8px 12px;border-radius:16px;border-left:3px solid var(--accent);background:rgba(255,255,255,.09);font-size:14px}
 .replybar .rq{flex:1;min-width:0}
 html.light .replybar{background:rgba(0,0,0,.06)}
 .msgmenu-bg{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.35);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
-.msgmenu{position:absolute;left:50%;transform:translateX(-50%);width:min(340px,calc(100% - 32px))}
+.msgmenu{position:absolute;max-width:calc(100% - 24px)}
 .reactbar{display:flex;justify-content:space-between;padding:6px;border-radius:28px;background:var(--bg);box-shadow:0 0 0 1px var(--line)}
 .reactbar button{width:44px;height:44px;border-radius:22px;font-size:26px;line-height:44px}
 .reactbar button.sel{background:rgba(255,255,255,.18)}
-.msgmenu.group{background:var(--bg);box-shadow:0 0 0 1px var(--line);margin:0}
+.reactbar{gap:2px}.reactbar button.more{font-size:24px;font-weight:300;background:rgba(255,255,255,.14);color:var(--mut)}
+.reactbar.emall{flex-wrap:wrap;justify-content:flex-start;width:min(340px,calc(100% - 24px));border-radius:22px}
+.msgmenu.mact{width:230px;padding:6px 0;border-radius:18px;background:var(--bg);box-shadow:0 0 0 1px var(--line)}
+.msgmenu.mact button{display:flex;align-items:center;gap:14px;width:100%;padding:11px 18px;font-size:17px;text-align:left}
+.msgmenu.mact svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.msgmenu.mact .red{color:var(--minus)}
 .fbtag{display:block;font-size:12px;font-weight:600;opacity:.85;margin-bottom:2px}
 .fbtypes{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.fbtypes .pill{flex:none}
 .chatbar{display:flex;gap:8px;align-items:flex-end;padding-bottom:4px}
