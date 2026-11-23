@@ -4,8 +4,11 @@
 //   POST /subscribe  { sub, app: 'user'|'admin' }       Gerät anmelden
 //   POST /notify     { to, title, body, url }           Nutzer → Entwickler, Entwickler → beliebiger Nutzer
 //   POST /remind     { on, start, end, tz, base, days, last, run }   Erinnerung ans Stempeln (Cron alle 5 Min.)
+//   POST /upload?thread=<uid>  Rohdaten, Content-Type, X-Name   Datei für den Feedback-Chat ablegen (R2 „FILES“)
+//   POST /file  { key }   Datei abrufen      POST /filedel { key }   Datei löschen
 // Geheimnis (wrangler secret put VAPID_PRIVATE): privater VAPID-Schlüssel als base64url (d).
 import { remindClean, remindAll } from './remind.mjs';
+import { LIMITS, baseType, kindOf, threadOk, mayAccess } from './files.mjs';
 
 const PROJECT = 'stempeluhr-6faae';
 const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
@@ -156,7 +159,7 @@ export default {
   async scheduled(ev, env, ctx) { ctx.waitUntil(remindAll(env.SUBS, (uid, msg) => sendUser(env, uid, msg))); },
   async fetch(req, env) {
     const origin = req.headers.get('Origin') || '';
-    const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST' };
+    const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Name', 'Access-Control-Allow-Methods': 'POST' };
     const out = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
     if (req.method !== 'POST') return out({ ok: true, vapid: VAPID_PUBLIC });
@@ -167,7 +170,35 @@ export default {
     }
     let uid, tok;
     try { tok = await verifyToken((req.headers.get('Authorization') || '').replace('Bearer ', ''), env); uid = tok.sub; } catch (e) { return out({ error: e.message }, 401); }
+    const admin = ADMIN_UIDS.includes(uid);
+
+    if (path === '/upload') {   // vor req.json(): der Inhalt ist die Datei selbst
+      if (!env.FILES) return out({ error: 'Der Dateispeicher ist noch nicht eingerichtet.' }, 503);
+      const thread = new URL(req.url).searchParams.get('thread'), type = baseType(req.headers.get('Content-Type')), kind = kindOf(type);
+      if (!threadOk(thread) || (thread !== uid && !admin)) return out({ error: 'Kein Zugriff' }, 403);
+      if (!kind) return out({ error: 'Dieser Dateityp geht leider nicht.' }, 415);
+      const max = LIMITS[kind], tooBig = () => out({ error: `Die Datei ist zu groß (höchstens ${max / 1e6} MB).` }, 413);
+      const len = +req.headers.get('Content-Length') || 0;
+      if (!len || !req.body) return out({ error: 'Die Datei ist leer.' }, 411);
+      if (len > max) return tooBig();
+      const key = `chat/${thread}/${crypto.randomUUID()}`;
+      let name = ''; try { name = decodeURIComponent(req.headers.get('X-Name') || '').slice(0, 120); } catch {}
+      const { readable, writable } = new FixedLengthStream(len);   // durchreichen statt in den Speicher laden (Videos)
+      req.body.pipeTo(writable).catch(() => {});
+      await env.FILES.put(key, readable, { httpMetadata: { contentType: type }, customMetadata: { name, by: uid } });
+      return out({ key, size: len });
+    }
+
     const b = await req.json().catch(() => ({}));
+
+    if (path === '/file' || path === '/filedel') {
+      if (!env.FILES) return out({ error: 'Der Dateispeicher ist noch nicht eingerichtet.' }, 503);
+      if (!mayAccess(uid, admin, b.key)) return out({ error: 'Kein Zugriff' }, 403);
+      if (path === '/filedel') { await env.FILES.delete(b.key); return out({ ok: true }); }
+      const o = await env.FILES.get(b.key);
+      if (!o) return out({ error: 'Die Datei gibt es nicht mehr.' }, 404);
+      return new Response(o.body, { headers: { ...cors, 'Content-Type': o.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' } });
+    }
     const back = (ORIGINS.includes(origin) ? origin : ORIGINS[0]) + '/web/abo.html';   // Rückkehrseite nach Stripe
 
     try {
@@ -211,9 +242,14 @@ export default {
       return out({ ok: true });
     }
 
-    if (path === '/forget') {   // Konto gelöscht: alle Geräte vergessen
+    if (path === '/forget') {   // Konto gelöscht: alle Geräte vergessen, alle Chat-Dateien löschen
       await env.SUBS.delete(uid);
       await env.SUBS.delete('remind:' + uid);
+      for (let c, more = !!env.FILES; more;) {
+        const l = await env.FILES.list({ prefix: `chat/${uid}/`, cursor: c });
+        if (l.objects.length) await env.FILES.delete(l.objects.map(o => o.key));
+        more = l.truncated; c = l.cursor;
+      }
       return out({ ok: true });
     }
 

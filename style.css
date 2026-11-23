@@ -294,9 +294,41 @@ html.light .replybar{background:rgba(0,0,0,.06)}
 .msgmenu.mact svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .msgmenu.mact .red{color:var(--minus)}
 .fbtip{margin:0 0 8px;flex:none}
-#sheet.fblock :is(#chat,.fbtypes,.chatbar,.replybar,.pushask){opacity:.3;pointer-events:none}
+#sheet.fblock :is(#chat,.fbtypes,.chatbar,.replybar,.pushask,.attachbar){opacity:.3;pointer-events:none}
 #sheet.fblock [aria-label="Tipps zum Chat"]{visibility:hidden}
 #sheet.fblock .fbtip{box-shadow:0 0 0 2px var(--accent)}
+.roundbtn{flex:none;width:40px;height:40px;margin-bottom:2px;border-radius:50%;background:rgba(255,255,255,.1);color:var(--txt);display:flex;align-items:center;justify-content:center}
+html.light .roundbtn{background:rgba(0,0,0,.06)}
+.roundbtn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.attachbar{display:flex;gap:8px;overflow-x:auto;margin:0 0 8px;padding:2px 0;flex:none}
+.att{position:relative;flex:none;width:64px;height:64px;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;padding:4px}
+.att img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.att span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.att .ai{font-size:22px}
+.att .ax{position:absolute;top:3px;right:3px;z-index:1;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.65);color:#fff;font-size:11px}
+.fbimgs{display:grid;gap:4px;width:min(240px,62vw);margin:0 0 6px}.fbimgs.grid{grid-template-columns:1fr 1fr}
+.fbimg{display:block;width:100%;border-radius:12px;overflow:hidden;background:rgba(0,0,0,.25)}.fbimgs.grid .fbimg{aspect-ratio:1!important}
+.fbimg img{display:block;width:100%;height:100%;object-fit:cover}
+.fbvid{display:flex;align-items:center;justify-content:center;gap:8px;width:min(240px,62vw);aspect-ratio:16/9;margin:0 0 6px;border-radius:12px;background:rgba(0,0,0,.35);color:#fff}
+.fbvid svg{width:34px;height:34px;fill:currentColor}.fbvid.loading{opacity:.5}
+.fbvideo{display:block;width:min(240px,62vw);max-height:60vh;margin:0 0 6px;border-radius:12px;background:#000}
+.fbfile{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 6px;padding:8px 10px;border-radius:12px;background:rgba(0,0,0,.2);text-align:left}
+.fbfile .fi{font-size:26px}.fbfile b{display:block;font-size:14px;word-break:break-all}
+.missing{opacity:.4}
+.voice{display:flex;align-items:center;gap:10px;width:min(250px,62vw);margin:0 0 2px}
+.vplay{flex:none;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center}
+.vplay svg{width:16px;height:16px;fill:currentColor}.vplay .ipa,.voice.playing .vplay .ip{display:none}.voice.playing .vplay .ipa{display:block}
+.voice.loading .vplay{opacity:.5}
+.vbar{flex:1;height:26px;position:relative;display:flex;align-items:center;cursor:pointer}
+.vbar::before{content:"";position:absolute;left:0;right:0;height:4px;border-radius:2px;background:currentColor;opacity:.3}
+.vfill{position:relative;width:0;height:4px;border-radius:2px;background:currentColor}
+.vtime{min-width:32px;font-size:12px;opacity:.85}
+.vspeed{flex:none;padding:4px 8px;border-radius:12px;background:rgba(255,255,255,.22);font-size:12px;font-weight:700}
+.recbar{display:flex;align-items:center;gap:10px;flex:none}.recbar .grow{flex:1}
+.recdot{width:10px;height:10px;border-radius:50%;background:var(--minus);animation:recblink 1s infinite}
+@keyframes recblink{50%{opacity:.2}}
+.fbviewer{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:#000}
+.fbviewer img{max-width:100%;max-height:100%;object-fit:contain}
+.fbviewer button{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:16px}
 .fbtag{display:block;font-size:12px;font-weight:600;opacity:.85;margin-bottom:2px}
 .fbtypes{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.fbtypes .pill{flex:none}
 .chatbar{display:flex;gap:8px;align-items:flex-end;padding-bottom:4px}

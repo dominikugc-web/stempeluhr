@@ -1055,6 +1055,7 @@ const FB_ICON = {
 // Tipps beim ersten Öffnen des Chats (danach über das ? oben rechts)
 const FB_TIPS = [
   ['💬 Schreib uns direkt', 'Wähle unten, ob es eine Idee, ein Fehler, eine Beschwerde oder eine Frage ist, und schreib los. Wir lesen alles und antworten hier im Chat.'],
+  ['📎 Fotos, Dateien und Sprache', 'Über das + links schickst du Fotos, Videos bis 60 Sekunden oder Dateien, bis zu 10 auf einmal. Mit dem Mikro rechts nimmst du eine Sprachnachricht auf.'],
   ['👆 Lange drücken zum Reagieren', 'Halte eine Nachricht gedrückt und tippe auf ein Emoji. Über das + findest du noch mehr. Nochmal antippen nimmt die Reaktion wieder weg.'],
   ['↩️ Auf eine Nachricht antworten', 'Im selben Menü tippst du auf Antworten. Der Anfang der Nachricht steht dann über deinem Text. Dort kannst du auch kopieren und eigene Nachrichten löschen.'],
   ['🔔 Antwort nicht verpassen', 'Haben wir geantwortet, zeigt die Lampe einen roten Punkt. Mit Benachrichtigungen bekommst du es zusätzlich aufs Handy.'],
@@ -1107,15 +1108,20 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
   const admin = !!uid && isAdmin();
   fbThread = uid || me.uid; fbIsAdmin = admin;
   fbUnsub?.();
-  fbMsgs = []; fbReply = null;
+  fbMsgs = []; fbReply = null; fbAtt = [];
   sheet(`<div class="sheet-head"><button class="pill sm${admin ? ' back' : ''}" ${admin ? 'aria-label="Zurück"' : ''} onclick="closeFeedback(${admin})">${admin ? '‹' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px;text-align:right">${admin ? '' : '<button class="pill sm" onclick="fbTips(true)" aria-label="Tipps zum Chat">?</button>'}</span></div>
     ${admin ? '' : pushAskHtml('Benachrichtigen, wenn wir antworten')}
     <div class="tip fbtip" id="fbtip" hidden></div>
     <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
     <div class="replybar" id="fbreply" hidden><div class="rq"></div><button class="pill sm" onclick="fbSetReply(null)" aria-label="Antwort verwerfen">✕</button></div>
-    <div class="chatbar"><textarea id="fbtext" name="nachricht" rows="1" autocomplete="off" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
-      <button class="sendbtn" onmousedown="event.preventDefault()" ontouchend="event.preventDefault(); sendFeedback(${admin})" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
+    <div class="attachbar" id="fbatt" hidden></div>
+    <div class="chatbar"><button class="roundbtn" onmousedown="event.preventDefault()" onclick="fbPlus(this)" aria-label="Foto, Video oder Datei anhängen"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button><textarea id="fbtext" name="nachricht" rows="1" autocomplete="off" placeholder="${admin ? 'Antwort …' : 'Schreib uns …'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+      <button class="sendbtn" onmousedown="event.preventDefault()" ontouchend="event.preventDefault(); sendFeedback(${admin})" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="roundbtn" onclick="fbRecord()" aria-label="Sprachnachricht aufnehmen"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
+    <input type="file" id="fbcam" accept="image/*,video/*" capture="environment" hidden onchange="fbPick(this)">
+    <input type="file" id="fbpics" accept="image/*,video/*" multiple hidden onchange="fbPick(this)">
+    <input type="file" id="fbdocs" accept=".pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,application/pdf" multiple hidden onchange="fbPick(this)">`);
   $('#sheet').classList.add('chatsheet');
   fbPress($('#chat'));
   const first = !admin && !viewing && !data.settings.chatTips && !fbTipsSeen();
@@ -1134,11 +1140,14 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
 }
 function fbRender(admin) {
   const el = $('#chat'); if (!el) return;
+  const vids = [...el.querySelectorAll('video.fbvideo')];   // laufende Videos über das Neuzeichnen retten
   const mine = m => admin ? m.from === 'admin' : m.from === 'user';
   el.innerHTML = (fbMsgs.length ? '' : `<div class="bubble them"><b>Hallo${admin ? '' : ' ' + esc((displayName() || '').split(' ')[0])}!</b> 👋<br>Hast du eine Idee für eine neue Funktion, stört dich etwas oder ist ein Fehler aufgetreten? Schreib es einfach hier rein. Wir lesen alles und antworten hier im Chat.</div>`)
-    + fbMsgs.map(m => { const re = Object.values(fbChatMeta.re?.[m.id] || {}).filter(fbEmojiOk); return `<div class="bubble ${mine(m) ? 'me' : 'them'}${re.length ? ' hasre' : ''}" data-id="${esc(m.id)}">${m.reply?.text ? `<button class="quote q-${m.reply.from === 'admin' ? 'admin' : 'user'}" data-jump="${esc(m.reply.id)}"><b>${fbWho(m.reply.from)}</b><span>${esc(m.reply.text)}</span></button>` : ''}${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
+    + fbMsgs.map(m => { const re = Object.values(fbChatMeta.re?.[m.id] || {}).filter(fbEmojiOk); return `<div class="bubble ${mine(m) ? 'me' : 'them'}${re.length ? ' hasre' : ''}" data-id="${esc(m.id)}">${m.reply?.text ? `<button class="quote q-${m.reply.from === 'admin' ? 'admin' : 'user'}" data-jump="${esc(m.reply.id)}"><b>${fbWho(m.reply.from)}</b><span>${esc(m.reply.text)}</span></button>` : ''}${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${fbFilesHtml(m)}${esc(m.text).replace(/\n/g, '<br>')}
       <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}${mine(m) ? fbTicks(m, admin) : ''}</span>${re.length ? `<span class="reacts">${re.join('')}</span>` : ''}</div>`; }).join('');
+  for (const v of vids) el.querySelector(`.fbvid[data-k="${CSS.escape(v.dataset.k)}"]`)?.replaceWith(v);
   el.scrollTop = el.scrollHeight;
+  fbHydrate();
 }
 const fbWho = from => (fbIsAdmin ? from === 'admin' : from === 'user') ? 'Du' : from === 'admin' ? 'Entwickler' : esc(fbAdminName(fbThread));
 // Lange drücken (oder Rechtsklick) auf eine Nachricht: Reaktion, Antworten, Kopieren
@@ -1149,7 +1158,10 @@ function fbPress(chat) {
   chat.addEventListener('pointermove', e => { if (Math.hypot(e.clientX - x, e.clientY - y) > 10) stop(); });
   for (const ev of ['pointerup', 'pointercancel', 'pointerleave', 'scroll']) chat.addEventListener(ev, stop, { passive: true });
   chat.addEventListener('contextmenu', e => { const b = bub(e); if (b) { e.preventDefault(); stop(); fbMenu(b); } });
-  chat.addEventListener('click', e => { const q = e.target.closest('[data-jump]'); if (q) fbJump(q.dataset.jump); });
+  chat.addEventListener('click', e => {
+    const t = e.target, q = t.closest('[data-jump]'), img = t.closest('.fbimg'), vid = t.closest('.fbvid'), file = t.closest('.fbfile'), voice = t.closest('.voice');
+    if (q) fbJump(q.dataset.jump); else if (img) fbView(img.dataset.k); else if (vid) fbVideo(vid); else if (file) fbOpenFile(file.dataset.k, file.dataset.n); else if (voice) fbVoice(voice, e);
+  });
 }
 function fbMenu(b) {
   const m = fbMsgs.find(x => x.id === b.dataset.id);
@@ -1159,7 +1171,7 @@ function fbMenu(b) {
   const el = document.createElement('div');
   el.className = 'msgmenu-bg';
   // wie bei WhatsApp: Emojis über, Aktionen unter der Nachricht, auf der Seite der Nachricht; passt es nicht, rutscht alles zusammen ins Bild
-  const own = b.classList.contains('me'), acts = [['reply', 'Antworten'], ['copy', 'Kopieren'], ...(own ? [['del', 'Löschen']] : [])];
+  const own = b.classList.contains('me'), acts = [['reply', 'Antworten'], ...(m.text ? [['copy', 'Kopieren']] : []), ...(own ? [['del', 'Löschen']] : [])];
   const up = r.top - 64, down = r.bottom + 8 + acts.length * 52, dy = up < 12 ? 12 - up : down > innerHeight - 12 ? Math.max(12 - up, innerHeight - 12 - down) : 0;
   const x = own ? `right:${Math.round(Math.max(12, innerWidth - r.right))}px` : `left:${Math.round(Math.max(12, r.left))}px`;
   const emo = list => list.map(e => `<button class="${e === cur ? 'sel' : ''}" data-e="${e}" aria-label="Reagieren mit ${e}">${e}</button>`).join('');
@@ -1180,12 +1192,14 @@ function fbMenu(b) {
     if (em) ref('feedback/' + fbThread).update({ [`re.${m.id}.${side}`]: em === cur ? firebase.firestore.FieldValue.delete() : em }).catch(err => alert('Reaktion fehlgeschlagen: ' + err.message));
     if (a === 'reply') fbSetReply(m);
     if (a === 'copy') navigator.clipboard?.writeText(m.text).then(() => toast('Kopiert'), () => {});
-    if (a === 'del' && confirm('Nachricht löschen?')) ref(`feedback/${fbThread}/msgs/${m.id}`).delete().catch(err => alert('Löschen fehlgeschlagen: ' + err.message));
+    if (a === 'del' && confirm('Nachricht löschen?')) ref(`feedback/${fbThread}/msgs/${m.id}`).delete()
+      .then(() => (m.files || []).forEach(f => pushCall('/filedel', { key: f.k }).catch(() => {})))
+      .catch(err => alert('Löschen fehlgeschlagen: ' + err.message));
   };
   document.body.append(el); b.classList.add('held');
 }
 function fbSetReply(m) {
-  fbReply = m ? { id: m.id, text: m.text.replace(/\s+/g, ' ').slice(0, 100), from: m.from } : null;
+  fbReply = m ? { id: m.id, text: fbLabel(m).replace(/\s+/g, ' ').slice(0, 100), from: m.from } : null;
   const box = $('#fbreply'); if (!box) return;
   box.hidden = !fbReply;
   if (fbReply) { box.querySelector('.rq').innerHTML = `<b>${fbWho(fbReply.from)}</b><span>${esc(fbReply.text)}</span>`; $('#fbtext').focus(); }
@@ -1198,26 +1212,235 @@ function fbJump(id) {
 }
 function fbSetType(k) { fbType = k; document.querySelectorAll('.fbtypes .pill').forEach(b => b.classList.toggle('sel', b.dataset.t === k)); }
 async function sendFeedback(admin) {
-  const ta = $('#fbtext'), text = ta.value.trim();
-  if (!text) return;
+  const ta = $('#fbtext'), text = ta.value.trim(), att = fbAtt;
+  if ((!text && !att.length) || fbBusy) return;
   if (text.length > 4000) return alert('Bitte etwas kürzer fassen (max. 4000 Zeichen).');
   ta.value = ''; ta.style.height = 'auto'; ta.focus();   // Tastatur bleibt offen (touchend/mousedown oben verhindern das Wegnehmen des Fokus)
-  const at = firebase.firestore.FieldValue.serverTimestamp(), reply = fbReply, rep = reply ? { reply } : {};
-  fbSetReply(null);
+  const reply = fbReply;
+  fbSetReply(null); fbAtt = []; fbAttRender();
+  try { await fbPost(admin, text, att.length ? await fbUploadAll(att) : null, reply); }
+  catch (e) { ta.value = text; fbAtt = att; fbAttRender(); if (reply) fbSetReply(reply); alert('Senden fehlgeschlagen: ' + e.message); }
+}
+async function fbPost(admin, text, files, reply) {
+  const at = firebase.firestore.FieldValue.serverTimestamp(), extra = { ...(reply ? { reply } : {}), ...(files ? { files } : {}) }, label = fbLabel({ text, files });
+  if (admin) {
+    await fb.db.collection(`feedback/${fbThread}/msgs`).add({ text, from: 'admin', at, ...extra });
+    await ref('feedback/' + fbThread).set({ last: at, lastText: label.slice(0, 120), unreadUser: true, unreadAdmin: false }, { merge: true });
+    notifyPush({ to: fbThread, title: '💬 Antwort auf dein Feedback', body: label, url: './?fb=1' });
+  } else {
+    await fb.db.collection(`feedback/${me.uid}/msgs`).add({ text, from: 'user', type: fbType, at, ...extra, name: displayName() || '', ver: document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] || '', device: navigator.userAgent.slice(0, 160) });
+    await ref('feedback/' + me.uid).set({ name: displayName() || '', email: me.email || '', company: company?.name || '', last: at, lastText: label.slice(0, 120), lastType: fbType, unreadAdmin: true, unreadUser: false }, { merge: true });
+    notifyPush({ to: 'admin', title: `${FB_TYPES[fbType][0]} ${displayName() || 'Nutzer'}${company?.name ? ' · ' + company.name : ''}`, body: label, url: './admin/?fb=' + me.uid });
+  }
+}
+
+// ---------- Anhänge im Feedback-Chat: Fotos, Videos, Dateien, Sprachnachrichten ----------
+// Gespeichert in Cloudflare R2 über den Push-Dienst (/upload, /file, /filedel). Nur die beiden Chat-Seiten kommen an die Dateien.
+const FB_MAX_FILES = 10, FB_VIDEO_SEC = 60, FB_VOICE_SEC = 300;
+const FB_LIMIT = { image: 5e6, audio: 10e6, video: 95e6, file: 15e6 };   // wie push/files.mjs
+let fbAtt = [], fbBusy = false;
+const fbDone = new Map(), fbLoading = new Map();   // geladene Dateien als blob:-Adresse
+const fbKind = t => /^image\//.test(t) ? 'image' : /^video\//.test(t) ? 'video' : /^audio\//.test(t) ? 'audio' : 'file';
+const fbSize = n => n >= 1e6 ? (n / 1e6).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+const fbDur = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const fbLabel = m => m.text || (m.files?.length ? { image: '📷 Foto', video: '🎬 Video', audio: '🎤 Sprachnachricht', file: '📄 Datei' }[fbKind(m.files[0].t || '')] : '');
+const fbToken = async () => 'Bearer ' + await me.getIdToken();
+
+function fbPlus(btn) {
+  if (document.querySelector('.msgmenu-bg')) return;
+  const r = btn.getBoundingClientRect(), el = document.createElement('div');
+  el.className = 'msgmenu-bg';
+  el.innerHTML = `<div class="msgmenu mact" style="left:${Math.round(r.left)}px;bottom:${Math.round(innerHeight - r.top + 8)}px">
+    <button data-p="fbcam"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Kamera</button>
+    <button data-p="fbpics"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m3 18 5-5 4 4 3-3 6 6"/></svg>Fotos & Videos</button>
+    <button data-p="fbdocs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>Datei</button></div>`;
+  el.onclick = e => { const p = e.target.closest('[data-p]')?.dataset.p; el.remove(); if (p) $('#' + p).click(); };
+  document.body.append(el);
+}
+async function fbPick(input) {
+  const list = [...input.files]; input.value = '';
+  for (const f of list) {
+    if (fbAtt.length >= FB_MAX_FILES) { toast(`Höchstens ${FB_MAX_FILES} Anhänge auf einmal.`); break; }
+    const kind = fbKind(f.type || ''), name = (f.name || 'Datei').slice(0, 120);
+    try {
+      if (kind === 'image') { const s = await fbShrink(f), type = s.blob.type || f.type; fbAtt.push({ kind, blob: s.blob, type, name: type === 'image/jpeg' ? name.replace(/.w+$/, '') + '.jpg' : name, size: s.blob.size, w: s.w, h: s.h, url: URL.createObjectURL(s.blob) }); }
+      else if (kind === 'video') {
+        const d = await fbVideoLen(f);
+        if (!(d <= FB_VIDEO_SEC + 0.5)) { toast(`Videos dürfen höchstens ${FB_VIDEO_SEC} Sekunden lang sein.`); continue; }
+        if (f.size > FB_LIMIT.video) { toast(`Das Video ist zu groß (höchstens ${FB_LIMIT.video / 1e6} MB).`); continue; }
+        fbAtt.push({ kind, blob: f, type: f.type, name, size: f.size, d });
+      } else {
+        if (f.size > FB_LIMIT.file) { toast(`${name} ist zu groß (höchstens ${FB_LIMIT.file / 1e6} MB).`); continue; }
+        fbAtt.push({ kind: 'file', blob: f, type: f.type || 'application/octet-stream', name, size: f.size });
+      }
+    } catch { toast(`${name} konnte nicht gelesen werden.`); }
+  }
+  fbAttRender();
+}
+// Fotos verkleinern: lange Seite höchstens 1600 px, JPEG 75 %. So bleibt Text auf Screenshots lesbar, ein Foto hat meist 150 bis 400 KB.
+async function fbShrink(file) {
+  const src = await createImageBitmap(file).catch(() => null) || await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = URL.createObjectURL(file); });
+  const w0 = src.width, h0 = src.height;
+  if (file.type === 'image/gif' && file.size <= FB_LIMIT.image) return { blob: file, w: w0, h: h0 };   // GIF bleibt animiert
+  const f = Math.min(1, 1600 / Math.max(w0, h0)), w = Math.round(w0 * f), h = Math.round(h0 * f);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(src, 0, 0, w, h);
+  const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.75));
+  if (!blob) throw new Error('Bild');
+  return f === 1 && file.size < blob.size && /^image\/(jpeg|png|webp)$/.test(file.type) ? { blob: file, w: w0, h: h0 } : { blob, w, h };
+}
+const fbVideoLen = file => new Promise(ok => {
+  const v = document.createElement('video'), u = URL.createObjectURL(file);
+  v.preload = 'metadata'; v.muted = true;
+  const done = () => { ok(v.duration); URL.revokeObjectURL(u); };
+  // manche Aufnahmen (WebM) melden die Länge erst nach einem Sprung ans Ende
+  v.onloadedmetadata = () => { if (isFinite(v.duration)) return done(); v.ondurationchange = () => isFinite(v.duration) && done(); v.currentTime = 1e9; };
+  v.onerror = () => { ok(NaN); URL.revokeObjectURL(u); };
+  v.src = u;
+});
+function fbAttRender(msg) {
+  const el = $('#fbatt'); if (!el) return;
+  el.hidden = !fbAtt.length && !msg;
+  el.innerHTML = msg ? `<span class="muted small">${msg}</span>` : fbAtt.map((a, i) => `<div class="att">${a.url ? `<img src="${a.url}" alt="">` : `<span class="ai">${a.kind === 'video' ? '🎬' : '📄'}</span><span>${a.kind === 'video' ? fbDur(a.d) : esc(a.name)}</span>`}<button class="ax" onclick="fbAttDel(${i})" aria-label="Anhang entfernen">✕</button></div>`).join('');
+}
+function fbAttDel(i) { const a = fbAtt.splice(i, 1)[0]; if (a?.url) URL.revokeObjectURL(a.url); fbAttRender(); }
+async function fbUpload(blob, type, name) {
+  const r = await fetch(`${PUSH_URL}/upload?thread=${encodeURIComponent(fbThread)}`, { method: 'POST', headers: { Authorization: await fbToken(), 'Content-Type': type, 'X-Name': encodeURIComponent(name || '') }, body: blob });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Hochladen fehlgeschlagen');
+  return j.key;
+}
+// shortcut: bricht das Hochladen mittendrin ab, bleiben die schon hochgeladenen Dateien liegen; bei Speicherknappheit aufräumen
+async function fbUploadAll(att) {
+  fbBusy = true;
   try {
-    if (admin) {
-      await fb.db.collection(`feedback/${fbThread}/msgs`).add({ text, from: 'admin', at, ...rep });
-      await ref('feedback/' + fbThread).set({ last: at, lastText: text.slice(0, 120), unreadUser: true, unreadAdmin: false }, { merge: true });
-      notifyPush({ to: fbThread, title: '💬 Antwort auf dein Feedback', body: text, url: './?fb=1' });
-    } else {
-      await fb.db.collection(`feedback/${me.uid}/msgs`).add({ text, from: 'user', type: fbType, at, ...rep, name: displayName() || '', ver: document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] || '', device: navigator.userAgent.slice(0, 160) });
-      await ref('feedback/' + me.uid).set({ name: displayName() || '', email: me.email || '', company: company?.name || '', last: at, lastText: text.slice(0, 120), lastType: fbType, unreadAdmin: true, unreadUser: false }, { merge: true });
-      notifyPush({ to: 'admin', title: `${FB_TYPES[fbType][0]} ${displayName() || 'Nutzer'}${company?.name ? ' · ' + company.name : ''}`, body: text, url: './admin/?fb=' + me.uid });
+    const out = [];
+    for (const [i, a] of att.entries()) {
+      fbAttRender(`⏳ Wird hochgeladen ${i + 1} von ${att.length} …`);
+      const k = await fbUpload(a.blob, a.type, a.name);
+      if (a.url) fbDone.set(k, a.url);   // eigenes Foto sofort zeigen, ohne es neu zu laden
+      out.push({ k, t: a.type, n: a.name, s: a.size, ...(a.w ? { w: a.w, h: a.h } : {}), ...(a.d ? { d: Math.round(a.d) } : {}) });
     }
-  } catch (e) { ta.value = text; if (reply) fbSetReply(reply); alert('Senden fehlgeschlagen: ' + e.message); }
+    return out;
+  } finally { fbBusy = false; fbAttRender(); }
+}
+function fbLoad(k) {
+  if (fbDone.has(k)) return Promise.resolve(fbDone.get(k));
+  if (!fbLoading.has(k)) fbLoading.set(k, (async () => {
+    const r = await fetch(PUSH_URL + '/file', { method: 'POST', headers: { Authorization: await fbToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ key: k }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Datei nicht gefunden');
+    const u = URL.createObjectURL(await r.blob()); fbDone.set(k, u); return u;
+  })().finally(() => fbLoading.delete(k)));
+  return fbLoading.get(k);
+}
+function fbFilesHtml(m) {
+  const fs = (m.files || []).filter(f => typeof f?.k === 'string'), imgs = fs.filter(f => fbKind(f.t) === 'image');
+  if (!fs.length) return '';
+  const ratio = f => +f.w > 0 && +f.h > 0 ? `${+f.w} / ${+f.h}` : '1';
+  return (imgs.length ? `<div class="fbimgs${imgs.length > 1 ? ' grid' : ''}">${imgs.map(f => `<button class="fbimg" data-k="${esc(f.k)}" style="aspect-ratio:${ratio(f)}" aria-label="Foto öffnen">${fbDone.has(f.k) ? `<img src="${fbDone.get(f.k)}" alt="">` : ''}</button>`).join('')}</div>` : '')
+    + fs.filter(f => fbKind(f.t) !== 'image').map(f => {
+      const k = fbKind(f.t);
+      if (k === 'audio') return `<div class="voice" data-k="${esc(f.k)}" data-d="${+f.d || 0}"><button class="vplay" aria-label="Abspielen"><svg class="ip" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg><svg class="ipa" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button><div class="vbar"><div class="vfill"></div></div><span class="vtime">${fbDur(+f.d || 0)}</span><button class="vspeed">${fbSpeedLabel()}</button></div>`;
+      if (k === 'video') return `<button class="fbvid" data-k="${esc(f.k)}"><svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg><span class="small">${+f.d ? fbDur(+f.d) : 'Video'}</span></button>`;
+      return `<button class="fbfile" data-k="${esc(f.k)}" data-n="${esc(f.n || 'Datei')}"><span class="fi">📄</span><span><b>${esc(f.n || 'Datei')}</b><span class="muted small">${fbSize(+f.s || 0)}</span></span></button>`;
+    }).join('');
+}
+// Fotos und Sprachnachrichten im Hintergrund laden (Sprachnachrichten vorab, damit Abspielen auf dem iPhone sofort klappt)
+function fbHydrate() {
+  document.querySelectorAll('#chat .fbimg:not(:has(img)), #chat .voice').forEach(el => {
+    const k = el.dataset.k;
+    fbLoad(k).then(u => { if (el.classList.contains('fbimg') && el.isConnected && !el.querySelector('img')) el.innerHTML = `<img src="${u}" alt="">`; }).catch(() => el.classList.add('missing'));
+  });
+  fbVoicePaint();
+}
+function fbView(k) {
+  fbLoad(k).then(u => {
+    const v = document.createElement('div');
+    v.className = 'fbviewer'; v.innerHTML = `<img src="${u}" alt="Foto"><button class="pill sm" aria-label="Schließen">✕</button>`;
+    v.onclick = () => v.remove(); document.body.append(v);
+  }).catch(e => alert(e.message));
+}
+function fbVideo(btn) {
+  if (btn.classList.contains('loading')) return;
+  btn.classList.add('loading');
+  fbLoad(btn.dataset.k).then(u => {
+    const v = document.createElement('video');
+    Object.assign(v, { src: u, controls: true, playsInline: true, autoplay: true, className: 'fbvideo' }); v.dataset.k = btn.dataset.k;
+    btn.replaceWith(v);
+  }).catch(e => { btn.classList.remove('loading'); alert(e.message); });
+}
+function fbOpenFile(k, n) {
+  fbLoad(k).then(u => { const a = document.createElement('a'); a.href = u; a.download = n || 'Datei'; a.target = '_blank'; a.rel = 'noopener'; a.click(); }).catch(e => alert(e.message));
+}
+// Sprachnachrichten abspielen wie bei WhatsApp: 1×, 1,5×, 2× (gilt für alle, bis man es wieder ändert)
+let fbAudio = null, fbAudioK = null, fbSpeed = 1;
+const fbSpeedLabel = () => String(fbSpeed).replace('.', ',') + '×';
+function fbVoice(el, e) {
+  const k = el.dataset.k;
+  if (e.target.closest('.vspeed')) {
+    fbSpeed = fbSpeed === 1 ? 1.5 : fbSpeed === 1.5 ? 2 : 1;
+    if (fbAudio) fbAudio.playbackRate = fbSpeed;
+    document.querySelectorAll('.vspeed').forEach(b => b.textContent = fbSpeedLabel());
+    return;
+  }
+  const bar = e.target.closest('.vbar');
+  if (bar && fbAudioK === k && fbAudio?.duration) { const r = bar.getBoundingClientRect(); fbAudio.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * fbAudio.duration; return; }
+  if (!e.target.closest('.vplay')) return;
+  if (fbAudioK === k && fbAudio) { if (fbAudio.paused) fbAudio.play().catch(() => {}); else fbAudio.pause(); return; }
+  fbAudio?.pause();
+  const a = fbAudio = new Audio(); fbAudioK = k;
+  a.ontimeupdate = a.onpause = a.onplay = a.onended = a.onloadedmetadata = fbVoicePaint;
+  const go = u => { a.src = u; a.playbackRate = fbSpeed; a.preservesPitch = true; return a.play(); };
+  if (fbDone.has(k)) go(fbDone.get(k)).catch(() => {});   // im selben Tipp starten, sonst blockt das iPhone
+  else { el.classList.add('loading'); fbLoad(k).then(u => fbAudio === a && go(u)).catch(err => alert('Sprachnachricht konnte nicht geladen werden: ' + err.message)).finally(() => el.classList.remove('loading')); }
+}
+function fbVoicePaint() {
+  document.querySelectorAll('#chat .voice').forEach(v => {
+    const on = v.dataset.k === fbAudioK && fbAudio, dur = on && isFinite(fbAudio.duration) ? fbAudio.duration : 0;
+    v.classList.toggle('playing', !!(on && !fbAudio.paused && !fbAudio.ended));
+    v.querySelector('.vfill').style.width = (dur ? fbAudio.currentTime / dur * 100 : 0) + '%';
+    v.querySelector('.vtime').textContent = fbDur(on && fbAudio.currentTime && !fbAudio.ended ? fbAudio.currentTime : dur || +v.dataset.d || 0);
+  });
+}
+// Sprachnachricht aufnehmen: Mikro antippen, dann senden oder verwerfen (höchstens 5 Minuten)
+let fbRec = null;
+async function fbRecord() {
+  if (fbRec || fbBusy) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return alert('Sprachnachrichten gehen auf diesem Gerät leider nicht.');
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { return alert('Bitte erlaube den Zugriff aufs Mikrofon. Auf dem iPhone: Einstellungen › Apps › Safari › Mikrofon.'); }
+  const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported?.(t));
+  const rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });   // 32 kbit/s: ca. 240 KB pro Minute
+  const chunks = [], t0 = Date.now();
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  fbAudio?.pause();
+  fbRec = { rec, stream, chunks, t0, timer: setInterval(() => {
+    const s = (Date.now() - t0) / 1000; if ($('#rectime')) $('#rectime').textContent = fbDur(s);
+    if (s >= FB_VOICE_SEC) fbRecStop(true);
+  }, 250) };
+  rec.start(1000);
+  const bar = $('.chatbar'); bar.hidden = true;
+  bar.insertAdjacentHTML('afterend', `<div class="recbar" id="recbar"><button class="roundbtn" onclick="fbRecStop(false)" aria-label="Aufnahme verwerfen"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button><span class="recdot"></span><span id="rectime">0:00</span><span class="muted small grow">Aufnahme läuft</span><button class="sendbtn" onclick="fbRecStop(true)" aria-label="Sprachnachricht senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
+}
+function fbRecStop(send) {
+  const r = fbRec; if (!r) return;
+  fbRec = null; clearInterval(r.timer);
+  const d = (Date.now() - r.t0) / 1000;
+  r.rec.onstop = async () => {
+    r.stream.getTracks().forEach(t => t.stop());
+    $('#recbar')?.remove(); if ($('.chatbar')) $('.chatbar').hidden = false;
+    if (!send || d < 1 || !$('#chat')) return;
+    const type = (r.rec.mimeType || r.chunks[0]?.type || 'audio/mp4').split(';')[0], blob = new Blob(r.chunks, { type }), reply = fbReply;
+    fbSetReply(null);
+    try { await fbPost(fbIsAdmin, '', await fbUploadAll([{ blob, type, name: 'Sprachnachricht', size: blob.size, d }]), reply); }
+    catch (e) { if (reply) fbSetReply(reply); alert('Sprachnachricht konnte nicht gesendet werden: ' + e.message); }
+  };
+  r.rec.stop();
 }
 function closeFeedback(admin) {
   fbUnsub?.(); fbUnsub = null; document.querySelector('.msgmenu-bg')?.remove();
+  fbRecStop(false); fbAudio?.pause(); fbAudio = null; fbAudioK = null;
   if (admin) { closeSheet(); render(); loadFeedbackAdmin(); } else closeSheet();
 }
 // Admin: Liste aller Chats
