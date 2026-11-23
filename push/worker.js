@@ -99,6 +99,15 @@ async function aboStatus(env, uid) {
   if (!s) return { aktiv: false };
   return { aktiv: true, plan: s.items.data[0].price.recurring?.interval === 'year' ? 'jahr' : 'monat', bis: periodEnd(s), endet: !!(s.cancel_at_period_end || s.cancel_at) };
 }
+// E-Mail über Resend (Geheimnis RESEND_KEY, Domain dayliner.de dort bestätigt). Kopie an service@dayliner.de.
+async function sendMail(env, to, subject, text) {
+  if (!env.RESEND_KEY) return false;
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'Dayliner <service@dayliner.de>', to: [to], bcc: ['service@dayliner.de'], reply_to: 'service@dayliner.de', subject, text }),
+  }).catch(() => null);
+  return !!r?.ok;
+}
 // Kündigung ohne Anmeldung (Pflicht nach § 312k BGB): Abos zur E-Mail finden und zum Ende der Laufzeit beenden.
 // Jeder Eingang wird in KV festgehalten, der Entwickler bekommt eine Push-Nachricht und schickt die Bestätigung per E-Mail.
 async function kuendigen(b, env) {
@@ -109,9 +118,19 @@ async function kuendigen(b, env) {
     for (const s of await liveSubs(env, c.id)) ende.push(periodEnd(await stripe(env, 'subscriptions/' + s.id, { cancel_at_period_end: 'true' })));
   const art = b.art === 'ausserordentlich' ? 'außerordentlich' : 'ordentlich';
   const e = { at, name, mail, art, grund: String(b.grund || '').slice(0, 1000), vertrag: String(b.vertrag || 'Dayliner Pro').slice(0, 200), ende };
+  // Bestätigung sofort in Textform (§ 312k Abs. 4 BGB): Inhalt, Eingang mit Datum und Uhrzeit, Vertragsende
+  const tz = { timeZone: 'Europe/Berlin' }, tag = t => new Date(t).toLocaleDateString('de-DE', tz);
+  const zeit = new Date(at).toLocaleString('de-DE', { ...tz, dateStyle: 'long', timeStyle: 'short' });
+  const text = [`Hallo ${name},`, '', 'wir bestätigen den Eingang deiner Kündigung.', '',
+    `Vertrag: ${e.vertrag}`, `Art der Kündigung: ${art}`, ...(e.grund ? [`Grund: ${e.grund}`] : []), `Eingegangen am: ${zeit} Uhr`,
+    ende.length ? `Beendet zum: ${ende.map(tag).join(' und ')} (Ende der laufenden Abrechnungszeit)` : 'Zu dieser E-Mail-Adresse haben wir kein laufendes Abo gefunden. Wir prüfen deine Kündigung von Hand und melden uns bei dir.',
+    '', ...(ende.length ? ['Bis dahin kannst du Dayliner Pro weiter nutzen, danach wird nichts mehr abgebucht.', ''] : []),
+    'Deine Zeiten und die kostenlose Basis von Dayliner bleiben dir erhalten.', '', 'Viele Grüße', 'Dein Dayliner-Team', '',
+    '--', 'DK Visuals, Inhaber Dominik Kononenko, Hauptstraße 37, 56307 Dernbach', 'service@dayliner.de · dayliner.de'].join('\n');
+  e.bestaetigt = await sendMail(env, mail, 'Bestätigung deiner Kündigung von Dayliner Pro', text);
   await env.SUBS.put('kuendigung:' + at + ':' + mail, JSON.stringify(e));
-  await toAdmins({ title: '📮 Kündigung eingegangen', body: `${name} (${mail}), ${art}${ende.length ? '' : ', kein laufendes Abo gefunden'}. Bestätigung per E-Mail schicken!`, url: '', tag: 'kuendigung' }, env);
-  return [{ ok: true, at, ende }, 200];
+  await toAdmins({ title: '📮 Kündigung eingegangen', body: `${name} (${mail}), ${art}${ende.length ? '' : ', kein laufendes Abo gefunden'}. ${e.bestaetigt ? 'Bestätigung ging automatisch raus.' : 'Bestätigung per E-Mail schicken!'}`, url: '', tag: 'kuendigung' }, env);
+  return [{ ok: true, at, ende, mail: e.bestaetigt }, 200];
 }
 
 // ---------- Anfragen ----------
