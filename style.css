@@ -331,9 +331,10 @@ html.light .roundbtn{background:rgba(0,0,0,.06)}
 .fbviewer button{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:16px}
 .fbtag{display:block;font-size:12px;font-weight:600;opacity:.85;margin-bottom:2px}
 .fbtypes{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.fbtypes .pill{flex:none}
-.chatbar{display:flex;gap:8px;align-items:flex-end;padding-bottom:4px}
-.chatbar textarea{flex:1;font:inherit;font-size:16px;color:var(--txt);background:rgba(255,255,255,.09);border:0;border-radius:22px;padding:11px 16px;resize:none;max-height:140px;outline:none}
-html.light .chatbar textarea{background:rgba(0,0,0,.06)}
+.chatbar{display:flex;gap:2px;align-items:flex-end;padding:4px!important;background:rgba(255,255,255,.09);border-radius:26px}
+html.light .chatbar{background:rgba(0,0,0,.06)}
+.chatbar textarea{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--txt);background:none;border:0;padding:11px 6px;resize:none;max-height:140px;outline:none}
+.chatbar .roundbtn{background:none;margin-bottom:2px}
 .sendbtn{flex:none;width:44px;height:44px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center}.sendbtn svg{width:22px;height:22px}
 .dotnew{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:1px}
 .fbprev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62vw}
