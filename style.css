@@ -269,6 +269,23 @@ html.light .fbbtn{color:#e0a400;background:linear-gradient(180deg,rgba(255,255,2
 html.light .bubble.them{background:rgba(0,0,0,.06)}
 .btime{display:block;font-size:11px;opacity:.65;margin-top:4px;text-align:right}
 .ticks{display:inline-block;width:16px;height:14px;margin-left:4px;vertical-align:-2px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.ticks{opacity:.7}.ticks.read{stroke:#a6f0ff;opacity:1;stroke-width:2}.bubble.me .btime{opacity:.85}
+.bubble[data-id]{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;transition:transform .15s,box-shadow .3s}
+.bubble.held{transform:scale(1.03)}.bubble.flash{box-shadow:0 0 0 3px rgba(255,255,255,.55)}
+.bubble.hasre{margin-bottom:14px}
+.reacts{position:absolute;bottom:-15px;right:10px;font-size:14px;line-height:1;padding:3px 6px;border-radius:12px;background:var(--bg);box-shadow:0 0 0 1px var(--line);letter-spacing:1px}
+.bubble.them .reacts{right:auto;left:10px}
+.quote{display:block;width:100%;text-align:left;font-size:13px;line-height:1.3;background:rgba(0,0,0,.2);border-left:3px solid currentColor;border-radius:8px;padding:5px 8px;margin:0 0 6px;opacity:.9}
+.quote b,.replybar b{display:block;font-size:12px}
+.quote span,.replybar .rq span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.replybar{display:flex;gap:8px;align-items:center;margin:0 0 8px;padding:8px 8px 8px 12px;border-radius:16px;border-left:3px solid var(--accent);background:rgba(255,255,255,.09);font-size:14px}
+.replybar .rq{flex:1;min-width:0}
+html.light .replybar{background:rgba(0,0,0,.06)}
+.msgmenu-bg{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.35);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.msgmenu{position:absolute;left:50%;transform:translateX(-50%);width:min(340px,calc(100% - 32px))}
+.reactbar{display:flex;justify-content:space-between;padding:6px;border-radius:28px;background:var(--bg);box-shadow:0 0 0 1px var(--line)}
+.reactbar button{width:44px;height:44px;border-radius:22px;font-size:26px;line-height:44px}
+.reactbar button.sel{background:rgba(255,255,255,.18)}
+.msgmenu.group{background:var(--bg);box-shadow:0 0 0 1px var(--line);margin:0}
 .fbtag{display:block;font-size:12px;font-weight:600;opacity:.85;margin-bottom:2px}
 .fbtypes{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.fbtypes .pill{flex:none}
 .chatbar{display:flex;gap:8px;align-items:flex-end;padding-bottom:4px}

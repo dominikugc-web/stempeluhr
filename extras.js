@@ -1042,7 +1042,9 @@ setInterval(locCheck, 120000);
 // Jeder Nutzer hat einen Chat mit dem Entwickler: feedback/{uid} (Übersicht) und feedback/{uid}/msgs (Nachrichten).
 // Der Entwickler sieht alle Chats im Admin-Bereich und kann antworten.
 const FB_TYPES = { idee: ['💡', 'Idee'], fehler: ['🐞', 'Fehler'], beschwerde: ['😕', 'Beschwerde'], frage: ['❓', 'Frage'] };
-let fbUnsub = null, fbThread = null, fbMsgs = [], fbType = 'idee', fbMeta = null, fbMetaUnsub = null, fbChatMeta = {};
+let fbUnsub = null, fbThread = null, fbMsgs = [], fbType = 'idee', fbMeta = null, fbMetaUnsub = null, fbChatMeta = {}, fbReply = null, fbIsAdmin = false;
+// Reaktionen wie bei WhatsApp: je Seite ein Emoji pro Nachricht, gespeichert im Chat-Datensatz unter re.<Nachricht>.<user|admin>
+const FB_REACTS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const ms = t => t?.toMillis ? t.toMillis() : 0;
 // Haken wie bei WhatsApp: 🕓 wird gesendet, ✓ gesendet, ✓✓ grau angekommen, ✓✓ blau gelesen
 function fbTicks(m, admin) {
@@ -1066,16 +1068,18 @@ function feedbackWatch() {
 function feedbackBadge() { const b = $('#fbbtn'); if (b) b.classList.toggle('unread', !!fbMeta?.unreadUser); }
 function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eines Nutzers
   const admin = !!uid && isAdmin();
-  fbThread = uid || me.uid;
+  fbThread = uid || me.uid; fbIsAdmin = admin;
   fbUnsub?.();
-  fbMsgs = [];
+  fbMsgs = []; fbReply = null;
   sheet(`<div class="sheet-head"><button class="pill sm${admin ? ' back' : ''}" ${admin ? 'aria-label="Zurück"' : ''} onclick="closeFeedback(${admin})">${admin ? '‹' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px"></span></div>
     ${admin ? '' : pushAskHtml('Benachrichtigen, wenn wir antworten')}
     <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
+    <div class="replybar" id="fbreply" hidden><div class="rq"></div><button class="pill sm" onclick="fbSetReply(null)" aria-label="Antwort verwerfen">✕</button></div>
     <div class="chatbar"><textarea id="fbtext" rows="1" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
       <button class="sendbtn" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
   $('#sheet').classList.add('chatsheet');
+  fbPress($('#chat'));
   const u1 = fb.db.collection(`feedback/${fbThread}/msgs`).orderBy('at').onSnapshot({ includeMetadataChanges: true }, q => {
     fbMsgs = q.docs.map(d => ({ id: d.id, pending: d.metadata.hasPendingWrites, ...d.data() }));
     fbRender(admin);
@@ -1092,9 +1096,56 @@ function fbRender(admin) {
   const el = $('#chat'); if (!el) return;
   const mine = m => admin ? m.from === 'admin' : m.from === 'user';
   el.innerHTML = (fbMsgs.length ? '' : `<div class="bubble them"><b>Hallo${admin ? '' : ' ' + esc((displayName() || '').split(' ')[0])}!</b> 👋<br>Hast du eine Idee für eine neue Funktion, stört dich etwas oder ist ein Fehler aufgetreten? Schreib es einfach hier rein. Wir lesen alles und antworten hier im Chat.</div>`)
-    + fbMsgs.map(m => `<div class="bubble ${mine(m) ? 'me' : 'them'}">${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
-      <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}${mine(m) ? fbTicks(m, admin) : ''}</span></div>`).join('');
+    + fbMsgs.map(m => { const re = Object.values(fbChatMeta.re?.[m.id] || {}).filter(e => FB_REACTS.includes(e)); return `<div class="bubble ${mine(m) ? 'me' : 'them'}${re.length ? ' hasre' : ''}" data-id="${esc(m.id)}">${m.reply?.text ? `<button class="quote" data-jump="${esc(m.reply.id)}"><b>${fbWho(m.reply.from)}</b><span>${esc(m.reply.text)}</span></button>` : ''}${m.type && FB_TYPES[m.type] ? `<span class="fbtag">${FB_TYPES[m.type].join(' ')}</span>` : ''}${esc(m.text).replace(/\n/g, '<br>')}
+      <span class="btime">${m.from === 'admin' && !admin ? 'Entwickler · ' : ''}${m.at?.toDate ? m.at.toDate().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'jetzt'}${mine(m) ? fbTicks(m, admin) : ''}</span>${re.length ? `<span class="reacts">${re.join('')}</span>` : ''}</div>`; }).join('');
   el.scrollTop = el.scrollHeight;
+}
+const fbWho = from => (fbIsAdmin ? from === 'admin' : from === 'user') ? 'Du' : from === 'admin' ? 'Entwickler' : esc(fbAdminName(fbThread));
+// Lange drücken (oder Rechtsklick) auf eine Nachricht: Reaktion, Antworten, Kopieren
+function fbPress(chat) {
+  let t, x = 0, y = 0;
+  const stop = () => clearTimeout(t), bub = e => e.target.closest('.bubble[data-id]');
+  chat.addEventListener('pointerdown', e => { const b = bub(e); stop(); if (!b) return; x = e.clientX; y = e.clientY; t = setTimeout(() => fbMenu(b), 450); });
+  chat.addEventListener('pointermove', e => { if (Math.hypot(e.clientX - x, e.clientY - y) > 10) stop(); });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave', 'scroll']) chat.addEventListener(ev, stop, { passive: true });
+  chat.addEventListener('contextmenu', e => { const b = bub(e); if (b) { e.preventDefault(); stop(); fbMenu(b); } });
+  chat.addEventListener('click', e => { const q = e.target.closest('[data-jump]'); if (q) fbJump(q.dataset.jump); });
+}
+function fbMenu(b) {
+  const m = fbMsgs.find(x => x.id === b.dataset.id);
+  if (!m || m.pending || document.querySelector('.msgmenu-bg')) return;
+  navigator.vibrate?.(10);
+  const side = fbIsAdmin ? 'admin' : 'user', cur = fbChatMeta.re?.[m.id]?.[side], r = b.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'msgmenu-bg';
+  // wie bei WhatsApp: Emojis über, Aktionen unter der Nachricht; passt es nicht, rutscht alles zusammen ins Bild
+  const up = r.top - 64, down = r.bottom + 8 + 112, dy = up < 12 ? 12 - up : down > innerHeight - 12 ? Math.max(12 - up, innerHeight - 12 - down) : 0;
+  el.innerHTML = `<div class="msgmenu reactbar" style="top:${Math.round(up + dy)}px">${FB_REACTS.map(e => `<button class="${e === cur ? 'sel' : ''}" data-e="${e}" aria-label="Reagieren mit ${e}">${e}</button>`).join('')}</div>
+    <div class="msgmenu group" style="top:${Math.round(r.bottom + 8 + dy)}px"><button class="row" data-a="reply"><span>Antworten</span><span>↩︎</span></button><button class="row" data-a="copy"><span>Kopieren</span><span>⧉</span></button></div>`;
+  const c = b.cloneNode(true);
+  c.classList.remove('held'); c.removeAttribute('data-id');
+  Object.assign(c.style, { position: 'fixed', left: r.left + 'px', top: r.top + dy + 'px', width: r.width + 'px', margin: 0, maxWidth: 'none', pointerEvents: 'none' });
+  el.append(c);
+  el.onclick = e => {
+    const em = e.target.closest('[data-e]')?.dataset.e, a = e.target.closest('[data-a]')?.dataset.a;
+    el.remove(); b.classList.remove('held');
+    if (em) ref('feedback/' + fbThread).update({ [`re.${m.id}.${side}`]: em === cur ? firebase.firestore.FieldValue.delete() : em }).catch(err => alert('Reaktion fehlgeschlagen: ' + err.message));
+    if (a === 'reply') fbSetReply(m);
+    if (a === 'copy') navigator.clipboard?.writeText(m.text).then(() => toast('Kopiert'), () => {});
+  };
+  document.body.append(el); b.classList.add('held');
+}
+function fbSetReply(m) {
+  fbReply = m ? { id: m.id, text: m.text.replace(/\s+/g, ' ').slice(0, 100), from: m.from } : null;
+  const box = $('#fbreply'); if (!box) return;
+  box.hidden = !fbReply;
+  if (fbReply) { box.querySelector('.rq').innerHTML = `<b>${fbWho(fbReply.from)}</b><span>${esc(fbReply.text)}</span>`; $('#fbtext').focus(); }
+}
+function fbJump(id) {
+  const el = [...document.querySelectorAll('#chat .bubble[data-id]')].find(b => b.dataset.id === id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1200);
 }
 function fbSetType(k) { fbType = k; document.querySelectorAll('.fbtypes .pill').forEach(b => b.classList.toggle('sel', b.dataset.t === k)); }
 async function sendFeedback(admin) {
@@ -1102,21 +1153,22 @@ async function sendFeedback(admin) {
   if (!text) return;
   if (text.length > 4000) return alert('Bitte etwas kürzer fassen (max. 4000 Zeichen).');
   ta.value = ''; ta.style.height = 'auto';
-  const at = firebase.firestore.FieldValue.serverTimestamp();
+  const at = firebase.firestore.FieldValue.serverTimestamp(), reply = fbReply, rep = reply ? { reply } : {};
+  fbSetReply(null);
   try {
     if (admin) {
-      await fb.db.collection(`feedback/${fbThread}/msgs`).add({ text, from: 'admin', at });
+      await fb.db.collection(`feedback/${fbThread}/msgs`).add({ text, from: 'admin', at, ...rep });
       await ref('feedback/' + fbThread).set({ last: at, lastText: text.slice(0, 120), unreadUser: true, unreadAdmin: false }, { merge: true });
       notifyPush({ to: fbThread, title: '💬 Antwort auf dein Feedback', body: text, url: './?fb=1' });
     } else {
-      await fb.db.collection(`feedback/${me.uid}/msgs`).add({ text, from: 'user', type: fbType, at, name: displayName() || '', ver: document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] || '', device: navigator.userAgent.slice(0, 160) });
+      await fb.db.collection(`feedback/${me.uid}/msgs`).add({ text, from: 'user', type: fbType, at, ...rep, name: displayName() || '', ver: document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] || '', device: navigator.userAgent.slice(0, 160) });
       await ref('feedback/' + me.uid).set({ name: displayName() || '', email: me.email || '', company: company?.name || '', last: at, lastText: text.slice(0, 120), lastType: fbType, unreadAdmin: true, unreadUser: false }, { merge: true });
       notifyPush({ to: 'admin', title: `${FB_TYPES[fbType][0]} ${displayName() || 'Nutzer'}${company?.name ? ' · ' + company.name : ''}`, body: text, url: './admin/?fb=' + me.uid });
     }
-  } catch (e) { ta.value = text; alert('Senden fehlgeschlagen: ' + e.message); }
+  } catch (e) { ta.value = text; if (reply) fbSetReply(reply); alert('Senden fehlgeschlagen: ' + e.message); }
 }
 function closeFeedback(admin) {
-  fbUnsub?.(); fbUnsub = null;
+  fbUnsub?.(); fbUnsub = null; document.querySelector('.msgmenu-bg')?.remove();
   if (admin) { closeSheet(); render(); loadFeedbackAdmin(); } else closeSheet();
 }
 // Admin: Liste aller Chats
