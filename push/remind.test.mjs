@@ -1,6 +1,6 @@
 // Run with: node push/remind.test.mjs
 import assert from 'assert';
-import { remindDue, remindClean, localNow } from './remind.mjs';
+import { remindDue, remindClean, localNow, remindAll, MAX_RUN } from './remind.mjs';
 
 // Montag 23.11.2026 in Berlin (UTC+1); days: Mo–Fr Arbeit, Sa/So frei
 const at = (hh, mm, day = 23) => Date.UTC(2026, 10, day, hh - 1, mm);
@@ -26,4 +26,23 @@ assert.equal(remindDue({ ...work, end: null }, at(17, 30)), null, 'Feierabend-Er
 const c = remindClean({ start: '25:00', end: 'x', tz: 'Mars/Base', days: '1a0', base: 'nope' });
 assert.deepEqual([c.start, c.end, c.tz, c.days, c.base], [null, null, 'Europe/Berlin', '10', null]);
 assert.ok(JSON.stringify(remindClean({ ...base, start: '08:00', end: '17:00', days: '1'.repeat(99), base: '2026-11-23', last: '2026-11-23', tz: 'America/Argentina/ComodRivadavia' }, { s: '2026-11-23', e: '2026-11-23' })).length < 1024);
+
+// Cron mit vielen Nutzern: höchstens MAX_RUN je Durchlauf, Fehler werden beim nächsten Mal wiederholt
+const kv = new Map(), sends = [];
+for (let i = 0; i < 25; i++) kv.set('remind:u' + i, { ...base, sent: {} });
+kv.set('remind:fail', { ...base, sent: {} });
+const fake = {
+  list: async () => ({ keys: [...kv].map(([name, metadata]) => ({ name, metadata })), list_complete: true }),
+  getWithMetadata: async k => ({ metadata: kv.get(k) }),
+  put: async (k, v, o) => { kv.set(k, o.metadata); },
+};
+const send = async uid => { sends.push(uid); if (uid === 'fail') throw new Error('Limit'); return 1; };
+assert.equal(await remindAll(fake, send, at(8, 0)), MAX_RUN);
+assert.equal(sends.length, MAX_RUN);
+await remindAll(fake, send, at(8, 5));
+assert.equal(sends.length, 26, 'Rest im nächsten Durchlauf');
+assert.equal(kv.get('remind:fail').sent.s, undefined, 'Fehler nicht als erinnert gemerkt');
+assert.equal(kv.get('remind:u24').sent.s, '2026-11-23');
+await remindAll(fake, send, at(8, 10));
+assert.deepEqual(sends.slice(26), ['fail'], 'nur der Fehlgeschlagene noch einmal');
 console.log('remind ok');

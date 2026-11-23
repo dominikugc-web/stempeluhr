@@ -1149,7 +1149,7 @@ const PUSH_KEY = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbW
 const pushOk = () => 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 const pushOn = () => pushOk() && Notification.permission === 'granted';
 async function pushCall(path, body) {
-  const r = await fetch(PUSH_URL + path, { method: 'POST', headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(PUSH_URL + path, { method: 'POST', keepalive: true, headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Push-Dienst antwortet nicht');
   return r.json();
 }

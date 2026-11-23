@@ -27,3 +27,23 @@ export function remindClean(b, sent) {
   try { new Intl.DateTimeFormat('en', { timeZone: tz }); } catch { tz = ''; }
   return { start: t(b.start), end: t(b.end), tz: tz || 'Europe/Berlin', base: date(b.base), days: String(b.days || '').replace(/[^01]/g, '').slice(0, 62), last: date(b.last), run: !!b.run, sent: sent || {} };
 }
+
+// Ein Cron-Durchlauf. send(uid, msg) liefert die Zahl erreichter Geräte, -1 = vorübergehender Fehler (dann nicht als erledigt merken).
+// shortcut: höchstens MAX_RUN Nutzer je Durchlauf (Gratis-Plan: 50 Unteranfragen), der Rest kommt 5 Min. später dran; ab einigen hundert Nutzern mit gleicher Uhrzeit Workers Paid oder Queues.
+export const MAX_RUN = 20;
+export async function remindAll(kv, send, now = Date.now()) {
+  let cursor, n = 0;
+  do {
+    const l = await kv.list({ prefix: 'remind:', cursor });
+    for (const k of l.keys) {
+      const due = k.metadata && remindDue(k.metadata, now);
+      if (!due) continue;
+      if (++n > MAX_RUN) return MAX_RUN;
+      if (await send(k.name.slice(7), due.msg).catch(() => -1) < 0) continue;
+      const cur = (await kv.getWithMetadata(k.name)).metadata || k.metadata;   // frisch lesen, falls die App gerade gemeldet hat
+      await kv.put(k.name, '', { metadata: { ...cur, sent: { ...cur.sent, [due.key]: due.d } } });
+    }
+    cursor = l.list_complete ? null : l.cursor;
+  } while (cursor);
+  return n;
+}

@@ -5,7 +5,7 @@
 //   POST /notify     { to, title, body, url }           Nutzer → Entwickler, Entwickler → beliebiger Nutzer
 //   POST /remind     { on, start, end, tz, base, days, last, run }   Erinnerung ans Stempeln (Cron alle 5 Min.)
 // Geheimnis (wrangler secret put VAPID_PRIVATE): privater VAPID-Schlüssel als base64url (d).
-import { remindDue, remindClean } from './remind.mjs';
+import { remindClean, remindAll } from './remind.mjs';
 
 const PROJECT = 'stempeluhr-6faae';
 const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
@@ -137,34 +137,23 @@ async function kuendigen(b, env) {
 
 // ---------- Erinnerung ans Stempeln ----------
 // Gespeichert als KV-Metadaten unter remind:<uid>, damit der Cron alles mit einem list() liest.
-// shortcut: alle Nutzer in einem Durchlauf, reicht für einige Tausend; bei mehr auf Queues oder Durable Objects umstellen.
+// Erinnerung an alle Geräte eines Nutzers: Zahl der erreichten Geräte, -1 wenn keins erreicht wurde, aber nur vorübergehend
 async function sendUser(env, uid, data) {
   const list = JSON.parse(await env.SUBS.get(uid) || '[]'), keep = [];
+  let ok = 0, fail = 0;
   for (const s of list) {
     if (s.app !== 'user') { keep.push(s); continue; }
     const st = await push(s, data, env).catch(() => 0);
+    if (st >= 200 && st < 300) ok++; else if (st !== 404 && st !== 410) fail++;
     if (st !== 404 && st !== 410) keep.push(s);   // abgelaufenes Abo vergessen
   }
   if (keep.length !== list.length) await env.SUBS.put(uid, JSON.stringify(keep));
-}
-async function remindAll(env, now = Date.now()) {
-  let cursor;
-  do {
-    const l = await env.SUBS.list({ prefix: 'remind:', cursor });
-    for (const k of l.keys) {
-      const due = k.metadata && remindDue(k.metadata, now);
-      if (!due) continue;
-      await sendUser(env, k.name.slice(7), due.msg).catch(() => {});
-      const cur = (await env.SUBS.getWithMetadata(k.name)).metadata || k.metadata;   // frisch lesen, falls die App gerade gemeldet hat
-      await env.SUBS.put(k.name, '', { metadata: { ...cur, sent: { ...cur.sent, [due.key]: due.d } } });
-    }
-    cursor = l.list_complete ? null : l.cursor;
-  } while (cursor);
+  return ok || !fail ? ok : -1;
 }
 
 // ---------- Anfragen ----------
 export default {
-  async scheduled(ev, env, ctx) { ctx.waitUntil(remindAll(env)); },
+  async scheduled(ev, env, ctx) { ctx.waitUntil(remindAll(env.SUBS, (uid, msg) => sendUser(env, uid, msg))); },
   async fetch(req, env) {
     const origin = req.headers.get('Origin') || '';
     const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST' };
