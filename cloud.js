@@ -460,18 +460,31 @@ function renderLogin(mode = 'login') {
   <p class="center muted">${signup ? 'Neues Konto erstellen' : 'Melde dich an. Deine Zeiten werden gespeichert und sind auf allen Geräten gleich.'}</p>
   <button class="pill wide gbtn" onclick="googleLogin()">${G_ICON} Mit Google ${signup ? 'registrieren' : 'anmelden'}</button>
   <div class="label center">oder mit E-Mail</div>
+  <form id="lform" method="post" action="./" onsubmit="event.preventDefault(); ${signup ? 'emailSignup()' : 'emailLogin()'}">
   <div class="group">
     ${signup ? '<label class="row"><span>Name</span><input id="lname" autocomplete="name" placeholder="Vor- und Nachname"></label>' : ''}
-    <label class="row"><span>E-Mail</span><input id="lmail" type="email" autocomplete="email" inputmode="email" placeholder="name@firma.de"></label>
-    <label class="row"><span>Passwort</span><input id="lpass" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? 'mind. 6 Zeichen' : ''}"></label>
+    <label class="row"><span>E-Mail</span><input id="lmail" name="username" type="email" autocomplete="username" inputmode="email" placeholder="name@firma.de"></label>
+    <label class="row"><span>Passwort</span><input id="lpass" name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? 'mind. 6 Zeichen' : ''}"></label>
+    <label class="row"><span>Anmeldedaten speichern<div class="muted small">Dein Handy merkt sich E-Mail und Passwort im Passwort-Speicher. Beim nächsten Mal nur antippen.</div></span><input type="checkbox" id="lsave" ${loginSave() ? 'checked' : ''}></label>
   </div>
   <p class="hint red" id="lerr"></p>
-  <button class="big" onclick="${signup ? 'emailSignup()' : 'emailLogin()'}">${signup ? 'Konto erstellen' : 'Anmelden'}</button>
+  <button class="big" type="submit">${signup ? 'Konto erstellen' : 'Anmelden'}</button>
+  </form>
   <button class="pill sm mid" onclick="renderLogin('${signup ? 'login' : 'signup'}')">${signup ? 'Ich habe schon ein Konto' : 'Neues Konto erstellen'}</button>
   ${signup ? '' : '<p class="center"><button class="muted small" onclick="resetPassword()">Passwort vergessen?</button></p>'}
   ${joinCode ? `<p class="hint center">Nach der Anmeldung trittst du der Firma mit dem Code ${esc(joinCode)} bei.</p>` : ''}
   <p class="hint center">${signup ? 'Mit dem Erstellen des Kontos gilt unsere ' : ''}<a class="link" href="${WEB}datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> · <a class="link" href="${WEB}impressum.html" target="_blank" rel="noopener">Impressum</a></p>`;
-  $('#lpass').addEventListener('keydown', e => e.key === 'Enter' && (signup ? emailSignup() : emailLogin()));
+}
+// Anmeldedaten im Passwort-Speicher des Geräts ablegen (nie in der App selbst). iPhone fragt beim Absenden des Formulars selbst,
+// Chrome/Android über PasswordCredential. Die Wahl des Häkchens merkt sich das Gerät.
+const loginSave = () => { try { return localStorage.getItem('lsave') !== '0'; } catch { return true; } };
+function loginRead() {
+  const keep = !!$('#lsave')?.checked;
+  try { localStorage.setItem('lsave', keep ? '1' : '0'); } catch {}
+  return { mail: $('#lmail').value.trim(), pass: $('#lpass').value, keep };
+}
+function loginStore({ mail, pass, keep }, name) {
+  if (keep && window.PasswordCredential) navigator.credentials.store(new PasswordCredential({ id: mail, password: pass, name: name || mail })).catch(() => {});
 }
 const AUTH_MSG = {
   'auth/invalid-credential': 'E-Mail oder Passwort ist falsch.', 'auth/wrong-password': 'E-Mail oder Passwort ist falsch.',
@@ -497,13 +510,16 @@ async function googleLogin() {
   }
 }
 function emailLogin() {
-  fb.auth.signInWithEmailAndPassword($('#lmail').value.trim(), $('#lpass').value).catch(authError);
+  const l = loginRead();   // vorher lesen: nach der Anmeldung ist das Formular schon weg
+  fb.auth.signInWithEmailAndPassword(l.mail, l.pass).then(() => loginStore(l)).catch(authError);
 }
 async function emailSignup() {
   const name = $('#lname').value.trim();
   if (!name) return authError({ message: 'Bitte deinen Namen eintragen.' });
+  const l = loginRead();
   try {
-    const r = await fb.auth.createUserWithEmailAndPassword($('#lmail').value.trim(), $('#lpass').value);
+    const r = await fb.auth.createUserWithEmailAndPassword(l.mail, l.pass);
+    loginStore(l, name);
     await r.user.updateProfile({ displayName: name });
     if (data.settings && !data.settings.name) { data.settings.name = name; if (own.shared) save(); }
   } catch (e) { authError(e); }
