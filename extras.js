@@ -1114,7 +1114,7 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
     <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
     <div class="replybar" id="fbreply" hidden><div class="rq"></div><button class="pill sm" onclick="fbSetReply(null)" aria-label="Antwort verwerfen">✕</button></div>
-    <div class="chatbar"><textarea id="fbtext" rows="1" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+    <div class="chatbar"><textarea id="fbtext" name="nachricht" rows="1" autocomplete="off" placeholder="${admin ? 'Antwort schreiben …' : 'Was können wir besser machen?'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
       <button class="sendbtn" onmousedown="event.preventDefault()" ontouchend="event.preventDefault(); sendFeedback(${admin})" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
   $('#sheet').classList.add('chatsheet');
   fbPress($('#chat'));

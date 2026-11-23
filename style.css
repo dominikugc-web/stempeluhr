@@ -262,6 +262,7 @@ body:has(#fbbtn:not([hidden])) .tabs{width:var(--tbw);left:calc(50% - 34px)}
 .fbbtn.unread::after{content:"";position:absolute;top:6px;right:6px;width:12px;height:12px;border-radius:50%;background:var(--minus);box-shadow:0 0 0 2px rgba(0,0,0,.4)}
 html.light .fbbtn{color:#e0a400;background:linear-gradient(180deg,rgba(255,255,255,.75),rgba(245,245,250,.85));box-shadow:0 8px 24px rgba(0,0,0,.12)}
 #sheet.chatsheet .panel{display:flex;flex-direction:column;height:calc(100% - env(safe-area-inset-top) - 12px)}
+#sheet.chatsheet .panel:has(#fbtext:focus){padding-bottom:8px}   /* Tastatur offen: kein Abstand für den Bildschirmrand */
 .chat{flex:1;min-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:8px 2px 12px}
 .bubble{max-width:82%;padding:10px 14px;border-radius:20px;line-height:1.4;font-size:16px;word-wrap:break-word}
 .bubble.them{align-self:flex-start;background:rgba(255,255,255,.1);border-bottom-left-radius:6px}
