@@ -584,3 +584,10 @@ label.row:has(>input:not([type=checkbox]):not([type=color]):not(.full)),label.ro
 @media (orientation:landscape) and (max-height:500px) and (pointer:coarse){
   body::after{content:"📱\A\A Bitte halte dein Handy hochkant.\A Dayliner ist fürs Hochformat gemacht.";white-space:pre;position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;text-align:center;font-size:20px;line-height:1.4;color:#f4ece4;background:#140d09}
 }
+/* PC und Tablet: Handy-Ansicht mittig, etwas breiter (600 statt 528 px), nie über die ganze Breite */
+@media (min-width:760px){
+  main{padding-left:calc(50% - 300px);padding-right:calc(50% - 300px)}
+  .tabs{width:460px}
+  body:has(#fbbtn:not([hidden])){--tbw:400px}
+  .panel{max-width:620px}
+}

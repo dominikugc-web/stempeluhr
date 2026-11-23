@@ -1,0 +1,75 @@
+/* Android: Material Design 3 statt iOS-Glas. Greift nur mit html.android (gesetzt im <head> von index.html).
+   Farben kommen weiter aus dem gewählten Hintergrund (--bg, --accent, --txt), nur Flächen, Formen und Effekte sind Android. */
+html.android{
+  --m-surf:color-mix(in srgb,var(--bg) 86%,#fff 14%);      /* Karten, Listen */
+  --m-surf-hi:color-mix(in srgb,var(--bg) 78%,#fff 22%);   /* Menüleiste, Bottom Sheet */
+  --m-tonal:color-mix(in srgb,var(--accent) 26%,transparent);
+  --m-outline:color-mix(in srgb,var(--txt) 35%,transparent);
+}
+html.android.light{
+  --m-surf:color-mix(in srgb,var(--bg) 94%,#000 6%);
+  --m-surf-hi:color-mix(in srgb,var(--bg) 90%,#000 10%);
+  --m-tonal:color-mix(in srgb,var(--accent) 18%,transparent);
+}
+html.android body{font-family:Roboto,"Google Sans",system-ui,sans-serif;letter-spacing:.1px}
+html.android h1{font-weight:500}
+
+/* kein Glas: Ränder, Unschärfe und Lichtkanten weg */
+html.android :is(.card,.group,.day,.tip,.kpi,details.month,.choice,.ot,.pill,.segctl,.viewing,.segctl button.on,.tabs,.tab-ind,.fbbtn)::before{display:none}
+html.android :is(.card,.group,.day,.tip,.kpi,details.month,.choice,.ot,.viewing,.segctl){background:var(--m-surf);box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;border-color:transparent}
+html.android :is(.card,.tip,.kpi,details.month,.choice,.viewing){border-radius:16px}
+html.android .group{border-radius:16px}
+html.android .row{min-height:56px}
+
+/* Knöpfe: Material-Formen (Pill), tonal oder gefüllt, kein Verlauf */
+html.android .pill:not(.sel):not(.gbtn){background:var(--m-tonal);box-shadow:none;border:0;font-weight:500}
+html.android .pill.sel{background:var(--accent);border-color:var(--accent);box-shadow:none}
+html.android .big{background:var(--ok);box-shadow:0 1px 3px rgba(0,0,0,.3);height:56px;border-radius:28px;font-size:20px;font-weight:500}
+html.android .big.stop{background:var(--minus)}
+html.android .big.pause{background:#f2c94c}
+html.android .segctl{border:1px solid var(--m-outline);border-radius:20px;padding:0;overflow:hidden}
+html.android .segctl button{border-radius:0}
+html.android .segctl button.on{background:var(--m-tonal);box-shadow:none}
+
+/* Menüleiste unten: Material Navigation Bar über die volle Breite, Markierung als Pill hinter dem Symbol, Beschriftung darunter */
+html.android .tabs{left:0!important;right:0;bottom:0!important;transform:none!important;width:auto!important;padding:0 0 env(safe-area-inset-bottom);border-radius:0;
+  background:var(--m-surf-hi);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;transition:none}
+html.android :is(.tab-ind,.tab-hi){display:none!important}
+html.android .tabs button{flex-direction:column;gap:4px;height:80px;border-radius:0;transform:none!important;color:var(--mut)}
+html.android .tabs button::before{content:"";position:absolute;top:12px;left:50%;width:64px;height:32px;margin-left:-32px;border-radius:16px;background:var(--m-tonal);transform:scaleX(.3);opacity:0;transition:transform .25s,opacity .25s}
+html.android .tabs button.on{color:var(--txt)}
+html.android .tabs button.on::before{transform:none;opacity:1}
+html.android .tabs svg{position:relative;width:24px;height:24px}
+html.android .tabs button::after{content:attr(aria-label);position:relative;font-size:12px;font-weight:500;letter-spacing:.5px}
+html.android .tabs button.on::after{font-weight:700}
+html.android main{padding-bottom:calc(env(safe-area-inset-bottom) + 112px)}
+
+/* Feedback-Lampe: Material FAB rechts über der Menüleiste; die Seiten bekommen unten Platz dafür, damit nichts verdeckt wird */
+html.android .fbbtn{left:auto!important;right:16px;top:auto;bottom:calc(env(safe-area-inset-bottom) + 92px)!important;width:56px;height:56px;border-radius:16px;background:var(--m-surf-hi);box-shadow:0 3px 6px rgba(0,0,0,.3);-webkit-backdrop-filter:none;backdrop-filter:none}
+html.android .fbbtn svg{width:24px;height:24px}
+html.android body:has(#fbbtn:not([hidden])) main{padding-bottom:calc(env(safe-area-inset-bottom) + 164px)}
+/* Seitentitel links wie in Android-Apps */
+html.android body:has(.tabs:not([hidden])) main > h1.center{text-align:left}
+
+/* Bottom Sheet und Kopfzeile: Titel links, Zurück als Pfeil */
+html.android .panel{background:var(--m-surf-hi);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;border-radius:28px 28px 0 0}
+html.android .sheet-head{grid-template-columns:auto 1fr auto}
+html.android .sheet-head > h2{justify-self:start;text-align:left;font-weight:500;font-size:22px}
+html.android .sheet-head .pill:not(.back):not(.sel){background:none;color:var(--accent);padding:0 12px}
+html.android .pill.back{width:48px;background:none!important;font-size:0!important}
+html.android .pill.back::after{content:"←";position:static;font-size:24px;line-height:1;color:var(--txt)}
+
+/* Schalter: Material Switch statt Häkchen */
+html.android .row input[type=checkbox]{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:52px;height:32px;border-radius:16px;border:2px solid var(--m-outline);background:var(--m-surf);transition:background .2s,border-color .2s;cursor:pointer}
+html.android .row input[type=checkbox]::before{content:"";position:absolute;top:50%;left:6px;width:16px;height:16px;margin-top:-8px;border-radius:50%;background:var(--m-outline);transition:transform .2s,width .2s,height .2s,margin .2s,background .2s}
+html.android .row input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+html.android .row input[type=checkbox]:checked::before{width:24px;height:24px;margin-top:-12px;background:#fff;transform:translateX(18px)}
+html.android .row input[type=checkbox]:disabled{opacity:.4}
+
+/* Meldungen: Material Snackbar unten */
+html.android .toast{top:auto;bottom:calc(env(safe-area-inset-bottom) + 96px);left:16px;right:16px;transform:none;max-width:none;border-radius:4px;background:#322f35;color:#f5eff7;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:0 3px 8px rgba(0,0,0,.35)}
+
+/* Wellen-Effekt beim Antippen (Span kommt aus extras.js) */
+html.android :is(.row,.pill,.big,.roundbtn,.sendbtn,.mact button){position:relative;overflow:hidden}
+.ripple{position:absolute;border-radius:50%;background:currentColor;opacity:.16;transform:scale(0);pointer-events:none;animation:ripple .45s ease-out forwards}
+@keyframes ripple{to{transform:scale(1);opacity:0}}

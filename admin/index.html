@@ -14,7 +14,9 @@
 <link rel="icon" href="icon-192.png">
 <!-- Entwickler-App: gleiche Oberfläche wie ../index.html, mit Admin-Leiste. Änderungen am Body dort mit übernehmen. -->
 <script>window.ADMIN_APP = true;</script>
-<link rel="stylesheet" href="../style.css?v=115">
+<script>if (/Android/.test(navigator.userAgent)) document.documentElement.classList.add('android');   // Material-Design auf Android</script>
+<link rel="stylesheet" href="../style.css?v=116">
+<link rel="stylesheet" href="../android.css?v=116">
 </head>
 <body>
 <main id="view"></main>
@@ -32,10 +34,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js" defer></script>
-<script src="../firebase-config.js?v=115" defer></script>
-<script src="../logic.js?v=115" defer></script>
-<script src="../cloud.js?v=115" defer></script>
-<script src="../extras.js?v=115" defer></script>
-<script src="../app.js?v=115" defer></script>
+<script src="../firebase-config.js?v=116" defer></script>
+<script src="../logic.js?v=116" defer></script>
+<script src="../cloud.js?v=116" defer></script>
+<script src="../extras.js?v=116" defer></script>
+<script src="../app.js?v=116" defer></script>
 </body>
 </html>

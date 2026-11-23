@@ -1031,6 +1031,15 @@ function locEvent(l, kind) {
     } else { save(); render(); toast(`📍 ${l.name}: Zeiterfassung gestoppt`); }
   }
 }
+// Android: Wellen-Effekt beim Antippen wie in Material Design
+if (document.documentElement.classList.contains('android')) document.addEventListener('pointerdown', e => {
+  const t = e.target.closest?.('.row,.pill,.big,.roundbtn,.sendbtn,.mact button');
+  if (!t || t.disabled) return;
+  const r = t.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2.2, s = document.createElement('span');
+  s.className = 'ripple';
+  Object.assign(s.style, { width: d + 'px', height: d + 'px', left: e.clientX - r.left - d / 2 + 'px', top: e.clientY - r.top - d / 2 + 'px' });
+  t.append(s); setTimeout(() => s.remove(), 500);
+}, { passive: true });
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.classList.add('out'), 3200); setTimeout(() => t.remove(), 3700);
@@ -1053,13 +1062,15 @@ const FB_ICON = {
   del: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
 };
 // Tipps beim ersten Öffnen des Chats (danach über das ? oben rechts)
+const FB_FILES = false;   // Anhänge und Sprachnachrichten: auf true, sobald der R2-Speicher beim Push-Dienst läuft
 const FB_TIPS = [
   ['💬 Schreib uns direkt', 'Wähle unten, ob es eine Idee, ein Fehler, eine Beschwerde oder eine Frage ist, und schreib los. Wir lesen alles und antworten hier im Chat.'],
-  ['📎 Fotos, Dateien und Sprache', 'Über das + links schickst du Fotos, Videos bis 60 Sekunden oder Dateien, bis zu 10 auf einmal. Mit dem Mikro rechts nimmst du eine Sprachnachricht auf.'],
+  FB_FILES && ['📎 Fotos, Dateien und Sprache', 'Über das + links schickst du Fotos, Videos bis 60 Sekunden oder Dateien, bis zu 10 auf einmal. Mit dem Mikro rechts nimmst du eine Sprachnachricht auf.'],
   ['👆 Lange drücken zum Reagieren', 'Halte eine Nachricht gedrückt und tippe auf ein Emoji. Über das + findest du noch mehr. Nochmal antippen nimmt die Reaktion wieder weg.'],
   ['↩️ Auf eine Nachricht antworten', 'Im selben Menü tippst du auf Antworten. Der Anfang der Nachricht steht dann über deinem Text. Dort kannst du auch kopieren und eigene Nachrichten löschen.'],
   ['🔔 Antwort nicht verpassen', 'Haben wir geantwortet, zeigt die Lampe einen roten Punkt. Mit Benachrichtigungen bekommst du es zusätzlich aufs Handy.'],
 ];
+for (let i = FB_TIPS.length; i--;) if (!FB_TIPS[i]) FB_TIPS.splice(i, 1);
 let fbTipIdx = 0;
 const fbTipsSeen = () => { try { return localStorage.getItem('chatTips') === '1'; } catch { return false; } };
 // lock = erstes Öffnen: Schreiben und Reagieren erst nach den Tipps (Weiter bis zum Ende oder Überspringen)
@@ -1116,9 +1127,9 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
     <div class="replybar" id="fbreply" hidden><div class="rq"></div><button class="pill sm" onclick="fbSetReply(null)" aria-label="Antwort verwerfen">✕</button></div>
     <div class="attachbar" id="fbatt" hidden></div>
-    <div class="chatbar"><button class="roundbtn" onmousedown="event.preventDefault()" onclick="fbPlus(this)" aria-label="Foto, Video oder Datei anhängen"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button><textarea id="fbtext" name="nachricht" rows="1" autocomplete="off" placeholder="${admin ? 'Antwort …' : 'Schreib uns …'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+    <div class="chatbar">${FB_FILES ? '' : '<!--'}<button class="roundbtn" onmousedown="event.preventDefault()" onclick="fbPlus(this)" aria-label="Foto, Video oder Datei anhängen"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>${FB_FILES ? '' : '-->'}<textarea id="fbtext" name="nachricht" rows="1" autocomplete="off" placeholder="${admin ? 'Antwort …' : 'Schreib uns …'}" oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
       <button class="sendbtn" onmousedown="event.preventDefault()" ontouchend="event.preventDefault(); sendFeedback(${admin})" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <button class="roundbtn" onclick="fbRecord()" aria-label="Sprachnachricht aufnehmen"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
+      ${FB_FILES ? '' : '<!--'}<button class="roundbtn" onclick="fbRecord()" aria-label="Sprachnachricht aufnehmen"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>${FB_FILES ? '' : '-->'}</div>
     <input type="file" id="fbcam" accept="image/*,video/*" capture="environment" hidden onchange="fbPick(this)">
     <input type="file" id="fbpics" accept="image/*,video/*" multiple hidden onchange="fbPick(this)">
     <input type="file" id="fbdocs" accept=".pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,application/pdf" multiple hidden onchange="fbPick(this)">`);
