@@ -1062,7 +1062,7 @@ const FB_ICON = {
   del: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
 };
 // Tipps beim ersten Öffnen des Chats (danach über das ? oben rechts)
-const FB_FILES = false;   // Anhänge und Sprachnachrichten: auf true, sobald der R2-Speicher beim Push-Dienst läuft
+const FB_FILES = true;   // Anhänge und Sprachnachrichten (R2-Speicher „dayliner-chat“ beim Push-Dienst); false blendet Plus und Mikro aus
 const FB_TIPS = [
   ['💬 Schreib uns direkt', 'Wähle unten, ob es eine Idee, ein Fehler, eine Beschwerde oder eine Frage ist, und schreib los. Wir lesen alles und antworten hier im Chat.'],
   FB_FILES && ['📎 Fotos, Dateien und Sprache', 'Über das + links schickst du Fotos, Videos bis 60 Sekunden oder Dateien, bis zu 10 auf einmal. Mit dem Mikro rechts nimmst du eine Sprachnachricht auf.'],
