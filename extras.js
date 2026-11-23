@@ -1061,9 +1061,13 @@ const FB_TIPS = [
 ];
 let fbTipIdx = 0;
 const fbTipsSeen = () => { try { return localStorage.getItem('chatTips') === '1'; } catch { return false; } };
-function fbTips(show) {
+// lock = erstes Öffnen: Schreiben und Reagieren erst nach den Tipps (Weiter bis zum Ende oder Überspringen)
+function fbTips(show, lock) {
   const el = $('#fbtip'); if (!el) return;
   fbTipIdx = 0; el.hidden = !show;
+  lock = !!(show && lock);
+  $('#sheet').classList.toggle('fblock', lock);
+  if ($('#fbtext')) $('#fbtext').disabled = lock;
   if (show) el.innerHTML = fbTipHtml();
 }
 function fbTipHtml() {
@@ -1073,7 +1077,7 @@ function fbTipHtml() {
 }
 function fbTipNext() { if (++fbTipIdx < FB_TIPS.length) $('#fbtip').innerHTML = fbTipHtml(); else fbTipDone(); }
 function fbTipDone() {
-  $('#fbtip').hidden = true;
+  fbTips(false);
   try { localStorage.setItem('chatTips', '1'); } catch {}   // zusätzlich lokal: gilt auch bei mehreren Jobs und offline
   if (!data.settings.chatTips && !viewing) { data.settings.chatTips = true; save(); }
 }
@@ -1114,7 +1118,8 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
       <button class="sendbtn" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
   $('#sheet').classList.add('chatsheet');
   fbPress($('#chat'));
-  fbTips(!admin && !viewing && !data.settings.chatTips && !fbTipsSeen());
+  const first = !admin && !viewing && !data.settings.chatTips && !fbTipsSeen();
+  fbTips(first, first);
   const u1 = fb.db.collection(`feedback/${fbThread}/msgs`).orderBy('at').onSnapshot({ includeMetadataChanges: true }, q => {
     fbMsgs = q.docs.map(d => ({ id: d.id, pending: d.metadata.hasPendingWrites, ...d.data() }));
     fbRender(admin);
