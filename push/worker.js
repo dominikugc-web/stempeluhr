@@ -3,7 +3,9 @@
 // wenn im Feedback-Chat geschrieben wird. Wer anfragt, wird über sein Firebase-Anmelde-Token geprüft.
 //   POST /subscribe  { sub, app: 'user'|'admin' }       Gerät anmelden
 //   POST /notify     { to, title, body, url }           Nutzer → Entwickler, Entwickler → beliebiger Nutzer
+//   POST /remind     { on, start, end, tz, base, days, last, run }   Erinnerung ans Stempeln (Cron alle 5 Min.)
 // Geheimnis (wrangler secret put VAPID_PRIVATE): privater VAPID-Schlüssel als base64url (d).
+import { remindDue, remindClean } from './remind.mjs';
 
 const PROJECT = 'stempeluhr-6faae';
 const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
@@ -133,8 +135,36 @@ async function kuendigen(b, env) {
   return [{ ok: true, at, ende, mail: e.bestaetigt }, 200];
 }
 
+// ---------- Erinnerung ans Stempeln ----------
+// Gespeichert als KV-Metadaten unter remind:<uid>, damit der Cron alles mit einem list() liest.
+// shortcut: alle Nutzer in einem Durchlauf, reicht für einige Tausend; bei mehr auf Queues oder Durable Objects umstellen.
+async function sendUser(env, uid, data) {
+  const list = JSON.parse(await env.SUBS.get(uid) || '[]'), keep = [];
+  for (const s of list) {
+    if (s.app !== 'user') { keep.push(s); continue; }
+    const st = await push(s, data, env).catch(() => 0);
+    if (st !== 404 && st !== 410) keep.push(s);   // abgelaufenes Abo vergessen
+  }
+  if (keep.length !== list.length) await env.SUBS.put(uid, JSON.stringify(keep));
+}
+async function remindAll(env, now = Date.now()) {
+  let cursor;
+  do {
+    const l = await env.SUBS.list({ prefix: 'remind:', cursor });
+    for (const k of l.keys) {
+      const due = k.metadata && remindDue(k.metadata, now);
+      if (!due) continue;
+      await sendUser(env, k.name.slice(7), due.msg).catch(() => {});
+      const cur = (await env.SUBS.getWithMetadata(k.name)).metadata || k.metadata;   // frisch lesen, falls die App gerade gemeldet hat
+      await env.SUBS.put(k.name, '', { metadata: { ...cur, sent: { ...cur.sent, [due.key]: due.d } } });
+    }
+    cursor = l.list_complete ? null : l.cursor;
+  } while (cursor);
+}
+
 // ---------- Anfragen ----------
 export default {
+  async scheduled(ev, env, ctx) { ctx.waitUntil(remindAll(env)); },
   async fetch(req, env) {
     const origin = req.headers.get('Origin') || '';
     const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST' };
@@ -184,8 +214,17 @@ export default {
       return out({ ok: true });
     }
 
+    if (path === '/remind') {
+      const key = 'remind:' + uid;
+      if (!b.on) { await env.SUBS.delete(key); return out({ ok: true }); }
+      const old = (await env.SUBS.getWithMetadata(key)).metadata;
+      await env.SUBS.put(key, '', { metadata: remindClean(b, old?.sent) });
+      return out({ ok: true });
+    }
+
     if (path === '/forget') {   // Konto gelöscht: alle Geräte vergessen
       await env.SUBS.delete(uid);
+      await env.SUBS.delete('remind:' + uid);
       return out({ ok: true });
     }
 

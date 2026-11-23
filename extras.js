@@ -1178,6 +1178,49 @@ function openFromPush(url) {
 }
 navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.open) openFromPush(e.data.open); });
 
+// ---------- Erinnerung ans Stempeln ----------
+// Der Push-Dienst prüft alle 5 Min.: morgens noch nicht eingestempelt bzw. abends noch eingestempelt → Nachricht.
+// Er bekommt dafür nur die Uhrzeiten, die Arbeitstage der nächsten 6 Wochen und ob gerade gestempelt wird.
+let remindSent = '';
+function remindPayload() {
+  const r = (mainData || data).settings.remind;
+  if (!r?.on) return { on: false };
+  const now = Date.now(), base = today(), ids = ['main', ...Object.keys(slots)];
+  const cs = ids.map(id => makeCalc(slotData(id), now)), all = ids.flatMap(id => slotData(id).sessions);
+  const days = Array.from({ length: 42 }, (_, i) => { const d = addDays(base, i); return cs.some(c => c.day(d).soll > 0) ? '1' : '0'; }).join('');
+  const lastS = all.reduce((a, x) => Math.max(a, x.s), 0);
+  const run = all.some(x => x.e == null && now - x.s < 16 * HOUR) || ids.some(id => pauseRun(slotData(id).sessions, now));
+  return { on: true, start: r.start || '', end: r.end || '', tz: Intl.DateTimeFormat().resolvedOptions().timeZone, base, days, last: lastS ? ymd(new Date(lastS)) : '', run };
+}
+// Nach jedem Speichern und beim Start: nur senden, wenn sich etwas geändert hat
+function syncRemind() {
+  if (!me || viewing || ADMIN_APP || !(mainData || data).settings.remind) return;
+  const p = JSON.stringify(remindPayload());
+  if (p === remindSent) return;
+  remindSent = p;
+  pushCall('/remind', JSON.parse(p)).catch(() => { remindSent = ''; });
+}
+async function setRemind(k, v, el) {
+  if (k === 'on' && v) {
+    if (needPro()) { el.checked = false; return; }
+    if (!pushOk()) { el.checked = false; return toast('Benachrichtigungen gehen nur in der installierten App: im Browser Teilen → „Zum Home-Bildschirm“.'); }
+    await enablePush();
+    if (!pushOn()) { el.checked = false; return; }
+  }
+  setS('remind', { on: false, start: '08:00', end: '17:00', ...data.settings.remind, [k]: v });
+}
+function remindHtml() {
+  if (viewing || ADMIN_APP) return '';
+  const r = { start: '08:00', end: '17:00', ...data.settings.remind };
+  return `<div class="label">Erinnerung ans Stempeln</div>
+  <div class="group">
+    <label class="row"><span>Erinnern</span><input type="checkbox" ${r.on ? 'checked' : ''} onchange="setRemind('on', this.checked, this)"></label>
+    <label class="row"><span>Noch nicht eingestempelt um</span><input type="time" value="${r.start}" onchange="setRemind('start', this.value)"></label>
+    <label class="row"><span>Noch eingestempelt um</span><input type="time" value="${r.end}" onchange="setRemind('end', this.value)"></label>
+  </div>
+  <p class="hint">Du bekommst eine Mitteilung, wenn du an einem Arbeitstag bis zur ersten Uhrzeit nicht eingestempelt hast oder zur zweiten Uhrzeit noch eingestempelt bist. An freien Tagen, Feiertagen und im Urlaub kommt keine. Leeres Feld = diese Erinnerung aus. Gilt für alle Jobs.</p>`;
+}
+
 // ---------- Lohnabrechnung einlesen (Setup → Verdienst & Steuern) ----------
 // Das PDF wird nur auf dem Gerät gelesen (pdf.js), nichts davon wird hochgeladen. Übernommen werden nur
 // die Einstellungen (Steuerklasse, Freibeträge, Kasse, Gehalt), nicht das PDF selbst.

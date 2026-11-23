@@ -940,6 +940,7 @@ function openTopic(id, keepStats) {
         : `<b>Gesetzlich:</b> Fehlt bei mehr als 6 Std. Arbeit noch etwas bis zur Pause oben (ab 9 Std. mind. 45 Min.), wird nur der Rest abgezogen. Bis 6 Std. wird nichts abgezogen.`}</p>
       <div class="label">Sollstunden pro Tag</div>
       <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
+      ${remindHtml()}
       ${setupExtrasHtml()}`,
     balance: () => `<div class="group">
         <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
