@@ -292,6 +292,7 @@ html.light .replybar{background:rgba(0,0,0,.06)}
 .msgmenu.mact button{display:flex;align-items:center;gap:14px;width:100%;padding:11px 18px;font-size:17px;text-align:left}
 .msgmenu.mact svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .msgmenu.mact .red{color:var(--minus)}
+.fbtip{margin:0 0 8px;flex:none}
 .fbtag{display:block;font-size:12px;font-weight:600;opacity:.85;margin-bottom:2px}
 .fbtypes{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.fbtypes .pill{flex:none}
 .chatbar{display:flex;gap:8px;align-items:flex-end;padding-bottom:4px}

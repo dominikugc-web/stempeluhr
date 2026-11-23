@@ -1052,6 +1052,31 @@ const FB_ICON = {
   copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
   del: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
 };
+// Tipps beim ersten Öffnen des Chats (danach über das ? oben rechts)
+const FB_TIPS = [
+  ['💬 Schreib uns direkt', 'Wähle unten, ob es eine Idee, ein Fehler, eine Beschwerde oder eine Frage ist, und schreib los. Wir lesen alles und antworten hier im Chat.'],
+  ['👆 Lange drücken zum Reagieren', 'Halte eine Nachricht gedrückt und tippe auf ein Emoji. Über das + findest du noch mehr. Nochmal antippen nimmt die Reaktion wieder weg.'],
+  ['↩️ Auf eine Nachricht antworten', 'Im selben Menü tippst du auf Antworten. Der Anfang der Nachricht steht dann über deinem Text. Dort kannst du auch kopieren und eigene Nachrichten löschen.'],
+  ['🔔 Antwort nicht verpassen', 'Haben wir geantwortet, zeigt die Lampe einen roten Punkt. Mit Benachrichtigungen bekommst du es zusätzlich aufs Handy.'],
+];
+let fbTipIdx = 0;
+const fbTipsSeen = () => { try { return localStorage.getItem('chatTips') === '1'; } catch { return false; } };
+function fbTips(show) {
+  const el = $('#fbtip'); if (!el) return;
+  fbTipIdx = 0; el.hidden = !show;
+  if (show) el.innerHTML = fbTipHtml();
+}
+function fbTipHtml() {
+  const [t, x] = FB_TIPS[fbTipIdx], last = fbTipIdx === FB_TIPS.length - 1;
+  return `<div><b>${t}</b> <span class="muted small">${fbTipIdx + 1}/${FB_TIPS.length}</span><div class="muted small">${x}</div></div>
+    <div class="tipbtns"><button class="small muted" onclick="fbTipDone()">${last ? '' : 'Überspringen'}</button><button class="small" onclick="fbTipNext()">${last ? 'Verstanden' : 'Weiter'}</button></div>`;
+}
+function fbTipNext() { if (++fbTipIdx < FB_TIPS.length) $('#fbtip').innerHTML = fbTipHtml(); else fbTipDone(); }
+function fbTipDone() {
+  $('#fbtip').hidden = true;
+  try { localStorage.setItem('chatTips', '1'); } catch {}   // zusätzlich lokal: gilt auch bei mehreren Jobs und offline
+  if (!data.settings.chatTips && !viewing) { data.settings.chatTips = true; save(); }
+}
 const fbIcon = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${FB_ICON[k]}</svg>`;
 const ms = t => t?.toMillis ? t.toMillis() : 0;
 // Haken wie bei WhatsApp: 🕓 wird gesendet, ✓ gesendet, ✓✓ grau angekommen, ✓✓ blau gelesen
@@ -1079,8 +1104,9 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
   fbThread = uid || me.uid; fbIsAdmin = admin;
   fbUnsub?.();
   fbMsgs = []; fbReply = null;
-  sheet(`<div class="sheet-head"><button class="pill sm${admin ? ' back' : ''}" ${admin ? 'aria-label="Zurück"' : ''} onclick="closeFeedback(${admin})">${admin ? '‹' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px"></span></div>
+  sheet(`<div class="sheet-head"><button class="pill sm${admin ? ' back' : ''}" ${admin ? 'aria-label="Zurück"' : ''} onclick="closeFeedback(${admin})">${admin ? '‹' : 'Schließen'}</button><h2 class="pick-title">${admin ? esc(fbAdminName(uid)) : 'Feedback'}</h2><span style="width:60px;text-align:right">${admin ? '' : '<button class="pill sm" onclick="fbTips(true)" aria-label="Tipps zum Chat">?</button>'}</span></div>
     ${admin ? '' : pushAskHtml('Benachrichtigen, wenn wir antworten')}
+    <div class="tip fbtip" id="fbtip" hidden></div>
     <div class="chat" id="chat"><p class="hint center">Lädt …</p></div>
     ${admin ? '' : `<div class="fbtypes">${Object.entries(FB_TYPES).map(([k, [i, l]]) => `<button class="pill sm ${fbType === k ? 'sel' : ''}" data-t="${k}" onclick="fbSetType('${k}')">${i} ${l}</button>`).join('')}</div>`}
     <div class="replybar" id="fbreply" hidden><div class="rq"></div><button class="pill sm" onclick="fbSetReply(null)" aria-label="Antwort verwerfen">✕</button></div>
@@ -1088,6 +1114,7 @@ function openFeedback(uid) {   // uid gesetzt = Entwickler öffnet den Chat eine
       <button class="sendbtn" onclick="sendFeedback(${admin})" aria-label="Senden"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>`);
   $('#sheet').classList.add('chatsheet');
   fbPress($('#chat'));
+  fbTips(!admin && !viewing && !data.settings.chatTips && !fbTipsSeen());
   const u1 = fb.db.collection(`feedback/${fbThread}/msgs`).orderBy('at').onSnapshot({ includeMetadataChanges: true }, q => {
     fbMsgs = q.docs.map(d => ({ id: d.id, pending: d.metadata.hasPendingWrites, ...d.data() }));
     fbRender(admin);
