@@ -330,15 +330,17 @@ const haptic = (() => {
   view.addEventListener('touchend', done);
   view.addEventListener('touchcancel', done);
 })();
-// iOS-Web-App: Der Layout-Bereich endet manchmal über der Home-Leiste, obwohl der Bildschirm weiter geht.
-// Dann wird die App auf die echte Bildschirmhöhe gezogen, damit nichts unten abgeschnitten wird.
+// iOS-Web-App: Der Layout-Bereich (100 % = clientHeight) endet manchmal über der Home-Leiste, obwohl der Bildschirm
+// weiter geht. Je nach iOS meldet innerHeight dabei die kurze oder die volle Höhe (iOS 27: innerHeight 874, Layout 812),
+// deshalb wird die Layout-Höhe mit der Bildschirmhöhe verglichen und die App auf die volle Höhe gezogen.
 function fixGap() {
-  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  const h = standalone && innerHeight > innerWidth ? screen.height : 0;
-  if (h > innerHeight && h - innerHeight < 120) document.documentElement.style.setProperty('--appH', h + 'px');
+  // nur iOS (navigator.standalone): Unter Android zählt screen.height die Systemleisten mit, dort würde die App sonst unter die Navigationsleiste rutschen.
+  const want = navigator.standalone && innerHeight > innerWidth ? Math.max(innerHeight, screen.height) : 0, have = document.documentElement.clientHeight;
+  if (want > have && want - have < 120) document.documentElement.style.setProperty('--appH', want + 'px');
   else document.documentElement.style.removeProperty('--appH');
 }
 fixGap();
+addEventListener('load', fixGap);
 addEventListener('resize', () => { fixGap(); const i = $('.tab-ind'); if (i) { i.style.transition = 'none'; moveTabInd(); i.offsetWidth; i.style.transition = ''; } });
 // iOS: nach dem Schließen der Tastatur bleibt die Seite manchmal verschoben, die Menüleiste rutscht dann nach oben.
 document.addEventListener('focusout', () => setTimeout(() => {
