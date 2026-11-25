@@ -1042,10 +1042,10 @@ function proOf(u) {
   if (abo) return { k: 'abo', l: abo.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo' };
   if (a.slots?.[u.uid]) return { k: 'slot', l: 'Gratis-Platz ' + a.slots[u.uid].n };
   if (u.firm) return { k: 'firm', l: 'Pro über Firma' };
-  if (u.created && u.created < PRO_OLD) return { k: 'old', l: 'Erstes Konto' };
+  if (u.created && u.created < PRO_OLD) return { k: 'old', l: 'Zahlt nie' };
   return { k: 'none', l: u.created ? 'Ohne Pro' : 'Ohne Pro (Alter unbekannt)' };
 }
-const PRO_KINDS = [['all', 'Alle'], ['old', 'Erste Konten'], ['slot', 'Gratis-Plätze'], ['firm', 'Über Firma'], ['abo', 'Abo'], ['none', 'Ohne Pro']];
+const PRO_KINDS = [['all', 'Alle'], ['old', 'Zahlt nie'], ['slot', 'Gratis-Plätze'], ['firm', 'Über Firma'], ['abo', 'Abo'], ['none', 'Ohne Pro']];
 const byKind = k => adminCache.users.filter(u => proOf(u).k === k);
 function renderAdmin() {
   const a = adminCache;
@@ -1058,7 +1058,7 @@ function renderAdmin() {
   <div class="label">Dayliner Pro</div>
   <div class="kpis">${kpi(`${Object.keys(a.slots || {}).length} / ${PRO_PLACES}`, 'Gratis-Plätze vergeben', "openAdmin('pro')")}${kpi(st ? st.abos.length : '…', 'Abos aktiv', "openAdmin('pro')")}
     ${kpi(st ? euro(st.netto) : '…', 'eingenommen', "openAdmin('pro')")}${kpi(byKind('none').length, 'ohne Pro (müssten zahlen)', "adminFilter = 'none'; openAdmin('users')")}</div>
-  <p class="hint">Pro-Begrenzung seit ${dDay(PRO_OLD)}, Abo-Verkauf seit ${dDay(PRO_SALE)}. ${byKind('old').length} erste Konten behalten Pro kostenlos.${a.statsErr ? ` <span class="red">Stripe: ${esc(a.statsErr)}</span>` : ''}</p>
+  <p class="hint">Pro-Begrenzung seit ${dDay(PRO_OLD)}, Abo-Verkauf seit ${dDay(PRO_SALE)}. ${byKind('old').length} Konten zahlen nie, die Gratis-Plätze sind kostenlos bis zum App-Launch.${a.statsErr ? ` <span class="red">Stripe: ${esc(a.statsErr)}</span>` : ''}</p>
   <div class="label">Nutzung</div>
   <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.open && !u.open.stale && !u.open.pause).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
   <div class="label">Bereiche</div>
@@ -1115,17 +1115,17 @@ function adminPro() {
     <p class="hint">Direkt aus Stripe, ohne Stripe-Gebühren. „Laufend pro Monat“: aktive Abos, Jahresabo durch 12, ohne Abos, die zum Laufzeitende gekündigt sind.${st.mehr ? ' <span class="red">Mehr als 100 Einträge, die Zahlen sind unvollständig.</span>' : ''}</p>`
     : `<p class="muted center">${a.statsErr ? 'Stripe nicht erreichbar: ' + esc(a.statsErr) : 'Lädt …'}</p>`;
   return `<div class="label">Ablauf</div>
-  <div class="group">${row(`<b>Bis ${dDay(PRO_OLD - 864e5)}</b><div class="muted small">Erste Konten, Pro für immer kostenlos</div>`, byKind('old').length)}
-    ${row(`<b>Ab ${dDay(PRO_OLD)}</b><div class="muted small">Pro-Begrenzung, ${PRO_PLACES} Gratis-Plätze</div>`, `${slots.length} / ${PRO_PLACES}`)}
+  <div class="group">${row(`<b>Bis ${dDay(PRO_OLD - 864e5)}</b><div class="muted small">Diese Konten zahlen nie, Pro für immer kostenlos</div>`, byKind('old').length)}
+    ${row(`<b>Ab ${dDay(PRO_OLD)}</b><div class="muted small">${PRO_PLACES} Gratis-Plätze, kostenlos bis zum App-Launch</div>`, `${slots.length} / ${PRO_PLACES}`)}
     ${row(`<b>Ab ${dDay(PRO_SALE)}</b><div class="muted small">Abo über Stripe (${PRO_PRICE.monat} im Monat, ${PRO_PRICE.jahr} im Jahr)</div>`, st ? st.abos.length + ' Abos' : '…')}</div>
   <div class="label">Einnahmen</div>${money}
   <div class="label">Abos (${st ? st.abos.length : '…'})</div>
   ${st?.abos.length ? `<div class="group">${st.abos.map(x => `<button class="row" ${a.users.some(u => u.uid === x.uid) ? `onclick="${goAdmin('as', x.uid)}"` : 'disabled'}><span><b>${esc(nameOf(x.uid) || x.email || 'Unbekannt')}</b>
     <div class="muted small">${x.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo'} seit ${dDay(x.seit)} · ${x.endet ? '<span class="red">endet am</span>' : 'verlängert sich am'} ${dDay(x.bis)}${x.email ? ' · ' + esc(x.email) : ''}</div></span><span class="muted">›</span></button>`).join('')}</div>` : `<p class="muted center">${st ? 'Noch keine Abos.' : 'Lädt …'}</p>`}
-  <div class="label">Gratis-Plätze (${slots.length} von ${PRO_PLACES})</div>
+  <div class="label">Gratis bis zum App-Launch (${slots.length} von ${PRO_PLACES})</div>
   ${slots.length ? `<div class="group">${slots.map(([uid, x]) => `<button class="row" onclick="${goAdmin('as', uid)}"><span><b>Platz ${x.n}: ${esc(nameOf(uid) || 'Konto gelöscht')}</b>
     <div class="muted small">gesichert am ${dDay(x.at)}</div></span><span class="muted">›</span></button>`).join('')}</div>` : '<p class="muted center">Noch kein Platz vergeben.</p>'}
-  <div class="label">Erste Konten (${byKind('old').length})</div>${adminUsers(byKind('old'))}
+  <div class="label">Zahlen nie (${byKind('old').length})</div>${adminUsers(byKind('old'))}
   <div class="label">Ohne Pro (${byKind('none').length})</div>${adminUsers(byKind('none'))}
   <p class="hint">„Ohne Pro“ sind Konten ab dem ${dDay(PRO_OLD)} ohne Gratis-Platz, Firma oder Abo: Sie nutzen die Basis und müssten für Pro ein Abo abschließen. Das Kontoalter speichert die App ab jetzt beim nächsten Öffnen mit, bis dahin ist es über den ersten Stempel geschätzt.</p>`;
 }
