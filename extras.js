@@ -1722,18 +1722,22 @@ const proFree = () => Math.max(0, PRO_PLACES - (proCount ?? 0));
 const needPro = () => { if (isPro()) return false; openTopic('pro'); return true; };
 // Offenes Pro-Fenster nur im Inhalt auffrischen (sonst gleitet es bei jedem neuen Zählerstand neu herein)
 function proChanged() { if (!own.ready) return; const v = currentTopic === 'pro' && $('#sheet #proview'); if (v) v.outerHTML = proHtml(); else refresh(); }
-async function claimPro() {
+async function claimPro(auto) {   // auto: von der App vergeben, ohne Fehlermeldung
   const info = ref('beta/info');
+  let n;
   try {
     await fb.db.runTransaction(async t => {
-      const s = await t.get(info), n = (s.exists ? s.data().count : 0) + 1;
+      const s = await t.get(info);
+      n = (s.exists ? s.data().count : 0) + 1;
       if (n > PRO_PLACES) throw new Error('voll');
       t.set(info, { count: n });
       t.set(ref('betaSlots/' + me.uid), { n, at: firebase.firestore.FieldValue.serverTimestamp() });
     });
-    toast('Dein Platz ist gesichert. Pro ist jetzt aktiv.');
+    toast(auto ? `Geschenkt: Platz ${n} von ${PRO_PLACES}. Pro ist kostenlos bis zum App-Launch.` : 'Dein Platz ist gesichert. Pro ist jetzt aktiv.');
+    return true;
   } catch (e) {
-    alert(e.message === 'voll' ? `Leider sind alle ${PRO_PLACES} Plätze vergeben.` : 'Das hat nicht geklappt. Prüf deine Internetverbindung und versuch es noch einmal.');
+    if (!auto) alert(e.message === 'voll' ? `Leider sind alle ${PRO_PLACES} Plätze vergeben.` : 'Das hat nicht geklappt. Prüf deine Internetverbindung und versuch es noch einmal.');
+    return false;
   }
 }
 // ---------- Abo ----------
@@ -1768,14 +1772,19 @@ async function manageAbo() {
 }
 const cancelBtn = () => `<a class="pill wide" href="${WEB}kuendigen.html" target="_blank" rel="noopener">Verträge hier kündigen</a>`;
 
-// Direkt nach der Anmeldung einmal „Platz sichern“ zeigen (je Konto und Gerät einmal), solange Plätze frei sind.
-// Nicht bei Firmen-Mitgliedern oder offenem Beitritt, die bekommen Pro über die Firma.
+// Konten ohne Pro bekommen nach der Einrichtung automatisch den nächsten freien Gratis-Platz (Dominik, 25.11.2026),
+// danach einmal das Pro-Fenster (je Konto und Gerät). Nicht bei Firmen-Mitgliedern oder offenem Beitritt, die bekommen
+// Pro über die Firma. Klappt es nicht (Netz, voll), erst beim nächsten Start wieder.
 function maybeProOffer() {
   if (ADMIN_APP || viewing || !me || !own.ready || cid || own.shared?.cid || joinCode || proSlot === undefined || proCount == null
-    || isPro() || !proFree() || data.settings.onboarded === false || !$('#sheet').hidden) return;
-  const k = 'dayliner-pro-angebot-' + me.uid;
-  try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch { return; }
-  openTopic('pro');
+    || isPro() || !proFree() || data.settings.onboarded === false || !$('#sheet').hidden || maybeProOffer.busy) return;
+  maybeProOffer.busy = true;
+  claimPro(true).then(ok => {
+    if (!ok) return;
+    const k = 'dayliner-pro-angebot-' + me.uid;
+    try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch { return; }
+    if ($('#sheet').hidden) openTopic('pro');
+  });
 }
 const proBadge = () => isPro() ? '<span class="badge-pro">PRO</span>' : '';
 const PRO_FEATURES = [

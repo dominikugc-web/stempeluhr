@@ -137,7 +137,7 @@ function startCloud() {
     off(unsubs); off(companyUnsubs); viewUnsub?.(); viewUnsub = null;
     fbMetaUnsub?.(); fbMetaUnsub = null; fbMeta = null;
     me = u; own = {}; cid = undefined; company = undefined; membership = undefined; members = []; viewing = null; membersOn = false;
-    slots = {}; curSlot = 'main'; mainData = null; proSlot = undefined; proCount = null; proAbo = null; clearInterval(watchAbo.t);
+    slots = {}; curSlot = 'main'; mainData = null; proSlot = undefined; proCount = null; proAbo = null; clearInterval(watchAbo.t); maybeProOffer.busy = false;
     document.querySelectorAll('.ask').forEach(e => e.remove());   // offene Fenster des vorherigen Kontos schließen
     if (!u) { data = normalize({}); showTabs(false); renderLogin(); return; }
     watchSlots(u.uid);
