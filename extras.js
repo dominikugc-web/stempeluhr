@@ -1482,8 +1482,8 @@ const PUSH_URL = ['localhost', '127.0.0.1'].includes(location.hostname) && new U
 const PUSH_KEY = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbWQDlZwtvh7dVrhBWNT2oOpY5yI';
 const pushOk = () => 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 const pushOn = () => pushOk() && Notification.permission === 'granted';
-async function pushCall(path, body) {
-  const r = await fetch(PUSH_URL + path, { method: 'POST', keepalive: true, headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function pushCall(path, body, keepalive = true) {   // keepalive erlaubt nur 64 KB, für PDFs false
+  const r = await fetch(PUSH_URL + path, { method: 'POST', keepalive, headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Push-Dienst antwortet nicht');
   return r.json();
 }
@@ -1787,6 +1787,76 @@ function maybeProOffer() {
   });
 }
 const proBadge = () => isPro() ? '<span class="badge-pro">PRO</span>' : '';
+
+// ---------- Monatsnachweis per E-Mail (Pro) ----------
+// Persönliche Einstellung settings.monthMail = { [Arbeitsplatz]: { to, day, start, sent } } (privat). day = Versandtag 1 bis 28:
+// Am Versandtag ist der Zeitraum vom day. des Vormonats bis zum Tag davor fällig (day 1 = Kalendermonat), genauso rechnet der
+// Push-Dienst (mmPeriod in push/remind.mjs). start/sent = Enddatum des zuletzt erledigten Zeitraums. Verschickt wird beim
+// ersten Öffnen ab dem Versandtag; der Dienst schickt den PDF per E-Mail und sperrt Doppelte.
+function mmPeriod(day, t = today()) {   // zuletzt fälliger Zeitraum { von, bis }
+  const d = parseYmd(t), y = d.getFullYear(), bm = d.getDate() >= day ? d.getMonth() : d.getMonth() - 1;   // Monat des letzten Versandtags
+  return { von: ymd(new Date(y, bm - 1, day)), bis: ymd(new Date(y, bm, day - 1)) };
+}
+const mmLast = e => [e.sent || '', e.start || ''].sort().at(-1);
+const mmLabel = (von, bis) => von.endsWith('-01') && addDays(bis, 1).endsWith('-01') ? `${MONTHS[+von.slice(5, 7) - 1]} ${von.slice(0, 4)}` : `${dmy(von)} bis ${dmy(bis)}`;
+// Nächster Nachweis { von, bis, am }: lückenlos ab dem letzten, am = Versandtag
+function mmNext(e) {
+  const p = mmPeriod(e.day), last = mmLast(e), from = x => last && addDays(last, 1) > x ? addDays(last, 1) : x;
+  if (last < p.bis) return { von: from(p.von), bis: p.bis, am: addDays(p.bis, 1) };
+  const b = parseYmd(addDays(p.bis, 1)), am = ymd(new Date(b.getFullYear(), b.getMonth() + 1, e.day));
+  return { von: from(addDays(p.bis, 1)), bis: addDays(am, -1), am };
+}
+const mmPlaces = () => ['main', ...(hasSlots() ? slotList().map(s => s.id) : [])];
+function monthMailHtml() {
+  if (viewing) return '';
+  const all = data.settings.monthMail || {}, head = `<div class="label">Monatsnachweis per E-Mail ${proBadge()}</div>`;
+  if (!isPro()) return head + `<p class="hint">Mit Dayliner Pro geht dein PDF-Nachweis jeden Monat automatisch per E-Mail an deinen Chef, dein Lohnbüro oder deinen Steuerberater.</p>
+    <button class="pill wide" onclick="openTopic('pro')">Dayliner Pro ansehen ›</button>`;
+  const days = sel => Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${sel === i + 1 ? 'selected' : ''}>am ${i + 1}.</option>`).join('');
+  return head + mmPlaces().map(k => {
+    const e = all[k] || {}, n = e.to && mmNext(e);
+    return `<div class="group">${hasSlots() ? `<div class="row"><b>${esc(slotName(k))}</b></div>` : ''}
+      <label class="row"><span>Senden an</span><input type="email" class="mmto" data-k="${k}" inputmode="email" autocomplete="off" placeholder="chef@firma.de" value="${esc(e.to || '')}" onchange="setMonthMail('${k}')"></label>
+      <label class="row"><span>Versandtag</span><select class="mmday" data-k="${k}" onchange="setMonthMail('${k}')">${days(e.day || 1)}</select></label>
+      ${n ? `<div class="row"><span class="muted small">Nächster Nachweis: ${mmLabel(n.von, n.bis)}, ab ${dmy(n.am)}${e.sent ? `<br>Zuletzt gesendet: bis ${dmy(e.sent)}` : ''}</span></div>` : ''}
+    </div>`;
+  }).join('') + `<p class="hint">Am Versandtag geht der Zeitraum seit dem letzten Nachweis als PDF an die Adresse, du bekommst eine Kopie. Am 1. ist das der ganze Vormonat. Rechnet dein Arbeitgeber früher ab, wähl zum Beispiel den 20., dann geht am 20.11. der Zeitraum 20.10. bis 19.11. raus. Verschickt wird beim ersten Öffnen der App ab dem Versandtag, eine Push-Nachricht erinnert dich. Leer lassen schaltet es aus.</p>`;
+}
+async function setMonthMail(k) {
+  const to = $(`.mmto[data-k="${k}"]`).value.trim().toLowerCase(), day = +$(`.mmday[data-k="${k}"]`).value || 1;
+  if (to && !/^[^@\s,;<>]+@[^@\s,;<>]+\.[a-z]{2,}$/.test(to)) return alert('Bitte eine gültige E-Mail-Adresse eingeben.');
+  const all = { ...(data.settings.monthMail || {}) }, old = all[k] || {};
+  if (!to) delete all[k];
+  // Neu eingerichtet: ab jetzt, nicht rückwirkend. Später geänderter Tag: lückenlos ab dem letzten Nachweis weiter.
+  else all[k] = { to, day, start: (old.to && old.start) || mmPeriod(day).bis, ...(old.sent ? { sent: old.sent } : {}) };
+  data.settings.monthMail = all;
+  save();
+  try { await pushCall('/monat-an', { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, list: Object.entries(all).map(([w, e]) => ({ k: w, day: e.day, done: mmLast(e) })) }); } catch {}
+  toast(to ? `✓ Der Nachweis geht jeweils am ${day}. an ${to}` : 'Monatsnachweis per E-Mail ist aus');
+  openTopic('export');
+}
+const blobB64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(blob); });
+async function maybeMonthMail() {
+  if (ADMIN_APP || viewing || !me || !own.ready || !isPro() || !window.jspdf?.jsPDF?.API?.autoTable || maybeMonthMail.busy) return;
+  maybeMonthMail.busy = true;
+  try {
+    for (const [k, e] of Object.entries(data.settings.monthMail || {})) {
+      if (!e.to || !e.day || (k !== 'main' && !slots[k])) continue;
+      const n = mmNext(e), d = slotData(k), mark = bis => { const c = data.settings.monthMail || {}; if (c[k]) { data.settings.monthMail = { ...c, [k]: { ...c[k], sent: bis } }; save(); } };
+      if (n.am > today()) continue;                                   // noch nicht fällig
+      if (n.bis < d.settings.since) { mark(n.bis); continue; }        // ganz vor Beginn der Aufzeichnung
+      let von = n.von;
+      if (Date.parse(n.bis) - Date.parse(von) > 61 * 864e5) von = mmPeriod(e.day).von;   // lange nicht geöffnet: nur den letzten Zeitraum
+      if (von < d.settings.since) von = d.settings.since;
+      const pdf = await blobB64(exportPdf(0, 0, true, { d, from: von, to: n.bis, slot: k }));
+      const r = await pushCall('/monat-senden', { k, an: e.to, von, bis: n.bis, name: d.settings.name || me.displayName || '', firma: hasSlots() ? slotName(k) : '', pdf }, false);
+      mark(n.bis);
+      if (!r.schon) toast(`📄 Nachweis ${mmLabel(von, n.bis)} an ${e.to} gesendet`);
+    }
+  } catch (err) { console.warn('Monatsnachweis:', err.message); }   // beim nächsten Öffnen neuer Versuch
+  finally { maybeMonthMail.busy = false; }
+}
+addEventListener('load', () => setTimeout(maybeMonthMail, 3000));
 const PRO_FEATURES = [
   ['👥', 'Team & Geschäftsführer', 'Mitarbeiter einladen, Zeiten sehen und korrigieren, mehrere Geschäftsführer und Firmen'],
   ['📤', 'Lohn-Export', 'Lexware, DATEV, Excel und CSV, mit Lohnarten und Personalnummern'],
@@ -1795,6 +1865,7 @@ const PRO_FEATURES = [
   ['📍', 'Standort-Automatik', 'Zeit startet und stoppt automatisch an deinem Arbeitsort'],
   ['💶', 'Verdienst-Rechner', 'Brutto, Netto und Überstunden in Euro, nach amtlicher Formel'],
   ['📊', 'Export', 'Excel, CSV und Kalender (.ics) für jeden Zeitraum'],
+  ['📧', 'Monatsnachweis per E-Mail', 'Jeden Monat automatisch als PDF an Chef, Lohnbüro oder Steuerberater'],
   ['🔔', 'Benachrichtigungen', 'Push bei Anfragen, Antworten und neuen Lohnabrechnungen'],
 ];
 function proHtml() {

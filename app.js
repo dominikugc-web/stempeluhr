@@ -91,6 +91,7 @@ function render() {
   renderPage();
   maybeOnboard();
   maybeProOffer();
+  maybeMonthMail();
 }
 function renderPage() {
   applyTheme();
@@ -961,6 +962,7 @@ function openTopic(id, keepStats) {
     export: () => `<div class="label">PDF-Arbeitszeitnachweis</div>
       <div class="group"><label class="row"><span>Monat</span><input type="month" id="pdfmonth" value="${now.getFullYear()}-${pad(now.getMonth() + 1)}"></label></div>
       <button class="big" onclick="pdfFromSetup()">PDF exportieren</button>
+      ${monthMailHtml()}
       <div class="label">Tabelle & Kalender</div>
       <button class="pill wide" onclick="openExport()">Excel, CSV oder Kalender (.ics) ›</button>
       <div class="label">Sicherung</div>
@@ -1084,13 +1086,16 @@ function restore(el) {
   }).catch(e => alert('Datei konnte nicht geladen werden: ' + (e instanceof SyntaxError ? 'keine Dayliner-Datei' : e.message))).finally(() => { el.value = ''; });
 }
 
-function exportPdf(y, m) {
+// asBlob: nur den PDF zurückgeben. o = { d: Datensatz eines Arbeitsplatzes, from, to: eigener Zeitraum, slot } (Monatsnachweis per E-Mail)
+function exportPdf(y, m, asBlob, o = {}) {
   if (!window.jspdf) return alert('Das PDF-Modul ist nicht geladen. Öffne die App einmal mit Internetverbindung.');
-  const c = calc(), t = today(), st = data.settings, [first, last] = monthBounds(y, m);
+  const d = o.d || data, c = makeCalc(d, Date.now()), t = today(), st = d.settings, [first, last] = o.from ? [o.from, o.to] : monthBounds(y, m);
+  const whole = first.endsWith('-01') && addDays(last, 1).endsWith('-01');   // genau ein Kalendermonat
+  if (whole) [y, m] = [+first.slice(0, 4), +first.slice(5, 7) - 1];
   const days = c.range(first, last), stand = last < t ? last : t, past = days.filter(x => x.d <= stand);
   const doc = new jspdf.jsPDF();
   doc.setFontSize(16);
-  doc.text(`Arbeitszeitnachweis ${MONTHS[m]} ${y}${typeof hasSlots === 'function' && hasSlots() ? ' – ' + slotName(curSlot) : ''}`, 14, 18);
+  doc.text(`Arbeitszeitnachweis ${whole ? `${MONTHS[m]} ${y}` : `${dmy(first)} bis ${dmy(last)}`}${typeof hasSlots === 'function' && hasSlots() ? ' – ' + slotName(o.slot ?? curSlot) : ''}`, 14, 18);
   doc.setFontSize(10);
   if (st.name) doc.text(`Name: ${st.name}`, 14, 25);
   doc.autoTable({
@@ -1109,11 +1114,11 @@ function exportPdf(y, m) {
     startY: doc.lastAutoTable.finalY + 6, theme: 'plain', tableWidth: 120,
     styles: { fontSize: 10, cellPadding: 1 }, columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
     body: [
-      ['Sollstunden (Monat)', hm(sum(days, 'soll'))],
+      [whole ? 'Sollstunden (Monat)' : 'Sollstunden (Zeitraum)', hm(sum(days, 'soll'))],
       ['Geleistet (netto)', hm(sum(days, 'net'))],
       [`Differenz bis ${dmy(stand)}`, hm(sum(past, 'diff'), true)],
       [`Überstundenkonto (Stand ${dmy(stand)})`, hm(c.balance(stand), true)],
-      ...(c.payouts()[`${y}-${pad(m + 1)}`] ? [['Ausgezahlte Überstunden', hm(c.payouts()[`${y}-${pad(m + 1)}`])]] : []),
+      ...(whole && c.payouts()[`${y}-${pad(m + 1)}`] ? [['Ausgezahlte Überstunden', hm(c.payouts()[`${y}-${pad(m + 1)}`])]] : []),
       ['Urlaubstage', String(countAbs(days, 'urlaub'))],
       ['Krankheitstage', String(countAbs(days, 'krank'))],
     ],
@@ -1121,6 +1126,7 @@ function exportPdf(y, m) {
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(doc.splitTextToSize(`Pause = alle Unterbrechungen zwischen Beginn und Ende. ${st.pauseRule === 'fix' ? `Pause pauschal ${st.pause} Min. an Tagen über 6 Std. (Firmenregel); fehlt etwas, wird es zusätzlich abgezogen.` : `Fehlt bis zur Mindestpause (${st.pause} Min. ab 6 Std., ${Math.max(st.pause, 45)} Min. ab 9 Std.) etwas, wird es zusätzlich abgezogen.`} Erstellt am ${dmy(t)}.`, 180), 14, doc.lastAutoTable.finalY + 6);
+  if (asBlob) return doc.output('blob');
   deliver(doc.output('blob'), `Arbeitszeit_${y}-${pad(m + 1)}.pdf`);
 }
 

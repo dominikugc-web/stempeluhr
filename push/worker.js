@@ -7,8 +7,10 @@
 //   POST /upload?thread=<uid>  Rohdaten, Content-Type, X-Name   Datei für den Feedback-Chat ablegen (R2 „FILES“)
 //   POST /file  { key }   Datei abrufen      POST /filedel { key }   Datei löschen
 //   POST /admin-stats                                    nur Entwickler: alle Abos und Einnahmen aus Stripe
+//   POST /monat-an      { tz, list: [{ k, day, done }] }  Arbeitsplätze mit Monatsnachweis und Versandtag merken, Push am Versandtag
+//   POST /monat-senden  { k, an, von, bis, name, firma, pdf }   PDF eines vergangenen Zeitraums per E-Mail schicken
 // Geheimnis (wrangler secret put VAPID_PRIVATE): privater VAPID-Schlüssel als base64url (d).
-import { remindClean, remindAll } from './remind.mjs';
+import { remindClean, remindAll, monthAll, localNow, dmyS } from './remind.mjs';
 import { LIMITS, baseType, kindOf, threadOk, mayAccess } from './files.mjs';
 
 const PROJECT = 'stempeluhr-6faae';
@@ -125,13 +127,47 @@ async function adminStats(env) {
     mehr: !!(subs.has_more || charges.has_more),   // mehr als 100 Abos oder Zahlungen: dann fehlt ein Teil
   };
 }
-async function sendMail(env, to, subject, text) {
+// opt überschreibt die Vorgaben (z. B. bcc: undefined, damit Monatsnachweise nicht bei Dayliner landen).
+async function sendMail(env, to, subject, text, opt = {}) {
   if (!env.RESEND_KEY) return false;
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST', headers: { Authorization: 'Bearer ' + env.RESEND_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: 'Dayliner <service@dayliner.de>', to: [to], bcc: ['service@dayliner.de'], reply_to: 'service@dayliner.de', subject, text }),
+    body: JSON.stringify({ from: 'Dayliner <service@dayliner.de>', to: [to], bcc: ['service@dayliner.de'], reply_to: 'service@dayliner.de', subject, text, ...opt }),
   }).catch(() => null);
   return !!r?.ok;
+}
+const mailOk = v => { const m = String(v || '').trim().toLowerCase(); return m.length <= 120 && /^[^@\s,;<>]+@[^@\s,;<>]+\.[a-z]{2,}$/.test(m) ? m : ''; };
+
+// Monatsnachweis (Pro, die App prüft Pro): PDF kommt fertig aus der App, je Arbeitsplatz k an genau eine Adresse,
+// Kopie an den Nutzer, Antworten gehen an ihn. KV monat:<uid> = { tz, e: { k: [Versandtag, done, ping] } }.
+// Nur eingerichtete Arbeitsplätze (höchstens 6), nur vergangene Zeiträume, je Arbeitsplatz höchstens einmal pro Woche.
+async function monatSenden(b, uid, tok, env) {
+  const key = 'monat:' + uid, cur = (await env.SUBS.getWithMetadata(key)).metadata || {}, k = String(b.k || ''), ent = cur.e?.[k];
+  if (!ent) return [{ error: 'Der Monatsnachweis ist für diesen Arbeitsplatz nicht eingerichtet.' }, 400];
+  const dat = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : '', an = mailOk(b.an), von = dat(b.von), bis = dat(b.bis);
+  const tage = (x, z) => (Date.parse(z) - Date.parse(x)) / 864e5, heute = localNow('Europe/Berlin', Date.now()).d;
+  if (!an || !von || !bis || von > bis || bis >= heute || tage(von, bis) > 62) return [{ error: 'Adresse oder Zeitraum fehlt.' }, 400];
+  if (typeof b.pdf !== 'string' || !b.pdf.startsWith('JVBER') || b.pdf.length > 4e6) return [{ error: 'Der PDF fehlt oder ist zu groß.' }, 400];
+  const done = ent[1] || '';
+  if (done >= bis || (done && tage(done, bis) < 7)) return [{ ok: true, schon: true }, 200];
+  const clean = v => String(v || '').replace(/[^\p{L}\p{N} .&'-]/gu, '').trim().slice(0, 60);
+  const name = clean(b.name), firma = clean(b.firma), wer = (name || 'einer Person') + (firma ? ` (${firma})` : '');
+  const ganz = von.endsWith('-01') && new Date(Date.parse(bis) + 864e5).toISOString().endsWith('-01T00:00:00.000Z');
+  const label = ganz ? new Date(von + 'T12:00:00Z').toLocaleDateString('de-DE', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : `${dmyS(von)} bis ${dmyS(bis)}`;
+  const self = mailOk(tok.email);
+  const text = ['Guten Tag,', '', `anbei der Arbeitszeitnachweis von ${wer} für ${ganz ? '' : 'den Zeitraum '}${label} als PDF.`, '',
+    `Er wurde mit Dayliner erstellt und automatisch verschickt.${self ? ` Antworten auf diese E-Mail gehen direkt an ${name || self}.` : ''}`, '',
+    '--', 'Dayliner, Arbeitszeiterfassung', 'dayliner.de'].join('\n');
+  const datei = `Arbeitszeitnachweis_${ganz ? von.slice(0, 7) : von + '_bis_' + bis}${name ? '_' + name.replace(/[^\p{L}\p{N}]+/gu, '_') : ''}.pdf`;
+  const ok = await sendMail(env, an, `Arbeitszeitnachweis ${label}${name ? ': ' + name : ''}`, text, {
+    bcc: undefined, cc: self && self !== an ? [self] : undefined, reply_to: self || 'service@dayliner.de',
+    attachments: [{ filename: datei, content: b.pdf }],
+  });
+  if (!ok) return [{ error: 'Die E-Mail konnte gerade nicht verschickt werden.' }, 502];
+  const neu = (await env.SUBS.getWithMetadata(key)).metadata || cur, e = { ...neu.e };
+  if (e[k]) e[k] = [e[k][0], bis, e[k][2] || ''];
+  await env.SUBS.put(key, '', { metadata: { ...neu, e } });
+  return [{ ok: true }, 200];
 }
 // Kündigung ohne Anmeldung (Pflicht nach § 312k BGB): Abos zur E-Mail finden und zum Ende der Laufzeit beenden.
 // Jeder Eingang wird in KV festgehalten, der Entwickler bekommt eine Push-Nachricht und schickt die Bestätigung per E-Mail.
@@ -176,7 +212,10 @@ async function sendUser(env, uid, data) {
 
 // ---------- Anfragen ----------
 export default {
-  async scheduled(ev, env, ctx) { ctx.waitUntil(remindAll(env.SUBS, (uid, msg) => sendUser(env, uid, msg))); },
+  async scheduled(ev, env, ctx) {
+    const send = (uid, msg) => sendUser(env, uid, msg);
+    ctx.waitUntil(remindAll(env.SUBS, send).then(() => monthAll(env.SUBS, send)));
+  },
   async fetch(req, env) {
     const origin = req.headers.get('Origin') || '';
     const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Name', 'Access-Control-Allow-Methods': 'POST' };
@@ -263,9 +302,29 @@ export default {
       return out({ ok: true });
     }
 
+    if (path === '/monat-an') {   // komplette Liste der Arbeitsplätze mit Adresse: [{ k, day, done }]
+      const key = 'monat:' + uid, old = (await env.SUBS.getWithMetadata(key)).metadata || {}, e = {};
+      for (const x of (Array.isArray(b.list) ? b.list : []).slice(0, 6)) {
+        const k = String(x?.k || ''), day = Math.round(+x?.day), o = old.e?.[k];
+        if (!/^[\w-]{1,40}$/.test(k) || !(day >= 1 && day <= 28)) continue;
+        const done = [o?.[1] || '', /^\d{4}-\d{2}-\d{2}$/.test(x.done || '') ? x.done : ''].sort().at(-1);
+        e[k] = [day, done, o?.[2] || ''];
+      }
+      if (!Object.keys(e).length) { await env.SUBS.delete(key); return out({ ok: true }); }
+      let tz = String(b.tz || '').slice(0, 40);
+      try { new Intl.DateTimeFormat('en', { timeZone: tz }); } catch { tz = ''; }
+      await env.SUBS.put(key, '', { metadata: { tz: tz || 'Europe/Berlin', e } });
+      return out({ ok: true });
+    }
+    if (path === '/monat-senden') {
+      try { return out(...await monatSenden(b, uid, tok, env)); }
+      catch (e) { return out({ error: 'Die E-Mail konnte gerade nicht verschickt werden.' }, 500); }
+    }
+
     if (path === '/forget') {   // Konto gelöscht: alle Geräte vergessen, alle Chat-Dateien löschen
       await env.SUBS.delete(uid);
       await env.SUBS.delete('remind:' + uid);
+      await env.SUBS.delete('monat:' + uid);
       for (let c, more = !!env.FILES; more;) {
         const l = await env.FILES.list({ prefix: `chat/${uid}/`, cursor: c });
         if (l.objects.length) await env.FILES.delete(l.objects.map(o => o.key));
