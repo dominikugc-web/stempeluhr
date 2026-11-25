@@ -243,7 +243,7 @@ function save() {
 }
 function writeOwn(first, d = curSlot === 'main' ? data : mainData) {
   const { shared, priv } = split(d.settings), b = fb.db.batch();
-  const doc = { sessions: d.sessions, absences: d.absences, adjustments: d.adjustments, settings: shared, email: me.email || '' };
+  const doc = { sessions: d.sessions, absences: d.absences, adjustments: d.adjustments, settings: shared, email: me.email || '', created: Date.parse(me.metadata.creationTime) || null };
   if (first) doc.cid = null;
   b.set(ref('data/' + me.uid), doc, first ? undefined : { merge: true });
   b.set(ref('private/' + me.uid), { settings: priv });
@@ -992,23 +992,29 @@ async function setRole(r, id, then) {
 async function loadAdmin() {
   loadFeedbackAdmin();
   try {
-    const [d, c, m] = await Promise.all([fb.db.collection('data').get(), fb.db.collection('companies').get(), fb.db.collectionGroup('members').get()]);
-    const t = today(), mem = m.docs.map(x => ({ uid: x.id, cid: x.ref.parent.parent.id, ...x.data() }));
+    const [d, c, m, sl] = await Promise.all([fb.db.collection('data').get(), fb.db.collection('companies').get(), fb.db.collectionGroup('members').get(), fb.db.collection('betaSlots').get()]);
+    const t = today(), mem = m.docs.map(x => ({ uid: x.id, cid: x.ref.parent.parent.id, ...x.data() })), owners = c.docs.map(x => x.data().owner);
     const users = d.docs.map(x => {
       const v = x.data(), dd = merged(v, null), mm = mem.find(y => y.uid === x.id && y.cid === v.cid);
+      // Konto angelegt: von der App mitgespeichert (created), sonst geschätzt über den ersten Stempel
+      const first = dd.sessions.reduce((a, s) => Math.min(a, s.s || Infinity), Infinity);
       return { uid: x.id, name: dd.settings.name || mm?.name || v.email || 'Ohne Namen', email: v.email || mm?.email || '', cid: v.cid || null, status: mm?.status,
-        open: openState(dd.sessions), last: dd.sessions.reduce((a, s) => Math.max(a, s.e || Date.now()), 0), balance: makeCalc(dd, Date.now()).balance(t) };
+        open: openState(dd.sessions), last: dd.sessions.reduce((a, s) => Math.max(a, s.e || Date.now()), 0), balance: makeCalc(dd, Date.now()).balance(t),
+        created: v.created || (first < Infinity ? first : 0), guess: !v.created, firm: owners.includes(x.id) || mm?.status === 'active' };
     });
+    const slots = Object.fromEntries(sl.docs.map(x => [x.id, { n: x.data().n, at: x.data().at?.toMillis?.() || 0 }]));
     const companies = c.docs.map(x => {
       const v = x.data(), ms = mem.filter(y => y.cid === x.id);
       return { id: x.id, name: v.name, owner: v.owner, ownerName: v.ownerName || users.find(u => u.uid === v.owner)?.name || '', code: v.code,
         active: ms.filter(y => y.status === 'active').length, pending: ms.filter(y => y.status === 'pending').length };
     });
-    adminCache = { users: users.sort((a, b) => b.last - a.last), companies: companies.sort((a, b) => a.name.localeCompare(b.name)), at: Date.now() };
+    adminCache = { users: users.sort((a, b) => b.last - a.last), companies: companies.sort((a, b) => a.name.localeCompare(b.name)), slots, stats: adminCache?.stats, at: Date.now() };
   } catch (e) {
     alert('Entwickler-Daten konnten nicht geladen werden: ' + e.message);
-    adminCache ||= { users: [], companies: [], at: Date.now() };
+    adminCache ||= { users: [], companies: [], slots: {}, at: Date.now() };
   }
+  // Abos und Einnahmen kommen aus Stripe über den Push-Dienst (dauert etwas länger, Seite steht schon vorher)
+  pushCall('/admin-stats', {}).then(st => { adminCache.stats = st; adminCache.statsErr = null; }, e => { adminCache.statsErr = e.message; }).finally(adminRedraw);
   if (tab === 'admin' || role !== 'dev') refresh();
 }
 function adminBar() {
@@ -1023,34 +1029,103 @@ function adminBar() {
   return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Firma')}${seg('as', 'Als Nutzer')}${seg('self', 'Ich')}</div>
     ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'as' && asUser ? `<p class="hint">So sieht <b>${esc(asUser.name)}</b> die App (${who}). Stempeln ist gesperrt, Korrekturen an Zeiten werden gespeichert. Private Daten (Gehalt, Steuern, Standorte, Aussehen) siehst du nur zum Lesen.</p>` : ''}</div>`;
 }
+// ---------- Entwickler-Übersicht ----------
+// Oben Dayliner Pro (Plätze, Abos, Einnahmen), darunter die Nutzung und vier Bereiche, die je ein eigenes Fenster öffnen.
+const PRO_SALE = Date.parse('2026-11-20T00:00:00+01:00');   // seit hier ist das Abo über Stripe zu kaufen
+let adminCat = null, adminFilter = 'all';
+const euro = c => ((c || 0) / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+const dDay = t => t ? new Date(t).toLocaleDateString('de-DE') : '–';
+// Pro-Stand eines Nutzers: Entwickler, Abo, Gratis-Platz, Firma, erstes Konto (vor PRO_OLD) oder ohne Pro
+function proOf(u) {
+  const a = adminCache, abo = a.stats?.abos?.find(x => x.uid === u.uid);
+  if (ADMIN_UIDS.includes(u.uid)) return { k: 'dev', l: 'Entwickler' };
+  if (abo) return { k: 'abo', l: abo.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo' };
+  if (a.slots?.[u.uid]) return { k: 'slot', l: 'Gratis-Platz ' + a.slots[u.uid].n };
+  if (u.firm) return { k: 'firm', l: 'Pro über Firma' };
+  if (u.created && u.created < PRO_OLD) return { k: 'old', l: 'Erstes Konto' };
+  return { k: 'none', l: u.created ? 'Ohne Pro' : 'Ohne Pro (Alter unbekannt)' };
+}
+const PRO_KINDS = [['all', 'Alle'], ['old', 'Erste Konten'], ['slot', 'Gratis-Plätze'], ['firm', 'Über Firma'], ['abo', 'Abo'], ['none', 'Ohne Pro']];
+const byKind = k => adminCache.users.filter(u => proOf(u).k === k);
 function renderAdmin() {
   const a = adminCache;
   if (!a) { view.innerHTML = '<p class="center muted" style="margin-top:30vh">Lädt …</p>'; return; }
-  const wk = Date.now() - 7 * 86400000, kpi = (v, l) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`;
+  const wk = Date.now() - 7 * 86400000, st = a.stats;
+  const kpi = (v, l, fn) => fn ? `<button class="kpi" onclick="${fn}"><b>${v}</b><span>${l}</span></button>` : `<div class="kpi"><b>${v}</b><span>${l}</span></div>`;
+  const cat = (ic, t, sub, k) => `<button class="row profeat" onclick="openAdmin('${k}')"><span class="ti">${ic}</span><span class="tt"><b>${t}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`;
+  const pend = a.companies.reduce((n, c) => n + c.pending, 0), fbNew = fbAdmin?.filter(t => t.unreadAdmin).length || 0;
   view.innerHTML = `<h1 class="center">Entwickler</h1>
+  <div class="label">Dayliner Pro</div>
+  <div class="kpis">${kpi(`${Object.keys(a.slots || {}).length} / ${PRO_PLACES}`, 'Gratis-Plätze vergeben', "openAdmin('pro')")}${kpi(st ? st.abos.length : '…', 'Abos aktiv', "openAdmin('pro')")}
+    ${kpi(st ? euro(st.netto) : '…', 'eingenommen', "openAdmin('pro')")}${kpi(byKind('none').length, 'ohne Pro (müssten zahlen)', "adminFilter = 'none'; openAdmin('users')")}</div>
+  <p class="hint">Pro-Begrenzung seit ${dDay(PRO_OLD)}, Abo-Verkauf seit ${dDay(PRO_SALE)}. ${byKind('old').length} erste Konten behalten Pro kostenlos.${a.statsErr ? ` <span class="red">Stripe: ${esc(a.statsErr)}</span>` : ''}</p>
+  <div class="label">Nutzung</div>
   <div class="kpis">${kpi(a.users.length, 'Nutzer')}${kpi(a.companies.length, 'Firmen')}${kpi(a.users.filter(u => u.open && !u.open.stale && !u.open.pause).length, 'gerade eingestempelt')}${kpi(a.users.filter(u => u.last > wk).length, 'aktiv (7 Tage)')}</div>
-  <div class="label">Firmen</div>
-  ${a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="setRole('boss', '${c.id}')"><span><b>${esc(c.name)}</b>
-    <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>` : '<p class="muted center">Noch keine Firmen.</p>'}
-  <div class="label">Feedback ${fbAdmin?.some(t => t.unreadAdmin) ? `<span class="badge-gf">${fbAdmin.filter(t => t.unreadAdmin).length} neu</span>` : ''}</div>
-  ${pushAskHtml('Bei neuem Feedback benachrichtigen')}<div id="fblist">${feedbackAdminHtml()}</div>
-  <div class="label">Nutzer</div>
-  <div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
-  <div id="ulist">${adminUsers()}</div>
+  <div class="label">Bereiche</div>
+  <div class="group">
+    ${cat('🏢', 'Firmen', `${a.companies.length} ${a.companies.length === 1 ? 'Firma' : 'Firmen'}${pend ? ` · <span class="red">${pend} Anfrage${pend > 1 ? 'n' : ''} offen</span>` : ''}`, 'firms')}
+    ${cat('👤', 'Nutzer', `${a.users.length} Nutzer, nach Pro-Stand filtern`, 'users')}
+    ${cat('⭐', 'Pro & Abos', `Gratis-Plätze, Abos, Einnahmen${st ? ' · ' + euro(st.mrr) + ' pro Monat' : ''}`, 'pro')}
+    ${cat('💬', 'Feedback', fbNew ? `<span class="red">${fbNew} neu</span>` : 'Chats mit Nutzern', 'fb')}
+  </div>
   <button class="pill wide" onclick="adminCache = null; render(); loadAdmin()">Aktualisieren</button>
-  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Geschäftsführer zu sehen, oder auf einen Nutzer für seine Mitarbeiter-Ansicht. Private Daten (Gehalt, Steuern, Standorte) kannst du zur Hilfe nur lesen, nicht ändern.</p>
+  <p class="hint">Stand ${new Date(a.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. Tippe auf eine Firma, um sie als Geschäftsführer zu sehen, oder auf einen Nutzer für seine Ansicht. Private Daten (Gehalt, Steuern, Standorte) kannst du zur Hilfe nur lesen, nicht ändern.</p>
   <div class="group"><div class="row"><span>${esc(me.email)}</span><button class="pill sm" onclick="logout()">Abmelden</button></div></div>
   <a class="pill wide" href="${APP_URL}">Normale App öffnen</a>`;
 }
-function adminUsers() {
+// Bereich als eigenes Fenster (ganzer Bildschirm)
+function openAdmin(k) {
+  adminCat = k;
+  const title = { firms: 'Firmen', users: 'Nutzer', pro: 'Pro & Abos', fb: 'Feedback' }[k];
+  const body = { firms: adminFirms, users: () => adminUsersSheet(), pro: adminPro, fb: () => pushAskHtml('Bei neuem Feedback benachrichtigen') + `<div id="fblist">${feedbackAdminHtml()}</div>` }[k]();
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="closeSheet(); adminCat = null; refresh()">Schließen</button><h2>${title}</h2></div><div id="adminsheet">${body}</div>`);
+  $('#sheet').classList.add('full');
+}
+// Neue Daten: offenes Fenster auffrischen, sonst die Seite
+function adminRedraw() { if (tab !== 'admin') return; if (adminCat && !$('#sheet').hidden && $('#adminsheet')) openAdmin(adminCat); else refresh(); }
+const goAdmin = (r, id) => `closeSheet(); adminCat = null; setRole('${r}', '${id}')`;
+function adminFirms() {
+  const a = adminCache;
+  return a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="${goAdmin('boss', c.id)}"><span><b>${esc(c.name)}</b>
+    <div class="muted small">Geschäftsführer: ${esc(c.ownerName || '–')} · ${c.active} Mitarbeiter${c.pending ? ` · <span class="red">${c.pending} Anfrage${c.pending > 1 ? 'n' : ''}</span>` : ''} · Code ${esc(c.code)}</div></span><span class="muted">Ansehen ›</span></button>`).join('')}</div>`
+    : '<p class="muted center">Noch keine Firmen.</p>';
+}
+function adminUsersSheet() {
+  return `<div class="group"><div class="row"><input class="full" placeholder="Name oder E-Mail suchen" value="${esc(adminQuery)}" oninput="adminQuery = this.value; $('#ulist').innerHTML = adminUsers()"></div></div>
+  <div class="fbtypes">${PRO_KINDS.map(([k, l]) => `<button class="pill sm ${adminFilter === k ? 'sel' : ''}" onclick="adminFilter = '${k}'; openAdmin('users')">${l} ${k === 'all' ? adminCache.users.length : byKind(k).length}</button>`).join('')}</div>
+  <div id="ulist">${adminUsers()}</div>`;
+}
+function adminUsers(list) {
   const a = adminCache, q = adminQuery.trim().toLowerCase();
-  const list = a.users.filter(u => !q || (u.name + ' ' + u.email).toLowerCase().includes(q));
+  list ||= a.users.filter(u => (adminFilter === 'all' || proOf(u).k === adminFilter) && (!q || (u.name + ' ' + u.email).toLowerCase().includes(q)));
   const firm = u => {
     const own = a.companies.find(c => c.owner === u.uid), c = a.companies.find(c => c.id === u.cid);
     return own ? `Geschäftsführer von ${esc(own.name)}` : c ? `${esc(c.name)}${u.status === 'pending' ? ' (Anfrage offen)' : u.status ? '' : ' (nicht freigegeben)'}` : 'ohne Firma';
   };
   if (!list.length) return '<p class="muted center">Keine Treffer.</p>';
-  return `<div class="group">${list.map(u => `<button class="row" onclick="setRole('as', '${u.uid}')"><span>${openLabel(u.open)}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''} ${proBadge()}
-    <div class="muted small">${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.open ? openText(u.open) : u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
-    <span class="${cls(u.balance)}">${hm(u.balance, true)} ›</span></button>`).join('')}</div>`;
+  return `<div class="group">${list.map(u => { const p = proOf(u); return `<button class="row" onclick="${goAdmin('as', u.uid)}"><span>${openLabel(u.open)}<b>${esc(u.name)}</b>${u.uid === me.uid ? ' (du)' : ''}${p.k === 'none' ? '' : ' <span class="badge-pro">PRO</span>'}
+    <div class="muted small">${p.l} · Konto seit ${dDay(u.created)}${u.guess && u.created ? ' (geschätzt)' : ''} · ${esc(u.email)}${u.email ? ' · ' : ''}${firm(u)} · ${u.open ? openText(u.open) : u.last ? 'zuletzt ' + dmy(ymd(new Date(u.last))) : 'noch nie gestempelt'}</div></span>
+    <span class="${cls(u.balance)}">${hm(u.balance, true)} ›</span></button>`; }).join('')}</div>`;
+}
+function adminPro() {
+  const a = adminCache, st = a.stats, nameOf = uid => a.users.find(u => u.uid === uid)?.name;
+  const slots = Object.entries(a.slots || {}).sort((x, y) => x[1].n - y[1].n);
+  const row = (l, r) => `<div class="row"><span>${l}</span><span>${r}</span></div>`;
+  const money = st ? `<div class="group">${row('Eingenommen (netto)', `<b>${euro(st.netto)}</b>`)}${row('Bezahlt insgesamt', euro(st.brutto))}${row('Davon erstattet', euro(st.erstattet))}${row('Zahlungen', st.zahlungen)}${row('Laufend pro Monat', euro(st.mrr))}${row('Gekündigte Abos (beendet)', st.gekuendigt)}</div>
+    <p class="hint">Direkt aus Stripe, ohne Stripe-Gebühren. „Laufend pro Monat“: aktive Abos, Jahresabo durch 12, ohne Abos, die zum Laufzeitende gekündigt sind.${st.mehr ? ' <span class="red">Mehr als 100 Einträge, die Zahlen sind unvollständig.</span>' : ''}</p>`
+    : `<p class="muted center">${a.statsErr ? 'Stripe nicht erreichbar: ' + esc(a.statsErr) : 'Lädt …'}</p>`;
+  return `<div class="label">Ablauf</div>
+  <div class="group">${row(`<b>Bis ${dDay(PRO_OLD - 864e5)}</b><div class="muted small">Erste Konten, Pro für immer kostenlos</div>`, byKind('old').length)}
+    ${row(`<b>Ab ${dDay(PRO_OLD)}</b><div class="muted small">Pro-Begrenzung, ${PRO_PLACES} Gratis-Plätze</div>`, `${slots.length} / ${PRO_PLACES}`)}
+    ${row(`<b>Ab ${dDay(PRO_SALE)}</b><div class="muted small">Abo über Stripe (${PRO_PRICE.monat} im Monat, ${PRO_PRICE.jahr} im Jahr)</div>`, st ? st.abos.length + ' Abos' : '…')}</div>
+  <div class="label">Einnahmen</div>${money}
+  <div class="label">Abos (${st ? st.abos.length : '…'})</div>
+  ${st?.abos.length ? `<div class="group">${st.abos.map(x => `<button class="row" ${a.users.some(u => u.uid === x.uid) ? `onclick="${goAdmin('as', x.uid)}"` : 'disabled'}><span><b>${esc(nameOf(x.uid) || x.email || 'Unbekannt')}</b>
+    <div class="muted small">${x.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo'} seit ${dDay(x.seit)} · ${x.endet ? '<span class="red">endet am</span>' : 'verlängert sich am'} ${dDay(x.bis)}${x.email ? ' · ' + esc(x.email) : ''}</div></span><span class="muted">›</span></button>`).join('')}</div>` : `<p class="muted center">${st ? 'Noch keine Abos.' : 'Lädt …'}</p>`}
+  <div class="label">Gratis-Plätze (${slots.length} von ${PRO_PLACES})</div>
+  ${slots.length ? `<div class="group">${slots.map(([uid, x]) => `<button class="row" onclick="${goAdmin('as', uid)}"><span><b>Platz ${x.n}: ${esc(nameOf(uid) || 'Konto gelöscht')}</b>
+    <div class="muted small">gesichert am ${dDay(x.at)}</div></span><span class="muted">›</span></button>`).join('')}</div>` : '<p class="muted center">Noch kein Platz vergeben.</p>'}
+  <div class="label">Erste Konten (${byKind('old').length})</div>${adminUsers(byKind('old'))}
+  <div class="label">Ohne Pro (${byKind('none').length})</div>${adminUsers(byKind('none'))}
+  <p class="hint">„Ohne Pro“ sind Konten ab dem ${dDay(PRO_OLD)} ohne Gratis-Platz, Firma oder Abo: Sie nutzen die Basis und müssten für Pro ein Abo abschließen. Das Kontoalter speichert die App ab jetzt beim nächsten Öffnen mit, bis dahin ist es über den ersten Stempel geschätzt.</p>`;
 }

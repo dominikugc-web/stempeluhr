@@ -6,6 +6,7 @@
 //   POST /remind     { on, start, end, tz, base, days, last, run }   Erinnerung ans Stempeln (Cron alle 5 Min.)
 //   POST /upload?thread=<uid>  Rohdaten, Content-Type, X-Name   Datei für den Feedback-Chat ablegen (R2 „FILES“)
 //   POST /file  { key }   Datei abrufen      POST /filedel { key }   Datei löschen
+//   POST /admin-stats                                    nur Entwickler: alle Abos und Einnahmen aus Stripe
 // Geheimnis (wrangler secret put VAPID_PRIVATE): privater VAPID-Schlüssel als base64url (d).
 import { remindClean, remindAll } from './remind.mjs';
 import { LIMITS, baseType, kindOf, threadOk, mayAccess } from './files.mjs';
@@ -105,6 +106,25 @@ async function aboStatus(env, uid) {
   return { aktiv: true, plan: s.items.data[0].price.recurring?.interval === 'year' ? 'jahr' : 'monat', bis: periodEnd(s), endet: !!(s.cancel_at_period_end || s.cancel_at) };
 }
 // E-Mail über Resend (Geheimnis RESEND_KEY, Domain dayliner.de dort bestätigt). Kopie an service@dayliner.de.
+// Entwickler-Übersicht: laufende Abos (mit uid aus den Metadaten) und Einnahmen netto nach Erstattungen.
+// mrr = laufender Betrag pro Monat in Cent (Jahresabo / 12), ohne Abos, die zum Laufzeitende gekündigt sind.
+async function adminStats(env) {
+  const [subs, charges] = await Promise.all([
+    stripe(env, 'subscriptions', { status: 'all', limit: '100', 'expand[]': 'data.customer' }, 'GET'),
+    stripe(env, 'charges', { limit: '100' }, 'GET'),
+  ]);
+  const live = subs.data.filter(s => LIVE.includes(s.status)), price = s => s.items.data[0].price;
+  const endet = s => !!(s.cancel_at_period_end || s.cancel_at), jahr = s => price(s).recurring?.interval === 'year';
+  const paid = charges.data.filter(c => c.paid && c.status === 'succeeded');
+  const brutto = paid.reduce((n, c) => n + (c.amount_captured ?? c.amount), 0), erstattet = paid.reduce((n, c) => n + (c.amount_refunded || 0), 0);
+  return {
+    abos: live.map(s => ({ uid: s.metadata?.uid || s.customer?.metadata?.uid || '', email: s.customer?.email || '', plan: jahr(s) ? 'jahr' : 'monat', seit: s.created * 1000, bis: periodEnd(s), endet: endet(s) })),
+    gekuendigt: subs.data.filter(s => s.status === 'canceled').length,
+    zahlungen: paid.length, brutto, erstattet, netto: brutto - erstattet,
+    mrr: Math.round(live.filter(s => !endet(s)).reduce((n, s) => n + (price(s).unit_amount || 0) / (jahr(s) ? 12 : 1), 0)),
+    mehr: !!(subs.has_more || charges.has_more),   // mehr als 100 Abos oder Zahlungen: dann fehlt ein Teil
+  };
+}
 async function sendMail(env, to, subject, text) {
   if (!env.RESEND_KEY) return false;
   const r = await fetch('https://api.resend.com/emails', {
@@ -203,6 +223,7 @@ export default {
 
     try {
       if (path === '/abo') return out(await aboStatus(env, uid));
+      if (path === '/admin-stats') return ADMIN_UIDS.includes(uid) ? out(await adminStats(env)) : out({ error: 'Nur für den Entwickler.' }, 403);
       if (path === '/abo-kaufen') {
         if ((await aboStatus(env, uid)).aktiv) return out({ error: 'Du hast schon ein Abo.' }, 400);
         let cus = await env.SUBS.get('kunde:' + uid);

@@ -1451,7 +1451,7 @@ function fbRecStop(send) {
 function closeFeedback(admin) {
   fbUnsub?.(); fbUnsub = null; document.querySelector('.msgmenu-bg')?.remove();
   fbRecStop(false); fbAudio?.pause(); fbAudio = null; fbAudioK = null;
-  if (admin) { closeSheet(); render(); loadFeedbackAdmin(); } else closeSheet();
+  if (admin) { closeSheet(); render(); loadFeedbackAdmin(); if (tab === 'admin') openAdmin('fb'); } else closeSheet();
 }
 // Admin: Liste aller Chats
 let fbAdmin = null;
@@ -1463,7 +1463,7 @@ async function loadFeedbackAdmin() {
     // Neues Feedback ist beim Entwickler angekommen → zwei graue Haken beim Nutzer
     fbAdmin.filter(t => t.unreadAdmin && !(ms(t.recvAdmin) >= ms(t.last))).forEach(t => ref('feedback/' + t.uid).set({ recvAdmin: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {}));
   } catch (e) { fbAdmin = []; }
-  if (tab === 'admin' && $('#fblist')) $('#fblist').innerHTML = feedbackAdminHtml();
+  if (tab === 'admin') { if ($('#fblist')) $('#fblist').innerHTML = feedbackAdminHtml(); else refresh(); }   // ohne offenes Fenster: Zähler auf der Seite auffrischen
 }
 function feedbackAdminHtml() {
   if (!fbAdmin) return '<p class="muted center">Lädt …</p>';
