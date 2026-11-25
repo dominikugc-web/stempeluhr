@@ -362,6 +362,7 @@ function teamStatsHtml(from, to) {
       <span><b>${r.vac}</b><small>Urlaub · Rest ${r.vacLeft}</small></span>
       <span><b>${r.sick}</b><small>Krank${r.kid ? ` · Kind ${r.kid}` : ''}${r.unpaid ? ` · Unbez. ${r.unpaid}` : ''}</small></span>
     </div></button>`).join('')}
+  ${prjStatsHtml(teamPeople().map(p => teamData[p.uid]?.d).filter(Boolean), from, to, true)}
   <p class="hint">Konto = Überstundenkonto am ${dmy(until)}. Rest = verbleibende Urlaubstage im Jahr ${until.slice(0, 4)}. Tippe auf eine Person für alle Details.</p>
   <button class="pill wide" onclick="openPayroll()">📤 Zeitraum für die Lohnabrechnung exportieren</button>`;
 }
@@ -412,6 +413,8 @@ function statsHtml(d, who) {  // who: null = eigene Daten, sonst { uid, name } e
     ${row('Kind krank', countAbs(all, 'kindkrank'))}${row('Unbezahlter Urlaub', countAbs(all, 'unbezahlt'))}
     ${row('Feiertage (an Arbeitstagen)', holi)}
   </div>
+
+  ${prjStatsHtml([d], from, to)}
 
   <div class="label">Mehr</div>
   <div class="group">${who ? `
@@ -486,9 +489,9 @@ function loadScript(src) {
   });
 }
 const COLS = {
-  date: 'Datum', wd: 'Wochentag', times: 'Von – Bis', gross: 'Brutto', pause: 'Pause', net: 'Netto', soll: 'Soll', diff: 'Differenz', bal: 'Überstundenkonto', note: 'Bemerkung',
+  date: 'Datum', wd: 'Wochentag', times: 'Von – Bis', prj: 'Projekte', gross: 'Brutto', pause: 'Pause', net: 'Netto', soll: 'Soll', diff: 'Differenz', bal: 'Überstundenkonto', note: 'Bemerkung',
 };
-const DEF_COLS = ['date', 'wd', 'times', 'net', 'soll', 'diff', 'bal', 'note'];
+const DEF_COLS = ['date', 'wd', 'times', 'prj', 'net', 'soll', 'diff', 'bal', 'note'];
 function exportPrefs() {
   try { return { cols: DEF_COLS, dec: false, ...JSON.parse(localStorage.getItem('stempeluhr-export')) }; } catch { return { cols: DEF_COLS, dec: false }; }
 }
@@ -516,7 +519,7 @@ function rowsFor(d, from, to, cols, dec) {
     date: dmy(x.d), wd: WD[parseYmd(x.d).getDay()], times: span(x, ' - '),
     gross: x.gross ? f(x.gross) : '', pause: x.gross ? f(x.pause) : '', net: x.gross ? f(x.net) : '', soll: x.soll ? f(x.soll) : '',
     diff: x.d <= t && (x.soll || x.gross) ? (dec ? f(x.diff) : hm(x.diff, true)) : '',
-    bal: x.d <= t ? (dec ? f(c.balance(x.d)) : hm(c.balance(x.d), true)) : '', note: note(x),
+    bal: x.d <= t ? (dec ? f(c.balance(x.d)) : hm(c.balance(x.d), true)) : '', note: note(x), prj: prjDayText(x.sess),
   })[k]));
 }
 async function doExport() {
@@ -1865,6 +1868,7 @@ const PRO_FEATURES = [
   ['📍', 'Standort-Automatik', 'Zeit startet und stoppt automatisch an deinem Arbeitsort'],
   ['💶', 'Verdienst-Rechner', 'Brutto, Netto und Überstunden in Euro, nach amtlicher Formel'],
   ['📊', 'Export', 'Excel, CSV und Kalender (.ics) für jeden Zeitraum'],
+  ['📋', 'Projekte und Fahrzeit', 'Zeiten Baustellen, Kunden und Kommissionen zuordnen, Fahrten getrennt erfassen'],
   ['📧', 'Monatsnachweis per E-Mail', 'Jeden Monat automatisch als PDF an Chef, Lohnbüro oder Steuerberater'],
   ['🔔', 'Benachrichtigungen', 'Push bei Anfragen, Antworten und neuen Lohnabrechnungen'],
 ];
@@ -1893,4 +1897,178 @@ function proHtml() {
   <div class="group"><div class="row"><span>Stempeln, Pausen, Kalender, Statistik, Überstunden und Urlaub</span><span class="green">✓</span></div><div class="row"><span>PDF-Arbeitszeitnachweis</span><span class="green">✓</span></div></div>
   <p class="hint">Mitarbeiter einer Firma bekommen Pro über ihre Firma. Die ersten ${PRO_PLACES} nutzen Pro kostenlos, bis Dayliner im App Store ist, und bekommen vorher Bescheid. Deine Zeiten bleiben dir immer erhalten.</p>
   ${cancelBtn()}</div>`;
+}
+
+// ---------- Projekte (Pro): Baustellen, Kunden, Kommissionen und Fahrzeit ----------
+// Zeitblock: prj = Projekt-ID, t: 'f' = Fahrt (zählt als Arbeitszeit, wird getrennt ausgewiesen). Eine Fahrt ohne Projekt
+// bekommt das Projekt, bei dem man ankommt (Anfahrt). In einer Firma liegen die Projekte in companies/{cid}/projects
+// (alle Aktiven lesen, legen an und ändern), ohne Firma persönlich in settings.projects. Zusammengelegt: to = Ziel-ID.
+const PRJ = {};          // cid -> Liste der Firmenprojekte (onSnapshot)
+let prjNext;             // gewähltes Projekt für den nächsten Start (undefined = zuletzt benutztes)
+const prjCid = () => viewing ? cid : curSlot === 'main' ? cid : slots[curSlot]?.cid || null;
+const prjOn = () => !ADMIN_APP && !!me && isPro();
+function prjWatch(c) {
+  if (!c || PRJ[c] || !me) return;
+  PRJ[c] = [];
+  unsubs.push(fb.db.collection(`companies/${c}/projects`).onSnapshot(q => {
+    PRJ[c] = q.docs.map(d => ({ id: d.id, ...d.data() }));
+    if ($('#sheet').hidden) refresh(); else if ($('#prjpl')) prjPickList(); else if (currentTopic === 'projects') openTopic('projects');
+  }, () => {}));
+}
+function prjList(c = prjCid()) {   // alle Projekte des aktuellen Bereichs (Firma oder persönlich)
+  if (c) { prjWatch(c); return PRJ[c] || []; }
+  return data.settings.projects || [];
+}
+function prjWarm() { if (!prjOn()) return; prjWatch(cid); for (const x of Object.values(slots)) prjWatch(x.cid); }   // Namen für Statistik und Export
+const prjActive = (c = prjCid()) => prjList(c).filter(p => !p.done && !p.to).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+function prjById(id) {   // über alle geladenen Listen, folgt Zusammenlegungen
+  for (let i = 0; id && i < 4; i++) {
+    const p = [...Object.values(PRJ).flat(), ...((mainData || data).settings.projects || [])].find(x => x.id === id);
+    if (!p?.to) return p || null;
+    id = p.to;
+  }
+  return null;
+}
+const prjName = id => prjById(id)?.name || 'Projekt';
+const prjInfo = p => [p?.kunde, p?.nr].filter(Boolean).join(' · ');
+const blockMs = x => Math.max(0, (x.e ?? Date.now()) - x.s);
+const lastPrj = () => { const l = data.sessions.filter(x => x.prj).sort((a, b) => b.s - a.s)[0], p = l && prjById(l.prj); return p && !p.done ? p.id : null; };
+const curPrj = () => { const run = data.sessions.find(x => x.e == null); return run ? run.prj || null : prjNext !== undefined ? prjNext : lastPrj(); };
+function prjStart() { if (!prjOn()) return {}; const p = curPrj(); prjNext = undefined; return p ? { prj: p } : {}; }
+
+// Startseite: Projekt wählen bzw. wechseln, Fahrt starten
+function prjRowUpdate(state) {
+  const row = $('#prjrow'); if (!row) return;
+  const on = prjOn() && (!viewing || asSelf());
+  row.hidden = !on; if (!on) return;
+  const run = data.sessions.find(x => x.e == null), fahrt = run?.t === 'f', p = curPrj();
+  const key = [state, p, fahrt, prjList().length].join('|');
+  if (row.dataset.k === key) return;
+  row.dataset.k = key;
+  const label = fahrt ? (p ? `🚗 Fahrt zu ${esc(prjName(p))}` : '🚗 Fahrt · Ziel wählen') : `📍 ${p ? esc(prjName(p)) : 'Projekt wählen'}`;
+  row.innerHTML = `<button class="pill prjchip" onclick="openPrjPicker()"><span>${label}</span><span class="muted">▾</span></button>
+    ${fahrt || state === 'pause' ? '' : '<button class="pill prjfahrt" onclick="doFahrt()">🚗 Fahrt</button>'}`;
+}
+function doFahrt() {
+  if (stampGuard()) return;
+  const run = data.sessions.find(x => x.e == null);
+  if (!run && !stopElsewhere()) return;
+  if (run) run.e = Date.now();
+  newSession({ t: 'f' });
+  save(); haptic(); updateStart(); toast('🚗 Fahrt läuft. Bei Ankunft das Projekt antippen.');
+}
+function prjPick(id) {   // aus dem Auswahlfenster: läuft etwas, sofort wechseln; sonst für den nächsten Start merken
+  closeSheet();
+  const run = data.sessions.find(x => x.e == null);
+  if (!run) { prjNext = id; updateStart(); toast(id ? `📍 ${prjName(id)} für den nächsten Start` : 'Ohne Projekt'); return; }
+  if (stampGuard()) return;
+  if (run.t !== 'f' && (run.prj || null) === id) return;
+  if (run.t === 'f' && !run.prj && id) run.prj = id;   // Anfahrt gehört zum Ziel
+  run.e = Date.now();
+  newSession(id ? { prj: id } : {});
+  save(); haptic(); updateStart(); toast(id ? `📍 Gewechselt zu ${prjName(id)}` : 'Weiter ohne Projekt');
+}
+
+// Auswahlfenster mit Suche; was es noch nicht gibt, wird gleich angelegt (vorher ähnliche Namen zeigen)
+function openPrjPicker() {
+  const running = data.sessions.some(x => x.e == null);
+  sheet(`<div class="sheet-head"><h2>Projekt</h2><button class="pill sm" onclick="closeSheet()">Abbrechen</button></div>
+  <div class="group"><label class="row"><input id="prjq" class="full" placeholder="Suchen oder neu anlegen" autocomplete="off" oninput="prjPickList()"></label></div>
+  <div id="prjpl"></div>
+  <p class="hint">${running ? 'Antippen wechselt sofort: Der laufende Block endet, der neue beginnt ohne Pause. Läuft eine Fahrt, zählt sie zum gewählten Projekt.' : 'Gilt für den nächsten Start.'} Projekte verwaltest du unter Setup → Projekte.</p>`);
+  prjPickList();
+}
+function prjPickList() {
+  const q = ($('#prjq')?.value || '').trim(), ql = q.toLowerCase(), cur = curPrj();
+  const used = {}; for (const x of data.sessions) if (x.prj) used[x.prj] = Math.max(used[x.prj] || 0, x.s);
+  const list = prjActive().filter(p => !ql || `${p.name} ${p.kunde || ''} ${p.nr || ''} ${p.adr || ''}`.toLowerCase().includes(ql))
+    .sort((a, b) => (used[b.id] || 0) - (used[a.id] || 0));
+  const exact = prjActive().some(p => p.name.toLowerCase() === ql);
+  $('#prjpl').innerHTML = `<div class="group">${list.map(p => `<button class="row" onclick="prjPick('${p.id}')"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span>${p.id === cur ? '<span class="green">✓</span>' : ''}</button>`).join('')}
+    ${q && !exact ? `<button class="row" onclick="prjForm(null, 'pick')"><span>➕ Neu anlegen: <b>${esc(q)}</b>${list.length ? `<div class="muted small">Oben stehen ähnliche Projekte, vielleicht gibt es es schon.</div>` : ''}</span></button>` : ''}
+    <button class="row" onclick="prjPick(null)"><span class="muted">Ohne Projekt</span>${!cur ? '<span class="green">✓</span>' : ''}</button></div>`;
+}
+
+// Anlegen und Bearbeiten (Name Pflicht, Kunde, Kommissionsnummer, Adresse freiwillig)
+const prjBoss = () => !prjCid() || (prjCid() === cid && isOwner());
+function prjForm(id, back = 'topic') {
+  const p = id ? prjById(id) || {} : { name: ($('#prjq')?.value || '').trim() }, f = (k, l, ph) => `<label class="row"><span>${l}</span><input id="pf_${k}" value="${esc(p[k] || '')}" placeholder="${ph}" autocomplete="off"></label>`;
+  const others = prjActive().filter(x => x.id !== id);
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="${back === 'pick' ? 'openPrjPicker()' : "openTopic('projects')"}">‹</button><h2>${id ? 'Projekt bearbeiten' : 'Neues Projekt'}</h2><button class="pill sm green" onclick="prjSave(${id ? `'${id}'` : 'null'}, '${back}')">Sichern</button></div>
+  <div class="group">${f('name', 'Name', 'z. B. Müller Bad')}${f('kunde', 'Kunde', 'freiwillig')}${f('nr', 'Kommission / Nr.', 'freiwillig')}${f('adr', 'Adresse', 'freiwillig')}</div>
+  ${id && prjBoss() ? `<div class="group"><label class="row"><span>Abgeschlossen<div class="muted small">Steht dann nicht mehr in der Auswahl, die Zeiten bleiben.</div></span><input type="checkbox" id="pf_done" ${p.done ? 'checked' : ''}></label>
+    ${others.length ? `<label class="row"><span>Zusammenlegen mit</span><select id="pf_to"><option value="">nicht zusammenlegen</option>${others.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}</div>
+    <p class="hint">Zusammenlegen: Alle Zeiten dieses Projekts zählen ab sofort zum gewählten Projekt, auch die schon gestempelten. Gut für doppelt angelegte Projekte.</p>` : ''}
+  ${prjCid() ? '<p class="hint">Alle in der Firma sehen und benutzen dieselben Projekte.</p>' : ''}`);
+  $('#pf_name').focus();
+}
+async function prjSave(id, back) {
+  const v = k => ($('#pf_' + k)?.value || '').trim().slice(0, 80), name = v('name');
+  if (!name) return alert('Bitte einen Namen eintragen.');
+  const f = { name, kunde: v('kunde'), nr: v('nr'), adr: v('adr') };
+  if (id && $('#pf_done')) f.done = $('#pf_done').checked;
+  const to = $('#pf_to')?.value;
+  if (to && !confirm(`„${name}“ mit „${prjName(to)}“ zusammenlegen? Das lässt sich nicht rückgängig machen.`)) return;
+  if (to) f.to = to;
+  if (!id && prjActive().some(p => p.name.toLowerCase() === name.toLowerCase())) return alert('Ein Projekt mit diesem Namen gibt es schon.');
+  const c = prjCid();
+  if (c) {
+    const r = id ? ref(`companies/${c}/projects/${id}`) : fb.db.collection(`companies/${c}/projects`).doc();
+    const doc = id ? f : { ...f, by: me.uid, at: Date.now(), done: false };
+    if (!id) PRJ[c] = [...(PRJ[c] || []), { id: r.id, ...doc }];   // sofort in der Auswahl, bevor der Server antwortet
+    id ? r.update(f).catch(cloudError) : r.set(doc).catch(cloudError);
+    id = id || r.id;
+  } else {
+    const list = data.settings.projects || [];
+    if (id) data.settings.projects = list.map(p => p.id === id ? { ...p, ...f } : p);
+    else { id = 'p' + crypto.getRandomValues(new Uint32Array(2)).join('').slice(0, 12); data.settings.projects = [...list, { id, ...f, done: false }]; }
+    save();
+  }
+  if (back === 'pick') prjPick(id); else openTopic('projects');
+}
+function prjTopicHtml() {
+  const all = prjList().filter(p => !p.to).sort((a, b) => a.name.localeCompare(b.name, 'de')), act = all.filter(p => !p.done), done = all.filter(p => p.done);
+  const sums = Object.fromEntries(prjSums([data], '2000-01-01', '2999-12-31').map(x => [x.id, x.work + x.fahrt]));
+  const row = p => `<button class="row" onclick="prjForm('${p.id}')"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span><span class="muted">${sums[p.id] ? hm(sums[p.id]) + ' Std. ' : ''}›</span></button>`;
+  return `<p class="hint" style="margin-top:0">Ordne deine Zeiten Baustellen, Kunden oder Kommissionen zu. Auf der Startseite wählst du das Projekt, wechselst ohne Pause und stempelst Fahrten. Fahrzeit zählt als Arbeitszeit und wird getrennt ausgewiesen.${prjCid() ? ' In deiner Firma nutzen alle dieselbe Liste.' : ''}</p>
+  <button class="pill wide" onclick="prjForm(null)">➕ Neues Projekt</button>
+  ${act.length ? `<div class="label">Aktiv</div><div class="group">${act.map(row).join('')}</div>` : '<p class="hint center">Noch keine Projekte.</p>'}
+  ${done.length ? `<details class="month"><summary><span>Abgeschlossen (${done.length})</span></summary><div class="group">${done.map(row).join('')}</div></details>` : ''}
+  <p class="hint">Die Stunden rechts sind deine eigenen, ohne Pausenabzug. Die Summen aller Mitarbeiter stehen in der Statistik der Firma.</p>`;
+}
+
+// Summen je Projekt über einen oder mehrere Datensätze (ohne Pausenabzug, wie gestempelt)
+function prjSums(sets, from, to) {
+  const m = {};
+  for (const d of sets) for (const x of d?.sessions || []) {
+    const day = ymd(new Date(x.s));
+    if (day < from || day > to || (!x.prj && x.t !== 'f')) continue;
+    const p = x.prj ? prjById(x.prj) : null, k = p?.id || (x.prj ? 'x' : '');
+    const e = m[k] ||= { id: k, name: p ? p.name : x.prj ? 'Unbekanntes Projekt' : 'Fahrt ohne Projekt', info: prjInfo(p), work: 0, fahrt: 0, who: new Set() };
+    e[x.t === 'f' ? 'fahrt' : 'work'] += blockMs(x); e.who.add(d);
+  }
+  return Object.values(m).map(x => ({ ...x, people: x.who.size })).sort((a, b) => b.work + b.fahrt - a.work - a.fahrt);
+}
+function prjDayText(sess) {   // „Müller Bad 5:00 · Fahrt 0:40“ für PDF und Export
+  if (!sess.some(x => x.prj || x.t === 'f')) return '';
+  const m = new Map();
+  for (const x of sess) { const k = x.t === 'f' ? 'Fahrt' : x.prj ? prjName(x.prj) : 'ohne Projekt'; m.set(k, (m.get(k) || 0) + blockMs(x)); }
+  return [...m].map(([k, v]) => `${k} ${hm(v)}`).join(' · ');
+}
+function prjStatsHtml(sets, from, to, team) {
+  const ps = prjSums(sets, from, to);
+  if (!ps.length) return '';
+  const fahrt = ps.reduce((a, x) => a + x.fahrt, 0);
+  return `<div class="label">${team ? 'Projekte (alle Mitarbeiter)' : 'Projekte'}</div><div class="group">
+    ${ps.map(x => `<div class="row"><span>${esc(x.name)}<div class="muted small">${[x.info, x.fahrt ? `davon Fahrt ${hm(x.fahrt)}` : '', team ? `${x.people} ${x.people === 1 ? 'Person' : 'Personen'}` : ''].filter(Boolean).map(esc).join(' · ')}</div></span><b>${hours(x.work + x.fahrt)}</b></div>`).join('')}
+    ${fahrt ? `<div class="row"><span>🚗 Fahrzeit gesamt</span><b>${hours(fahrt)}</b></div>` : ''}</div>
+  <p class="hint">Wie gestempelt, ohne Pausenabzug. Fahrten zählen zum Projekt, zu dem gefahren wurde.</p>`;
+}
+
+// Tages-Editor: zweite Zeile je Zeitblock mit Art und Projekt
+const prjEditOn = () => prjOn();
+function prjRowEdit(r) {
+  const act = prjActive(), extra = r.prj && !act.some(p => p.id === r.prj) ? [{ id: r.prj, name: prjName(r.prj) }] : [];
+  return `<div class="row erow2"><select class="et"><option value="">Arbeit</option><option value="f" ${r.t === 'f' ? 'selected' : ''}>🚗 Fahrt</option></select>
+    <select class="ep"><option value="">Ohne Projekt</option>${[...extra, ...act].map(p => `<option value="${p.id}" ${p.id === r.prj ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>`;
 }

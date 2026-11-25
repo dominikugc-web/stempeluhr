@@ -92,6 +92,7 @@ function render() {
   maybeOnboard();
   maybeProOffer();
   maybeMonthMail();
+  prjWarm();
 }
 function renderPage() {
   applyTheme();
@@ -375,6 +376,7 @@ function renderStart() {
     <div class="dial" id="dial"><span class="caps" id="caps"></span>
       <span class="hticks"></span><div><span class="muted small" id="dlabel">Arbeitszeit</span><b id="clock">00:00:00</b></div></div>
     <div class="acts" id="acts"></div>
+    <div class="prjrow" id="prjrow" hidden></div>
   </div></div>`;
   updateStart();
 }
@@ -433,7 +435,7 @@ function updateStart() {
     hint = all > 10 * HOUR ? `⚠️ Alle Jobs zusammen ${hm(all)} Std. – max. 10 Std. erlaubt` : `Alle Jobs zusammen heute: ${hm(all)} Std.`;
     hcls = all > 10 * HOUR ? 'red' : all > 9.5 * HOUR ? 'near' : '';
   }
-  $('#dlabel').textContent = state === 'pause' ? '☕ Pause' : 'Arbeitszeit';
+  $('#dlabel').textContent = state === 'pause' ? '☕ Pause' : data.sessions.find(x => x.e == null)?.t === 'f' ? '🚗 Fahrt' : 'Arbeitszeit';
   $('#tpause').textContent = hm(t.breakTotal + (state === 'pause' ? now - pz.e : 0));   // laufende Pause zählt gleich mit
   // Statuszeile unter „Heute“: Hinweis, sonst das Datum (immer gleich hoch, damit nichts springt)
   $('#shint').textContent = hint || new Date(now).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -446,6 +448,7 @@ function updateStart() {
       : state === 'pause' ? '<button class="big" onclick="doResume()">Weiter</button><button class="big stop" onclick="doEnd()">Feierabend</button>'
       : '<button class="big" id="toggle" onclick="toggle()">Start</button>';
   }
+  if (typeof prjRowUpdate === 'function') prjRowUpdate(state);
   $('#dial').style.background = ring.bg;
   // runde Enden am farbigen Bogen
   $('#caps').innerHTML = ring.caps.map(([f, c]) => `<i style="transform:rotate(${f * 360}deg);--c:${c}"></i>`).join('');
@@ -474,7 +477,7 @@ function stopElsewhere() {
   persist(other);
   return true;
 }
-function newSession() { const defLoc = (data.settings.locs || []).find(l => l.def && !l.arch); data.sessions.push({ s: Date.now(), e: null, ...(defLoc ? { loc: defLoc.id } : {}) }); }
+function newSession(extra = {}) { const defLoc = (data.settings.locs || []).find(l => l.def && !l.arch); data.sessions.push({ s: Date.now(), e: null, ...(defLoc ? { loc: defLoc.id } : {}), ...extra }); }
 function doPause() {
   if (stampGuard()) return;
   const run = data.sessions.find(x => x.e == null); if (!run) return;
@@ -485,7 +488,7 @@ function doResume() {
   const p = pauseRun();
   if (p && Date.now() - p.e < 15 * MIN && !confirm('Die Pause ist kürzer als 15 Min. und zählt nicht als gesetzliche Pause. Trotzdem weiterarbeiten?')) return;
   if (!stopElsewhere()) return;
-  newSession(); save(); haptic(); updateStart();
+  newSession(prjStart()); save(); haptic(); updateStart();
 }
 function doEnd() {
   if (stampGuard()) return;
@@ -511,7 +514,7 @@ function toggle() {
   if (stampGuard()) return;
   const run = data.sessions.find(x => x.e == null);
   if (!run && !stopElsewhere()) return;
-  if (run) run.e = Date.now(); else newSession();
+  if (run) run.e = Date.now(); else newSession(prjStart());
   save(); updateStart();
 }
 
@@ -605,7 +608,7 @@ function delAbsence(id) {
 // ---------- day editor ----------
 function openDay(d) {
   const x = calc().day(d);
-  edit = { d, rows: x.sess.map(s => ({ s: tod(s.s), e: s.e ? tod(s.e) : '' })) };
+  edit = { d, rows: x.sess.map(s => ({ s: tod(s.s), e: s.e ? tod(s.e) : '', t: s.t || '', prj: s.prj || '', loc: s.loc, p: s.p })) };
   if (!edit.rows.length) edit.rows.push({ s: '', e: '' });
   renderDay();
 }
@@ -616,7 +619,7 @@ function renderDay() {
   ${note(x) ? `<p class="badge">${esc(note(x))}</p>` : ''}
   ${edit.d < data.settings.since ? `<p class="badge">Vor deinem Startdatum (${dmy(data.settings.since)}): keine Sollstunden. Änderbar unter Setup → Aufzeichnung seit.</p>` : ''}
   <div class="label">Arbeitszeiten (von – bis)</div>
-  <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${r.s}"><span class="muted">bis</span><input type="time" class="ee" value="${r.e}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>`).join('')}</div>
+  <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${r.s}"><span class="muted">bis</span><input type="time" class="ee" value="${r.e}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>${prjEditOn() ? prjRowEdit(r) : ''}`).join('')}</div>
   <p class="hint">Endzeit leer lassen heißt: läuft noch (nur für heute). Liegt die Endzeit vor der Startzeit, endet die Schicht am Folgetag.</p>
   <button class="pill wide" onclick="addRow()">+ Zeit hinzufügen</button>
   <div class="group">
@@ -630,10 +633,16 @@ function renderDay() {
   <button class="pill wide" onclick="absenceForm('${edit.d}')">Urlaub / Krank / Feiertag eintragen</button>`);
 }
 function readRows() {
-  edit.rows = [...document.querySelectorAll('.erow')].map(r => ({ s: r.querySelector('.es').value, e: r.querySelector('.ee').value }));
+  const ex = [...document.querySelectorAll('.erow2')];
+  edit.rows = [...document.querySelectorAll('.erow')].map((r, i) => {
+    const o = edit.rows[i] || {}, x = ex[i];
+    return { ...o, s: r.querySelector('.es').value, e: r.querySelector('.ee').value, ...(x ? { t: x.querySelector('.et').value, prj: x.querySelector('.ep').value } : {}) };
+  });
 }
-function addRow() { readRows(); edit.rows.push({ s: '', e: '' }); renderDay(); }
+function addRow() { readRows(); const l = edit.rows.at(-1) || {}; edit.rows.push({ s: '', e: '', prj: l.prj || '' }); renderDay(); }
 function delRow(i) { readRows(); edit.rows.splice(i, 1); renderDay(); }
+// Zusatzangaben eines Zeitblocks aus dem Editor: Fahrt, Projekt, Ort, Pausen-Merker (nur gesetzte Felder speichern)
+const blockExtra = r => Object.fromEntries([['t', r.t === 'f' ? 'f' : ''], ['prj', r.prj], ['loc', r.loc], ['p', r.p]].filter(([, v]) => v));
 function at(d, hhmm) { const [h, m] = hhmm.split(':').map(Number), x = parseYmd(d); x.setHours(h, m, 0, 0); return x.getTime(); }
 function saveDay() {
   readRows();
@@ -643,14 +652,14 @@ function saveDay() {
     const s = at(edit.d, r.s);
     if (!r.e) {
       if (edit.d !== today()) return alert('Bitte für jede Zeit eine Endzeit eintragen.');
-      out.push({ s, e: null }); continue;
+      out.push({ s, e: null, ...blockExtra(r) }); continue;
     }
     // Endzeit vor der Startzeit = Nachtschicht, endet am Folgetag (zählt wie beim Stempeln zum Starttag)
     let e = at(edit.d, r.e);
     if (e === s) return alert('Start- und Endzeit sind gleich.');
     if (e < s) e = at(addDays(edit.d, 1), r.e);
     if (e - s > 16 * HOUR) return alert(`${r.s} bis ${r.e} am Folgetag wären über 16 Stunden. Bitte die Zeiten prüfen.`);
-    out.push({ s, e });
+    out.push({ s, e, ...blockExtra(r) });
   }
   const others = data.sessions.filter(x => ymd(new Date(x.s)) !== edit.d);
   if (out.filter(x => x.e == null).length + others.filter(x => x.e == null).length > 1) return alert('Es kann nur eine laufende Zeit geben.');
@@ -902,6 +911,7 @@ function setupTopics() {
     ],
     [
       mine && ['slots', '🧳', 'Arbeitsplätze', 'Mehrere Jobs getrennt erfassen'],
+      ['projects', '📋', 'Projekte', 'Baustellen, Kunden und Fahrzeit'],
       ['work', '🕘', 'Arbeitszeit', 'Sollstunden, Pausen, Bundesland'],
       ['balance', '⚖️', 'Überstunden & Urlaub', 'Startwert, Urlaubstage, Konto'],
       mine && ['loc', '📍', 'Standort', 'Automatisch stempeln vor Ort'],
@@ -925,12 +935,13 @@ function renderSetup() {
       <button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
   ${viewing && !viewing.preview && viewing.uid === company?.owner ? '<p class="hint center">Gründer der Firma. Geschäftsführer-Rechte und Mitgliedschaft lassen sich hier nicht ändern.</p>' : ''}`;
 }
-const TOPIC_TITLE = { pro: 'Dayliner Pro', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
+const TOPIC_TITLE = { pro: 'Dayliner Pro', projects: 'Projekte', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
 function openTopic(id, keepStats) {
-  if (['slots', 'loc', 'pay'].includes(id) && needPro()) return;
+  if (['slots', 'loc', 'pay', 'projects'].includes(id) && needPro()) return;
   const st = data.settings, now = new Date();
   const body = {
     account: () => accountHtml(),
+    projects: () => prjTopicHtml(),
     team: () => teamHtml(),
     loc: () => locListHtml(),
     slots: () => slotsHtml(),
@@ -1104,7 +1115,7 @@ function exportPdf(y, m, asBlob, o = {}) {
     body: days.map(x => [
       dmy(x.d), WD[parseYmd(x.d).getDay()].slice(0, 2), x.sess[0] ? tod(x.sess[0].s) : '', x.sess.length ? (x.sess.at(-1).e ? tod(x.sess.at(-1).e) : 'läuft') : '',
       x.gross ? hm(x.breakTotal) : '', x.gross ? hm(x.net) : '', x.soll ? hm(x.soll) : '',
-      x.d <= stand && (x.soll || x.gross) ? hm(x.diff, true) : '', note(x),
+      x.d <= stand && (x.soll || x.gross) ? hm(x.diff, true) : '', [note(x), prjDayText(x.sess)].filter(Boolean).join(' · '),
     ]),
     styles: { fontSize: 8, cellPadding: 1.4 },
     headStyles: { fillColor: [70, 45, 30] },
@@ -1122,6 +1133,12 @@ function exportPdf(y, m, asBlob, o = {}) {
       ['Urlaubstage', String(countAbs(days, 'urlaub'))],
       ['Krankheitstage', String(countAbs(days, 'krank'))],
     ],
+  });
+  const ps = prjSums([d], first, last);
+  if (ps.length) doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 4, theme: 'plain', tableWidth: 160, head: [['Projekt', 'Kunde / Nr.', 'Arbeit', 'Fahrt', 'Gesamt']],
+    styles: { fontSize: 9, cellPadding: 1 }, headStyles: { fontStyle: 'bold' }, columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
+    body: ps.map(x => [x.name, x.info, hm(x.work), x.fahrt ? hm(x.fahrt) : '', hm(x.work + x.fahrt)]),
   });
   doc.setFontSize(8);
   doc.setTextColor(120);

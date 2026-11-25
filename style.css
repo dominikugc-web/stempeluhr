@@ -592,3 +592,13 @@ label.row:has(>input:not([type=checkbox]):not([type=color]):not(.full)),label.ro
   body:has(#fbbtn:not([hidden])){--tbw:400px}
   .panel{max-width:620px}
 }
+/* Projekte: Auswahl und Fahrt unter den Stempel-Knöpfen, zweite Zeile je Zeitblock im Tages-Editor */
+.prjrow{display:flex;gap:10px;width:100%;flex:none;margin:0}
+.sclock:has(.prjrow:not([hidden])) .dial{height:min(100cqh - 134px,100cqw)}   /* Uhr macht Platz für die Projektzeile */
+.prjrow[hidden]{display:none}
+.prjchip{flex:1;min-width:0;justify-content:space-between;padding:12px 16px;font-size:16px}
+.prjchip>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prjfahrt{flex:0 0 auto;padding:12px 16px;font-size:16px}
+.erow:has(+ .erow2){border-bottom:0;padding-bottom:6px}
+.erow2{gap:8px;padding-top:0;min-height:0}
+.erow2 select{flex:1;min-width:0}
