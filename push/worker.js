@@ -53,15 +53,33 @@ async function fsGet(env, raw, path) {
   return r?.ok ? r.json() : null;
 }
 const fsStr = (d, k) => d?.fields?.[k]?.stringValue;
+// Dienstkonto (Geheimnis FB_SA = JSON-Schlüssel eines eigenen Dienstkontos mit nur der Rolle „Cloud Datastore-Nutzer“,
+// eingerichtet mit push/dienstkonto-einrichten.sh). Schreibt nur companies/{cid}.paidUntil, das kein Nutzer ändern darf.
+// Ohne Geheimnis passiert nichts (fehlendes paidUntil heißt in den Regeln: erlaubt).
+async function saToken(env) {
+  if (!env.FB_SA) return null;
+  if (saToken.t && saToken.exp > Date.now() + 60e3) return saToken.t;
+  const sa = JSON.parse(env.FB_SA), now = Math.floor(Date.now() / 1000), j = o => b64u(enc.encode(JSON.stringify(o)));
+  const msg = j({ alg: 'RS256', typ: 'JWT' }) + '.' + j({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 });
+  const key = await crypto.subtle.importKey('pkcs8', Uint8Array.from(atob(sa.private_key.replace(/-----[^-]+-----|\s/g, '')), c => c.charCodeAt(0)),
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const jwt = msg + '.' + b64u(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(msg)));
+  const r = await (await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }) })).json();
+  if (!r.access_token) throw new Error('Dienstkonto: ' + (r.error_description || r.error));
+  saToken.t = r.access_token; saToken.exp = Date.now() + (r.expires_in || 3600) * 1000;
+  return saToken.t;
+}
 // Hat der Nutzer Pro? Auf dem Server geprüft: Entwickler, altes Konto, Gratis-Platz, Firmen-Mitglied oder Abo bei Stripe.
 async function proServer(env, uid, raw) {
   if (ADMIN_UIDS.includes(uid)) return true;
   const look = await fetch(`${env.AUTH_URL || 'https://identitytoolkit.googleapis.com/v1'}/accounts:lookup?key=${WEB_KEY}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: raw }) }).then(r => r.ok ? r.json() : null).catch(() => null);
+    method: 'POST', headers: { 'Content-Type': 'application/json', Referer: 'https://dayliner.de/' }, body: JSON.stringify({ idToken: raw }) }).then(r => r.ok ? r.json() : null).catch(() => null);
   if (+look?.users?.[0]?.createdAt && +look.users[0].createdAt < PRO_OLD) return true;
   if (await fsGet(env, raw, 'betaSlots/' + uid)) return true;
   const cid = fsStr(await fsGet(env, raw, 'data/' + uid), 'cid');
-  if (cid && /^[\w-]{1,40}$/.test(cid) && fsStr(await fsGet(env, raw, `companies/${cid}/members/${uid}`), 'status') === 'active') return true;
+  const c = cid && /^[\w-]{1,40}$/.test(cid) && await fsGet(env, raw, 'companies/' + cid);   // lesbar nur für Gründer und freigegebene Mitglieder
+  if (c && (await firmaStatus(env, cid, c)).ok) return true;
   return env.STRIPE_KEY ? !!(await aboStatus(env, uid).catch(() => ({}))).aktiv : false;
 }
 // Einfache Bremse: höchstens max Vorgänge je Schlüssel und Zeitfenster (KV, läuft von selbst ab)
@@ -129,14 +147,69 @@ async function stripe(env, path, params, method = 'POST') {
 const LIVE = ['active', 'trialing', 'past_due'];   // past_due: Stripe versucht die Zahlung noch, so lange bleibt Pro an
 const periodEnd = s => (s.items.data[0].current_period_end ?? s.current_period_end) * 1000;
 const liveSubs = async (env, cus) => (await stripe(env, 'subscriptions', { customer: cus, status: 'all', limit: '10' }, 'GET')).data.filter(x => LIVE.includes(x.status));
-async function aboStatus(env, uid) {
-  const cus = await env.SUBS.get('kunde:' + uid);
+async function aboStatus(env, uid, key = 'kunde:' + uid) {
+  const cus = await env.SUBS.get(key);
   const s = cus && (await liveSubs(env, cus))[0];
   if (!s) return { aktiv: false };
   const start = (s.items.data[0].current_period_start ?? s.current_period_start) * 1000;
   const last = (await stripe(env, 'charges', { customer: cus, limit: '1' }, 'GET')).data?.[0];
-  if (last?.refunded && last.created * 1000 >= start - 864e5) return { aktiv: false, erstattet: true };
+  if (last?.refunded && last.created * 1000 >= start - 864e5) {   // voll erstattet: Abo sofort beenden, sonst bucht Stripe wieder ab
+    await stripe(env, 'subscriptions/' + s.id, null, 'DELETE').catch(() => {});
+    return { aktiv: false, erstattet: true };
+  }
   return { aktiv: true, plan: s.items.data[0].price.recurring?.interval === 'year' ? 'jahr' : 'monat', bis: periodEnd(s), endet: !!(s.cancel_at_period_end || s.cancel_at) };
+}
+// ---------- Firmen-Abo (Dominik, 25.11.2026) ----------
+// 9,99 € im Monat inklusive Geschäftsführer, dazu 3,49 € je freigegebenem Mitarbeiter. 14 Tage Testzeit ab der ersten
+// Firma des Gründers (KV „firmtest:<uid>“, Firmen von vor dem Start ab FIRMA_START). Stripe-Kunde je Firma in KV
+// „firmkunde:<cid>“. Die Preise legt der Dienst bei Bedarf selbst an (lookup_key firma_grund / firma_ma).
+const FIRMA_START = Date.parse('2026-11-25T00:00:00+01:00'), FIRMA_TEST = 14 * 864e5;
+const FIRMA_PREISE = { firma_grund: [999, 'Dayliner Firma (Grundpreis inklusive Geschäftsführer)'], firma_ma: [349, 'Dayliner Firma je Mitarbeiter'] };
+async function preis(env, key) {
+  const p = (await stripe(env, 'prices', { 'lookup_keys[]': key, active: 'true' }, 'GET')).data[0];
+  if (p) return p;
+  const [cent, name] = FIRMA_PREISE[key];
+  return stripe(env, 'prices', { currency: 'eur', unit_amount: String(cent), 'recurring[interval]': 'month', lookup_key: key, 'product_data[name]': name });
+}
+// Freigegebene Mitarbeiter zählen. Die Liste lesen dürfen nur Geschäftsführer, sonst null.
+async function maZahl(env, raw, cid) {
+  let n = 0, page = '';
+  do {
+    const r = await fsGet(env, raw, `companies/${cid}/members?pageSize=300${page ? '&pageToken=' + encodeURIComponent(page) : ''}`);
+    if (!r) return null;
+    n += (r.documents || []).filter(d => fsStr(d, 'status') === 'active').length;
+    page = r.nextPageToken;
+  } while (page);
+  return n;
+}
+// c = Firmendokument. ok = Testzeit läuft oder Abo aktiv. Ein Gründungsdatum in der Zukunft zählt als jetzt.
+async function firmaStatus(env, cid, c) {
+  const owner = fsStr(c, 'owner') || cid, created = Date.parse(c.fields?.created?.timestampValue) || 0;
+  const start = Math.min(Math.max(created, FIRMA_START), Date.now()), first = +(await env.SUBS.get('firmtest:' + owner)) || 0;
+  if (!first || start < first) await env.SUBS.put('firmtest:' + owner, String(start));
+  const test = Math.min(first || start, start) + FIRMA_TEST;
+  const abo = env.STRIPE_KEY ? await aboStatus(env, null, 'firmkunde:' + cid).catch(() => ({ aktiv: false })) : { aktiv: false };
+  return { ...abo, test, ok: !!abo.aktiv || test > Date.now() };
+}
+// Bis wann Geschäftsführer die Daten der Mitarbeiter sehen (Regel bossOf): bezahlt = Laufzeit plus 10 Tage Kulanz,
+// sonst Ende der Testzeit. Geschrieben vom Dienstkonto, nur wenn sich etwas ändert.
+async function firmaBezahlt(env, cid, c, st) {
+  const bis = st.aktiv ? Math.max(st.bis || 0, Date.now()) + 10 * 864e5 : st.test;
+  if (Math.abs(bis - (Date.parse(c.fields?.paidUntil?.timestampValue) || 0)) < 36e5) return;
+  const t = await saToken(env); if (!t) return;
+  const r = await fetch(`${env.FS_URL || 'https://firestore.googleapis.com/v1'}/projects/${PROJECT}/databases/(default)/documents/companies/${cid}?updateMask.fieldPaths=paidUntil&currentDocument.exists=true`,
+    { method: 'PATCH', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: { paidUntil: { timestampValue: new Date(bis).toISOString() } } }) });
+  if (!r.ok) throw new Error('paidUntil: ' + r.status);
+}
+// Zahl der Mitarbeiter im laufenden Abo nachziehen (Stripe verrechnet anteilig mit der nächsten Abrechnung)
+async function firmaSync(env, cid, ma) {
+  const cus = await env.SUBS.get('firmkunde:' + cid), s = cus && (await liveSubs(env, cus))[0];
+  if (!s) return;
+  const it = s.items.data.find(i => i.price.lookup_key === 'firma_ma');
+  if (it ? it.quantity === ma : !ma) return;
+  if (it && !ma) await stripe(env, 'subscription_items/' + it.id, null, 'DELETE');
+  else if (it) await stripe(env, 'subscription_items/' + it.id, { quantity: String(ma) });
+  else await stripe(env, 'subscription_items', { subscription: s.id, price: (await preis(env, 'firma_ma')).id, quantity: String(ma) });
 }
 // E-Mail über Resend (Geheimnis RESEND_KEY, Domain dayliner.de dort bestätigt). Kopie an service@dayliner.de.
 // Entwickler-Übersicht: laufende Abos (mit uid aus den Metadaten) und Einnahmen netto nach Erstattungen.
@@ -147,14 +220,15 @@ async function adminStats(env) {
     stripe(env, 'charges', { limit: '100' }, 'GET'),
   ]);
   const live = subs.data.filter(s => LIVE.includes(s.status)), price = s => s.items.data[0].price;
+  const betrag = s => s.items.data.reduce((n, i) => n + (i.price.unit_amount || 0) * (i.quantity ?? 1), 0);
   const endet = s => !!(s.cancel_at_period_end || s.cancel_at), jahr = s => price(s).recurring?.interval === 'year';
   const paid = charges.data.filter(c => c.paid && c.status === 'succeeded');
   const brutto = paid.reduce((n, c) => n + (c.amount_captured ?? c.amount), 0), erstattet = paid.reduce((n, c) => n + (c.amount_refunded || 0), 0);
   return {
-    abos: live.map(s => ({ uid: s.metadata?.uid || s.customer?.metadata?.uid || '', email: s.customer?.email || '', plan: jahr(s) ? 'jahr' : 'monat', seit: s.created * 1000, bis: periodEnd(s), endet: endet(s) })),
+    abos: live.map(s => ({ uid: s.metadata?.uid || s.customer?.metadata?.uid || '', email: s.customer?.email || '', plan: s.metadata?.cid ? 'firma' : jahr(s) ? 'jahr' : 'monat', seit: s.created * 1000, bis: periodEnd(s), endet: endet(s) })),
     gekuendigt: subs.data.filter(s => s.status === 'canceled').length,
     zahlungen: paid.length, brutto, erstattet, netto: brutto - erstattet,
-    mrr: Math.round(live.filter(s => !endet(s)).reduce((n, s) => n + (price(s).unit_amount || 0) / (jahr(s) ? 12 : 1), 0)),
+    mrr: Math.round(live.filter(s => !endet(s)).reduce((n, s) => n + betrag(s) / (jahr(s) ? 12 : 1), 0)),
     mehr: !!(subs.has_more || charges.has_more),   // mehr als 100 Abos oder Zahlungen: dann fehlt ein Teil
   };
 }
@@ -308,6 +382,36 @@ export default {
           mode: 'subscription', customer: cus, client_reference_id: uid, locale: 'de',
           'line_items[0][price]': price.id, 'line_items[0][quantity]': '1', 'subscription_data[metadata][uid]': uid,
           'custom_text[submit][message]': 'Mit „Abonnieren“ bestellst du Dayliner Pro zahlungspflichtig. Es gelten die AGB (dayliner.de/web/agb.html). Das Abo verlängert sich automatisch und ist jederzeit zum Ende der Laufzeit kündbar. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+          success_url: back + '?s=ok', cancel_url: back + '?s=abbruch',
+        });
+        return out({ url: s.url });
+      }
+      if (path === '/firma' || path === '/firma-kaufen' || path === '/firma-verwalten') {
+        const cid = String(b.cid || ''), c = /^[\w-]{1,40}$/.test(cid) && await fsGet(env, raw, 'companies/' + cid);
+        if (!c) return out({ error: 'Kein Zugriff auf diese Firma.' }, 403);
+        const [ma, st] = await Promise.all([maZahl(env, raw, cid), firmaStatus(env, cid, c)]);   // ma null = kein Geschäftsführer
+        if (path === '/firma') {
+          if (ma != null && st.aktiv) await firmaSync(env, cid, ma).catch(() => {});
+          await firmaBezahlt(env, cid, c, st).catch(e => console.log(e.message));
+          return out({ aktiv: !!st.aktiv, ok: st.ok, test: st.test, bis: st.bis || 0, endet: !!st.endet, ma, chef: ma != null });
+        }
+        if (ma == null) return out({ error: 'Nur für Geschäftsführer.' }, 403);
+        let cus = await env.SUBS.get('firmkunde:' + cid);
+        if (path === '/firma-verwalten') {
+          if (!cus) return out({ error: 'Kein Abo gefunden.' }, 404);
+          return out({ url: (await stripe(env, 'billing_portal/sessions', { customer: cus, return_url: back + '?s=portal', locale: 'de' })).url });
+        }
+        if (st.aktiv) return out({ error: 'Die Firma hat schon ein Abo.' }, 400);
+        if (!cus) { cus = (await stripe(env, 'customers', { email: tok.email || '', name: (fsStr(c, 'name') || '').slice(0, 200), 'metadata[cid]': cid, 'metadata[uid]': uid })).id; await env.SUBS.put('firmkunde:' + cid, cus); }
+        const [grund, je] = await Promise.all([preis(env, 'firma_grund'), preis(env, 'firma_ma')]);
+        const s = await stripe(env, 'checkout/sessions', {
+          mode: 'subscription', customer: cus, client_reference_id: uid, locale: 'de',
+          'line_items[0][price]': grund.id, 'line_items[0][quantity]': '1',
+          ...(ma ? { 'line_items[1][price]': je.id, 'line_items[1][quantity]': String(ma) } : {}),
+          'subscription_data[metadata][cid]': cid, 'subscription_data[metadata][uid]': uid,
+          ...(st.test - Date.now() > 2 * 864e5 ? { 'subscription_data[trial_end]': String(Math.floor(st.test / 1000)) } : {}),   // Rest der Testzeit (Stripe: mindestens 48 Std.)
+          billing_address_collection: 'required', 'tax_id_collection[enabled]': 'true', 'customer_update[name]': 'auto', 'customer_update[address]': 'auto',
+          'custom_text[submit][message]': 'Mit „Abonnieren“ bestellst du das Dayliner Firmen-Abo zahlungspflichtig: 9,99 € im Monat inklusive Geschäftsführer, dazu 3,49 € je freigegebenem Mitarbeiter. Gibst du Mitarbeiter frei oder entfernst sie, passt sich der Betrag anteilig an. Es gelten die AGB (dayliner.de/web/agb.html). Das Abo verlängert sich monatlich und ist jederzeit zum Monatsende kündbar. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
           success_url: back + '?s=ok', cancel_url: back + '?s=abbruch',
         });
         return out({ url: s.url });

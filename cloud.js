@@ -45,7 +45,7 @@ function teamPeople() {
   if (!company) return [];
   const list = company.ownerTracks === false ? [] : [{ uid: company.owner, name: company.ownerName || 'Gründer', boss: true, founder: true }];
   for (const m of members) if (m.status === 'active' && m.uid !== company.owner) list.push({ uid: m.uid, name: m.name, email: m.email, boss: m.role === 'boss', slot: !!m.slot });
-  return list.map(p => ({ ...p, self: p.uid === actingUid() })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
+  return list.filter(p => ADMIN_APP || firmOk(company.id) || p.uid === actingUid()).map(p => ({ ...p, self: p.uid === actingUid() })).sort((a, b) => (b.boss - a.boss) || (a.self - b.self) || a.name.localeCompare(b.name, 'de'));
 }
 // Wo liegen die Zeiten eines Mitarbeiters für diese Firma? Zweitjob → eigener Arbeitsplatz, sonst Hauptdaten
 const empPath = uid => members.find(m => m.uid === uid)?.slot ? `slots/${uid}/jobs/${company.id}` : 'data/' + uid;
@@ -407,7 +407,7 @@ function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Fir
     membersOn = true;
     companyUnsubs.push(fb.db.collection(`companies/${id}/members`).onSnapshot(q => {
       members = q.docs.map(d => ({ uid: d.id, ...d.data() }));
-      loadTeamStats(); updateTabs(); refreshTeam(); syncInvite(); setTimeout(joinPrompt, 600);
+      loadFirm(id); loadTeamStats(); updateTabs(); refreshTeam(); syncInvite(); setTimeout(joinPrompt, 600);
     }, cloudError));
     companyUnsubs.push(ref(`companies/${id}/admin/settings`).onSnapshot(s => {
       companyAdmin = s.exists ? s.data() : {};
@@ -417,7 +417,7 @@ function watchCompany(id, acting) {  // acting: Entwickler sieht eine fremde Fir
   };
   const listenCompany = () => companyUnsubs.push(ref('companies/' + id).onSnapshot(s => {
     company = s.exists ? { id, ...s.data() } : null;
-    bossFeeds();
+    bossFeeds(); if (company && !acting) loadFirm(id);
     updateTabs(); refreshTeam();
   }, () => { company = null; updateTabs(); refresh(); }));
   if (!acting) companyUnsubs.push(ref(`companies/${id}/members/${me.uid}`).onSnapshot(s => {
@@ -691,16 +691,15 @@ async function freeCode() {
 }
 
 function companyForm(extra) {
-  if (needPro()) return;
   extra = extra === true || !!cid;
   sheet(`<div class="sheet-head"><button class="pill sm red" onclick="${extra && company ? "openTopic('team')" : 'closeSheet()'}">Abbrechen</button><button class="pill sm green" onclick="createCompany(${extra})">Anlegen</button></div>
   <h2>${extra ? 'Weitere Firma anlegen' : 'Firma anlegen'}</h2>
   <div class="group"><label class="row"><span>Name der Firma</span><input id="cname" placeholder="z. B. Muster GmbH"></label></div>
   <p class="hint">${extra ? 'Die neue Firma bekommt einen eigenen Einladungscode, eigene Mitarbeiter, eigene Firmendaten und einen eigenen Lohn-Export. Zwischen deinen Firmen wechselst du oben im Team-Bereich. Deine eigenen Zeiten bleiben bei deiner bisherigen Firma.'
-    : 'Du bekommst einen Einladungscode. Mitarbeiter geben ihn in ihrer App ein, du gibst sie dann frei und siehst ihre Zeiten.'}</p>`);
+    : 'Du bekommst einen Einladungscode. Mitarbeiter geben ihn in ihrer App ein, du gibst sie dann frei und siehst ihre Zeiten.'}</p>
+  <p class="hint">${extra ? 'Jede Firma hat ihr eigenes Firmen-Abo. Die 14 Tage Testzeit zählen ab deiner ersten Firma.' : 'Die ersten 14 Tage sind kostenlos.'} Danach kostet das Firmen-Abo ${eur(FIRMA_PRICE.grund)} im Monat inklusive dir, dazu ${eur(FIRMA_PRICE.ma)} je Mitarbeiter. Deine Mitarbeiter haben damit Pro.</p>`);
 }
 async function createCompany(extra) {
-  if (needPro()) return false;
   if (!me.emailVerified) { await me.reload().catch(() => {}); if (me.emailVerified) await me.getIdToken(true); }
   if (!me.emailVerified) { if (confirm(`Bitte bestätige zuerst deine E-Mail-Adresse ${me.email || ''}. Bestätigungs-Mail jetzt senden?`)) sendVerify(); return false; }
   const name = $('#cname').value.trim();
@@ -821,10 +820,12 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   if (!isOwner()) return '<p class="center muted">Lädt …</p>';
   const pending = members.filter(m => m.status === 'pending'), people = teamPeople(), active = people.filter(p => !p.self);
   const info = company.info || {}, addr = [info.street, [info.zip, info.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-  return `<div class="label">Firma</div>
+  const firm = `<div class="label">Firma</div>
   <div class="group">${firmSwitchHtml()}<button class="row" onclick="companyEdit()"><span style="text-align:left"><b>${esc(company.name)}</b>
     <div class="muted small">${esc([addr, info.phone, info.email].filter(Boolean).join(' · ') || 'Adresse und Kontaktdaten hinzufügen')}</div></span><span class="muted">Bearbeiten ›</span></button>
-    ${myFirms().length < 2 && !asUser ? `<button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>` : ''}</div>
+    ${myFirms().length < 2 && !asUser ? `<button class="row" onclick="companyForm(true)"><span>+ Weitere Firma anlegen</span><span class="muted">›</span></button>` : ''}</div>`;
+  if (!firmOk(company.id)) return firm + firmAboHtml();   // Testzeit vorbei, kein Abo: nur Firma und Abo
+  return firm + firmAboHtml() + `
   ${company.ownerTracks === false && isFounder() ? '<p class="hint">Deine eigenen Zeiten zählen zu deiner Hauptfirma, deshalb stehst du hier nicht in der Team-Liste.</p>' : ''}
   <div class="label">Einladung</div>
   <div class="card center">
@@ -1037,13 +1038,14 @@ function adminBar() {
 // Oben Dayliner Pro (Plätze, Abos, Einnahmen), darunter die Nutzung und vier Bereiche, die je ein eigenes Fenster öffnen.
 const PRO_SALE = Date.parse('2026-11-20T00:00:00+01:00');   // seit hier ist das Abo über Stripe zu kaufen
 let adminCat = null, adminFilter = 'all';
+const ABO_NAME = { jahr: 'Jahresabo', firma: 'Firmen-Abo' };
 const euro = c => ((c || 0) / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 const dDay = t => t ? new Date(t).toLocaleDateString('de-DE') : '–';
 // Pro-Stand eines Nutzers: Entwickler, Abo, Gratis-Platz, Firma, erstes Konto (vor PRO_OLD) oder ohne Pro
 function proOf(u) {
   const a = adminCache, abo = a.stats?.abos?.find(x => x.uid === u.uid);
   if (ADMIN_UIDS.includes(u.uid)) return { k: 'dev', l: 'Entwickler' };
-  if (abo) return { k: 'abo', l: abo.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo' };
+  if (abo) return { k: 'abo', l: ABO_NAME[abo.plan] || 'Monatsabo' };
   if (a.slots?.[u.uid]) return { k: 'slot', l: 'Gratis-Platz ' + a.slots[u.uid].n };
   if (u.firm) return { k: 'firm', l: 'Pro über Firma' };
   if (u.created && u.created < PRO_OLD) return { k: 'old', l: 'Zahlt nie' };
@@ -1125,7 +1127,7 @@ function adminPro() {
   <div class="label">Einnahmen</div>${money}
   <div class="label">Abos (${st ? st.abos.length : '…'})</div>
   ${st?.abos.length ? `<div class="group">${st.abos.map(x => `<button class="row" ${a.users.some(u => u.uid === x.uid) ? `onclick="${goAdmin('as', x.uid)}"` : 'disabled'}><span><b>${esc(nameOf(x.uid) || x.email || 'Unbekannt')}</b>
-    <div class="muted small">${x.plan === 'jahr' ? 'Jahresabo' : 'Monatsabo'} seit ${dDay(x.seit)} · ${x.endet ? '<span class="red">endet am</span>' : 'verlängert sich am'} ${dDay(x.bis)}${x.email ? ' · ' + esc(x.email) : ''}</div></span><span class="muted">›</span></button>`).join('')}</div>` : `<p class="muted center">${st ? 'Noch keine Abos.' : 'Lädt …'}</p>`}
+    <div class="muted small">${ABO_NAME[x.plan] || 'Monatsabo'} seit ${dDay(x.seit)} · ${x.endet ? '<span class="red">endet am</span>' : 'verlängert sich am'} ${dDay(x.bis)}${x.email ? ' · ' + esc(x.email) : ''}</div></span><span class="muted">›</span></button>`).join('')}</div>` : `<p class="muted center">${st ? 'Noch keine Abos.' : 'Lädt …'}</p>`}
   <div class="label">Gratis bis zum App-Launch (${slots.length} von ${PRO_PLACES})</div>
   ${slots.length ? `<div class="group">${slots.map(([uid, x]) => `<button class="row" onclick="${goAdmin('as', uid)}"><span><b>Platz ${x.n}: ${esc(nameOf(uid) || 'Konto gelöscht')}</b>
     <div class="muted small">gesichert am ${dDay(x.at)}</div></span><span class="muted">›</span></button>`).join('')}</div>` : '<p class="muted center">Noch kein Platz vergeben.</p>'}

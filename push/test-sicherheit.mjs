@@ -21,7 +21,7 @@ const docs = {
   'fremder0001:invites/ABC234': { fields: { cid: { stringValue: 'firma1' } } },
   'chef0000001:data/mitarb00001': { fields: { cid: { stringValue: 'firma1' } } },
 };
-const mails = [], seen = [];
+const mails = [], seen = [], deleted = [];
 let charge = null;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
@@ -31,8 +31,9 @@ globalThis.fetch = async (url, init = {}) => {
     const path = u.split('/documents/')[1], key = subOf(init.headers.Authorization) + ':' + path; seen.push(key);
     return docs[key] ? Response.json(docs[key]) : new Response('{}', { status: 404 });
   }
+  if (init.method === 'DELETE') deleted.push(u);
   if (u.includes('api.stripe.com/v1/customers')) return Response.json({ data: [] });
-  if (u.includes('api.stripe.com/v1/subscriptions')) return Response.json({ data: [{ status: 'active', items: { data: [{ current_period_start: 1764000000, current_period_end: 1766600000, price: { recurring: { interval: 'month' } } }] } }] });
+  if (u.includes('api.stripe.com/v1/subscriptions')) return Response.json({ data: [{ id: 'sub_1', status: 'active', items: { data: [{ current_period_start: 1764000000, current_period_end: 1766600000, price: { recurring: { interval: 'month' } } }] } }] });
   if (u.includes('api.stripe.com/v1/charges')) return Response.json({ data: charge ? [charge] : [] });
   throw new Error('unerwartet: ' + u);
 };
@@ -75,4 +76,5 @@ charge = { refunded: false, created: 1764000100 };
 assert.equal((await (await call('/abo', {}, 'zahler00001')).json()).aktiv, true);
 charge = { refunded: true, created: 1764000100 };
 assert.deepEqual(await (await call('/abo', {}, 'zahler00001')).json(), { aktiv: false, erstattet: true });
+assert.deepEqual(deleted, ['https://api.stripe.com/v1/subscriptions/sub_1'], 'Erstattung beendet das Abo sofort');
 console.log('Sicherheit Push-Dienst: alles richtig');

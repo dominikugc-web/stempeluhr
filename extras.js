@@ -1718,7 +1718,8 @@ let proSlot, proCount = null;   // proSlot: undefined = lädt noch, null = kein 
 let proAbo = null;              // { aktiv, plan, bis, endet } vom Abo-Dienst, auf dem Gerät zwischengespeichert
 const aboTest = new URLSearchParams(location.search).has('abotest');   // dayliner.de/?abotest zeigt die Abo-Knöpfe auch bei freien Plätzen (Kauf testen)
 const aboOn = () => !!proAbo?.aktiv && proAbo.bis > Date.now() - 3 * 864e5;   // ohne Netz noch 3 Tage Kulanz
-const proFirm = () => !!(cid && membership?.status === 'active');   // nur freigegebene Mitglieder; Gründer brauchen eigenes Pro
+// Pro über die Firma: freigegebene Mitglieder und der Gründer, solange die Firma in der Testzeit ist oder das Firmen-Abo läuft
+const proFirm = () => !!(cid && (membership?.status === 'active' || company?.owner === me?.uid) && firmOk(company?.id || cid));
 const isPro = () => !!me && (isAdmin() || Date.parse(me.metadata.creationTime) < PRO_OLD || !!proSlot || proFirm() || aboOn());
 const proFree = () => Math.max(0, PRO_PLACES - (proCount ?? 0));
 // Pro-Funktion ohne Pro: stattdessen den Pro-Bildschirm zeigen (Platz sichern bzw. Hinweis aufs Abo)
@@ -1773,6 +1774,58 @@ async function buyPro(plan) {
 }
 async function manageAbo() {
   try { location.href = (await pushCall('/abo-verwalten', {})).url; } catch (e) { alert('Das hat nicht geklappt: ' + e.message); }
+}
+// ---------- Firmen-Abo (Dominik, 25.11.2026) ----------
+// 9,99 € im Monat inklusive Geschäftsführer plus 3,49 € je freigegebenem Mitarbeiter, die ersten 14 Tage kostenlos.
+// Der Push-Dienst (/firma) prüft Testzeit und Abo und gleicht dabei die Zahl der Mitarbeiter mit Stripe ab.
+// Nach der Testzeit ohne Abo: kein Pro über die Firma, Geschäftsführer sehen nur noch sich selbst (teamPeople in cloud.js).
+const FIRMA_PRICE = { grund: 9.99, ma: 3.49 };   // muss zu Stripe passen (firma_grund, firma_ma im Push-Dienst)
+const firmAbos = {};   // cid -> { aktiv, ok, test, bis, endet, ma, chef } vom Push-Dienst, auf dem Gerät zwischengespeichert
+const firmOk = id => { const a = firmAbos[id]; return !a || (a.aktiv && (!a.bis || a.bis > Date.now() - 3 * 864e5)) || a.test > Date.now(); };   // unbekannt = ja
+const firmMa = () => members.filter(m => m.status === 'active').length;
+const firmSum = n => eur(FIRMA_PRICE.grund + n * FIRMA_PRICE.ma);
+// Beim Laden der Firma und bei jeder Änderung der Mitarbeiterzahl (Freigeben, Entfernen, Austreten) neu fragen
+async function loadFirm(id = company?.id) {
+  if (!id || ADMIN_APP || !me) return;
+  const key = id + ':' + (isOwner() ? firmMa() : '');
+  if (loadFirm.key === key) return;
+  loadFirm.key = key;
+  const k = 'dayliner-firma-' + id;
+  if (!firmAbos[id]) try { const c = JSON.parse(localStorage.getItem(k)); if (c) firmAbos[id] = c; } catch {}
+  const was = firmOk(id);
+  try { firmAbos[id] = await pushCall('/firma', { cid: id }); try { localStorage.setItem(k, JSON.stringify(firmAbos[id])); } catch {} }
+  catch { loadFirm.key = ''; }
+  if (isOwner() && firmOk(id) !== was) loadTeamStats();   // Team wieder sichtbar bzw. ausgeblendet
+  refreshTeam(); proChanged();
+}
+function watchFirm(id) {   // nach dem Bezahlen fragen, bis Stripe das Abo meldet (höchstens 3 Minuten)
+  let n = 0; clearInterval(watchFirm.t);
+  watchFirm.t = setInterval(async () => {
+    loadFirm.key = ''; await loadFirm(id);
+    if (!firmAbos[id]?.aktiv && ++n < 45) return;
+    clearInterval(watchFirm.t);
+    if (firmAbos[id]?.aktiv) toast('Danke! Das Firmen-Abo läuft.');
+  }, 4000);
+}
+async function buyFirm() {
+  try { const { url } = await pushCall('/firma-kaufen', { cid: company.id }); watchFirm(company.id); location.href = url; }
+  catch (e) { alert('Die Bezahlseite lässt sich gerade nicht öffnen: ' + e.message); }
+}
+async function manageFirm() {
+  try { location.href = (await pushCall('/firma-verwalten', { cid: company.id })).url; } catch (e) { alert('Das hat nicht geklappt: ' + e.message); }
+}
+function firmAboHtml() {   // Setup → Team, nur Geschäftsführer
+  const a = firmAbos[company.id], n = firmMa();
+  if (!a) return '';
+  if (a.aktiv) return `<div class="label">Firmen-Abo</div><div class="group">
+    <div class="row"><span><b class="green">✓ Aktiv</b><div class="muted small">${n} Mitarbeiter · ${firmSum(n)} im Monat${a.endet ? ' · endet am ' + dmy(ymd(new Date(a.bis))) : ''}</div></span></div>
+    <button class="row" onclick="manageFirm()"><span>Abo verwalten<div class="muted small">Rechnungen, Zahlungsart, Rechnungsadresse, kündigen</div></span><span class="muted">›</span></button></div>`;
+  const tage = Math.ceil((a.test - Date.now()) / 864e5);
+  return `<div class="label">Firmen-Abo</div><div class="card">
+    <p style="margin:0 0 8px">${tage > 0 ? `<b>Testzeit: noch ${tage} Tag${tage === 1 ? '' : 'e'} kostenlos.</b>${tage > 2 ? ' Schließt du schon jetzt ab, bleibt der Rest der Testzeit kostenlos.' : ''}`
+      : '<b class="red">Die Testzeit ist abgelaufen.</b> Schließ das Firmen-Abo ab, damit du die Zeiten deiner Mitarbeiter wieder siehst und alle Pro behalten.'}</p>
+    <p class="muted small" style="margin:0 0 12px">${eur(FIRMA_PRICE.grund)} im Monat inklusive dir als Geschäftsführer, dazu ${eur(FIRMA_PRICE.ma)} je Mitarbeiter. Bei ${n} Mitarbeiter${n === 1 ? '' : 'n'} sind das <b>${firmSum(n)} im Monat</b>. Deine Mitarbeiter haben damit Pro. Monatlich kündbar, Rechnung auf deine Firma, auf Wunsch mit USt-IdNr.</p>
+    <button class="big" onclick="buyFirm()">Firmen-Abo abschließen</button></div>`;
 }
 const cancelBtn = () => `<a class="pill wide" href="${WEB}kuendigen.html" target="_blank" rel="noopener">Verträge hier kündigen</a>`;
 

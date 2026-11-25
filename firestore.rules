@@ -29,7 +29,9 @@ service cloud.firestore {
     }
     // Gehört uid zur Firma? (freigegebenes Mitglied oder Gründer)
     function inCompany(cid, uid) { return isActive(cid, uid) || get(companyPath(cid)).data.owner == uid; }
-    function bossOf(cid, uid) { return isOwner(cid) && inCompany(cid, uid); }
+    // Firma bezahlt oder in der Testzeit: paidUntil schreibt nur der Push-Dienst (Dienstkonto), fehlt es, gilt erlaubt
+    function paid(cid) { return get(companyPath(cid)).data.get('paidUntil', timestamp.date(2100, 1, 1)) > request.time; }
+    function bossOf(cid, uid) { return isOwner(cid) && inCompany(cid, uid) && paid(cid); }
     // Selbst gewählte Dokument-IDs nur aus sicheren Zeichen (sie landen in der Oberfläche, z. B. in Links und Knöpfen)
     function safeId(id) { return id.matches('^[A-Za-z0-9_-]{1,40}$'); }
 
@@ -110,8 +112,10 @@ service cloud.firestore {
 
     match /companies/{cid} {
       allow read: if isAdmin() || (signedIn() && (resource.data.owner == request.auth.uid || isActive(cid, request.auth.uid)));
-      allow create: if signedIn() && safeId(cid) && request.auth.token.email_verified == true && request.resource.data.owner == request.auth.uid;
-      allow update: if signedIn() && isOwner(cid) && request.resource.data.owner == resource.data.owner;
+      allow create: if signedIn() && safeId(cid) && request.auth.token.email_verified == true && request.resource.data.owner == request.auth.uid
+        && !('paidUntil' in request.resource.data);
+      allow update: if signedIn() && isOwner(cid) && request.resource.data.owner == resource.data.owner
+        && request.resource.data.get('paidUntil', null) == resource.data.get('paidUntil', null);
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;   // Gründer löscht sein Konto
 
       match /admin/{doc} {
