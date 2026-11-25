@@ -15,6 +15,8 @@ const $ = s => document.querySelector(s);
 const view = $('#view');
 const pad = n => String(n).padStart(2, '0');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Wert als Funktionsargument im onclick: erst als JS-Text (JSON), dann für das HTML-Attribut escapen
+const jsArg = v => esc(JSON.stringify(String(v ?? '')));
 const today = () => ymd(new Date());
 
 let data = normalize({});
@@ -52,7 +54,8 @@ const deNum = v => String(+v || 0).replace('.', ',');
 const hours = ms => (ms / HOUR).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' Std.';
 const clockStr = ms => { const s = Math.floor(ms / 1000); return pad(Math.floor(s / 3600)) + ':' + pad(Math.floor(s / 60) % 60) + ':' + pad(s % 60); };
 const tod = ms => { const d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
-const dmy = s => s.slice(8) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4);
+// Datum 'JJJJ-MM-TT' → 'TT.MM.JJJJ'; alles andere (z. B. manipulierte Daten) nur escaped zurück, nie als HTML
+const dmy = s => /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.slice(8) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4) : esc(s);
 const cls = ms => Math.round(ms / MIN) < 0 ? 'red' : Math.round(ms / MIN) > 0 ? 'green' : '';
 const span = (x, dash = ' – ') => x.sess.map(s => tod(s.s) + dash + (s.e ? tod(s.e) : 'läuft')).join(', ');
 const minOfDay = ms => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
@@ -559,9 +562,9 @@ function openAbsences() {
   sheet(`<div class="sheet-head"><h2>Abwesenheiten</h2><button class="pill sm" onclick="closeSheet()">Fertig</button></div>
   <button class="pill wide" onclick="absenceForm()">+ Abwesenheit hinzufügen</button>
   <div class="two"><button class="pill" onclick="openPlanner()">🏖 Urlaubsplaner</button><button class="pill" onclick="openFerien()">🎒 Schulferien</button></div>
-  ${list.length ? `<div class="group">${list.map(a => `<div class="row"><div><b>${TYPES[a.type]}</b>${a.type === 'reduzierung' ? ` -${a.hours} Std./Tag` : ''}
+  ${list.length ? `<div class="group">${list.map(a => `<div class="row"><div><b>${TYPES[a.type]}</b>${a.type === 'reduzierung' ? ` -${esc(a.hours)} Std./Tag` : ''}
     <div class="muted small">${dmy(a.from)}${a.to !== a.from ? ' – ' + dmy(a.to) : ''} · ${workdays(c, a.from, a.to)} Arbeitstage${a.comment ? ' · ' + esc(a.comment) : ''}</div></div>
-    <button class="del" onclick="delAbsence('${a.id}')">Löschen</button></div>`).join('')}</div>`
+    <button class="del" onclick="delAbsence(${jsArg(a.id)})">Löschen</button></div>`).join('')}</div>`
     : '<p class="muted center">Noch keine Abwesenheiten eingetragen.</p>'}`);
 }
 function absenceForm(from = today()) {
@@ -569,13 +572,13 @@ function absenceForm(from = today()) {
   <h2 id="atitle"></h2>
   <div class="label">Abwesenheitstyp</div>
   <div class="group">
-    <label class="row"><span>Typ</span><select id="atype" onchange="absUpdate()">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+    <label class="row"><span>Typ</span><select id="atype" onchange="absUpdate()">${Object.entries(TYPES).map(([k, v]) => `<option value="${esc(k)}">${v}</option>`).join('')}</select></label>
     <label class="row" id="ahrow" hidden><span>Stunden weniger pro Tag</span><input id="ahours" type="number" inputmode="decimal" step="0.25" min="0" value="4"></label>
   </div>
   <div class="label">Zeitraum</div>
   <div class="group">
-    <label class="row"><span>Start</span><input id="afrom" type="date" value="${from}" onchange="absUpdate(true)"></label>
-    <label class="row"><span>Ende</span><input id="ato" type="date" value="${from}" onchange="absUpdate()"></label>
+    <label class="row"><span>Start</span><input id="afrom" type="date" value="${esc(from)}" onchange="absUpdate(true)"></label>
+    <label class="row"><span>Ende</span><input id="ato" type="date" value="${esc(from)}" onchange="absUpdate()"></label>
   </div>
   <div class="hint" id="acount"></div>
   <div class="label">Kommentar</div>
@@ -619,7 +622,7 @@ function renderDay() {
   ${note(x) ? `<p class="badge">${esc(note(x))}</p>` : ''}
   ${edit.d < data.settings.since ? `<p class="badge">Vor deinem Startdatum (${dmy(data.settings.since)}): keine Sollstunden. Änderbar unter Setup → Aufzeichnung seit.</p>` : ''}
   <div class="label">Arbeitszeiten (von – bis)</div>
-  <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${r.s}"><span class="muted">bis</span><input type="time" class="ee" value="${r.e}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>${prjEditOn() ? prjRowEdit(r) : ''}`).join('')}</div>
+  <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${esc(r.s)}"><span class="muted">bis</span><input type="time" class="ee" value="${esc(r.e)}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>${prjEditOn() ? prjRowEdit(r) : ''}`).join('')}</div>
   <p class="hint">Endzeit leer lassen heißt: läuft noch (nur für heute). Liegt die Endzeit vor der Startzeit, endet die Schicht am Folgetag.</p>
   <button class="pill wide" onclick="addRow()">+ Zeit hinzufügen</button>
   <div class="group">
@@ -771,12 +774,12 @@ function payTopicHtml() {
       <p class="hint">Brutto pro Monat laut Vertrag. Damit rechnet die App Brutto und Netto aus.</p>
       <div class="label">Steuer und Sozialversicherung</div>
       <div class="group">
-        <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${k}" ${st.stkl === k ? 'selected' : ''}>${ROMAN[k - 1]}</option>`).join('')}</select></label>
-        <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${st.zkf}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
+        <label class="row"><span>Steuerklasse</span><select onchange="setS('stkl', +this.value)">${[1, 2, 3, 4, 5, 6].map(k => `<option value="${esc(k)}" ${st.stkl === k ? 'selected' : ''}>${ROMAN[k - 1]}</option>`).join('')}</select></label>
+        <label class="row"><span>Kinderfreibeträge</span><input type="number" inputmode="decimal" step="0.5" min="0" max="10" value="${esc(st.zkf)}" onchange="setS('zkf', Math.max(0, Math.round(num(this.value) * 2) / 2)); this.value = data.settings.zkf"></label>
         <label class="row"><span>Kirchensteuer</span><select onchange="setS('kirche', this.value === '1')"><option value="0">Nein</option><option value="1" ${st.kirche ? 'selected' : ''}>Ja</option></select></label>
-        <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${k}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${deNum(st.kvz)}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
-        <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${st.hourly ? deNum(st.hourly) : ''}" onchange="setS('hourly', Math.max(0, num(this.value)))"></label>
+        <label class="row"><span>Pflegeversicherung</span><select onchange="setS('pv', this.value)">${Object.entries(PVOPT).map(([k, v]) => `<option value="${esc(k)}" ${String(st.pv) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row"><span>KV-Zusatzbeitrag (%)</span><input class="short" inputmode="decimal" value="${esc(deNum(st.kvz))}" onchange="setS('kvz', Math.max(0, num(this.value))); this.value = deNum(data.settings.kvz)"></label>
+        <label class="row"><span>Stundenlohn (€)</span><input class="short" inputmode="decimal" placeholder="automatisch" value="${esc(st.hourly ? deNum(st.hourly) : '')}" onchange="setS('hourly', Math.max(0, num(this.value)))"></label>
       </div>
       <p class="hint">Steuerklasse und Kinderfreibeträge stehen oben auf deiner Lohnabrechnung. Bei der Pflegeversicherung zählen Kinder unter 25. Den Zusatzbeitrag nennt deine Krankenkasse. Stundenlohn leer lassen, dann wird er aus Gehalt und Sollstunden berechnet. Kirchensteuer ${['BY', 'BW'].includes(st.state) ? '8' : '9'} % laut Bundesland. Diese Daten sieht nur du, dein Geschäftsführer nicht. Bei Problemen kann der App-Support sie zur Hilfe einsehen, aber nicht ändern.</p>`;
 }
@@ -931,8 +934,8 @@ function renderSetup() {
     <span class="ti">${icon}</span><span class="tt"><b>${title}</b><span class="muted small">${sub}</span></span><span class="muted">›</span></button>`).join('')}</div>`).join('')}
   ${viewing && !viewing.preview && viewing.uid !== company?.owner ? (() => { const m = members.find(x => x.uid === viewing.uid), boss = m?.role === 'boss';
     return `<div class="label">Rolle in der Firma</div><div class="group"><div class="row"><span>${boss ? 'Geschäftsführer' : 'Mitarbeiter'}<div class="muted small">${boss ? 'Gleiche Rechte wie du' : 'Sieht nur die eigenen Zeiten'}</div></span>
-      <button class="pill sm" onclick="setBoss('${viewing.uid}', ${!boss})">${boss ? 'Rechte entziehen' : 'Zum Geschäftsführer machen'}</button></div></div>
-      <button class="pill wide red" onclick="removeMember('${viewing.uid}')">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
+      <button class="pill sm" onclick="setBoss(${jsArg(viewing.uid)}, ${!boss})">${boss ? 'Rechte entziehen' : 'Zum Geschäftsführer machen'}</button></div></div>
+      <button class="pill wide red" onclick="removeMember(${jsArg(viewing.uid)})">${esc(viewing.name)} aus der Firma entfernen</button>`; })() : ''}
   ${viewing && !viewing.preview && viewing.uid === company?.owner ? '<p class="hint center">Gründer der Firma. Geschäftsführer-Rechte und Mitgliedschaft lassen sich hier nicht ändern.</p>' : ''}`;
 }
 const TOPIC_TITLE = { pro: 'Dayliner Pro', projects: 'Projekte', slots: 'Arbeitsplätze', account: 'Konto & Firma', team: 'Team', loc: 'Standort', work: 'Arbeitszeit', balance: 'Überstunden & Urlaub', pay: 'Verdienst & Steuern', export: 'Export & Sicherung', look: 'Darstellung', help: 'Hilfe' };
@@ -948,26 +951,26 @@ function openTopic(id, keepStats) {
     pro: () => proHtml(),
     work: () => `${hasSlots() ? `<p class="hint" style="margin-top:0">Gilt für <b>${esc(slotName(curSlot))}</b>. Für einen anderen Job oben auf der Startseite umschalten oder unter Setup → Arbeitsplätze auf „Soll“ tippen.</p>` : ''}<div class="group">
         <label class="row"><span>Name (für PDF)</span><input value="${esc(st.name)}" placeholder="Dein Name" onchange="setS('name', this.value.trim())"></label>
-        <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${st.pause}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
+        <label class="row"><span>Bundesland</span><select onchange="setS('state', this.value)"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${esc(k)}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row"><span>Pause pauschal (Min.)</span><input type="number" inputmode="numeric" min="0" value="${esc(st.pause)}" onchange="setS('pause', Math.max(0, +this.value || 0))"></label>
         <label class="row"><span>Pausenregel</span><select onchange="setS('pauseRule', this.value); openTopic('work')"><option value="law">Gesetzlich</option><option value="fix" ${st.pauseRule === 'fix' ? 'selected' : ''}>Pauschal (Firma)</option></select></label>
       </div>
       <p class="hint">Das Bundesland bestimmt Feiertage und Schulferien. Stempelst du für die Pause aus, zählt jede Lücke ab 15 Min. als Pause. ${st.pauseRule === 'fix'
         ? `<b>Pauschal (Firma):</b> Ab 6 Std. Arbeit werden immer ${st.pause} Min. abgezogen, auch über 9 Std. nicht mehr (Regel deines Arbeitgebers). Bis 6 Std. wird nichts abgezogen. Gestempelte Pausen werden angerechnet.`
         : `<b>Gesetzlich:</b> Fehlt bei mehr als 6 Std. Arbeit noch etwas bis zur Pause oben (ab 9 Std. mind. 45 Min.), wird nur der Rest abgezogen. Bis 6 Std. wird nichts abgezogen.`}</p>
       <div class="label">Sollstunden pro Tag</div>
-      <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
+      <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" inputmode="decimal" step="0.25" min="0" max="24" value="${esc(st.soll[i])}" onchange="setSoll(${i}, this)"></label>`).join('')}</div>
       ${remindHtml()}
       ${setupExtrasHtml()}`,
     balance: () => `<div class="group">
-        <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${st.since}" onchange="this.value && setS('since', this.value)"></label>
-        <label class="row"><span>Startsaldo</span><input value="${hm(st.startBalance * MIN, true)}" onchange="setBalance(this)"></label>
-        <label class="row"><span>Auszahlen ab (Std.)</span><input type="number" inputmode="numeric" min="0" placeholder="nie" value="${st.otCap || ''}" onchange="setS('otCap', Math.max(0, num(this.value)))"></label>
+        <label class="row"><span>Aufzeichnung seit</span><input type="date" value="${esc(st.since)}" onchange="this.value && setS('since', this.value)"></label>
+        <label class="row"><span>Startsaldo</span><input value="${esc(hm(st.startBalance * MIN, true))}" onchange="setBalance(this)"></label>
+        <label class="row"><span>Auszahlen ab (Std.)</span><input type="number" inputmode="numeric" min="0" placeholder="nie" value="${esc(st.otCap || '')}" onchange="setS('otCap', Math.max(0, num(this.value)))"></label>
       </div>
       <p class="hint">Startsaldo = Stand vor dem Startdatum, z. B. -26:01 aus einer alten App. Auszahlen ab: Überstunden über dieser Grenze werden am Monatsende ausgezahlt, das Konto bleibt bei der Grenze. Leer = nie.</p>
       <button class="pill wide" onclick="openBalance()">Überstunden Tag für Tag & Korrekturen ›</button>
       <div class="label">Urlaub</div>
-      <div class="group"><label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${st.vacation}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label></div>
+      <div class="group"><label class="row"><span>Urlaubstage pro Jahr</span><input type="number" inputmode="numeric" min="0" value="${esc(st.vacation)}" onchange="setS('vacation', Math.max(0, +this.value || 0))"></label></div>
       <button class="pill wide" onclick="openAbsences()">Abwesenheiten &amp; Urlaubsplaner ›</button>`,
     pay: () => payTopicHtml(),
     export: () => `<div class="label">PDF-Arbeitszeitnachweis</div>
@@ -1009,10 +1012,10 @@ function jobForm(i) {
   <h2>${i == null ? 'Job hinzufügen' : 'Job bearbeiten'}</h2>
   <div class="group">
     <label class="row"><span>Name</span><input id="jname" value="${esc(j.name)}" placeholder="z. B. Firma"></label>
-    <label class="row"><span>Art</span><select id="jtype" onchange="jobUpdate(true)">${Object.entries(JOBTYPES).map(([k, v]) => `<option value="${k}" ${j.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-    <label class="row"><span>Brutto pro Monat (€)</span><input id="jbrutto" class="short" inputmode="decimal" value="${j.brutto === '' ? '' : deNum(j.brutto)}" placeholder="0,00" oninput="jobUpdate()"></label>
-    <label class="row"><span>Seit</span><input id="jsince" type="date" value="${j.since || ''}"></label>
-    <label class="row"><span>Sachbezug steuerfrei (€)</span><input id="jsach" class="short" inputmode="decimal" value="${j.sach ? deNum(j.sach) : ''}" placeholder="0"></label>
+    <label class="row"><span>Art</span><select id="jtype" onchange="jobUpdate(true)">${Object.entries(JOBTYPES).map(([k, v]) => `<option value="${esc(k)}" ${j.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="row"><span>Brutto pro Monat (€)</span><input id="jbrutto" class="short" inputmode="decimal" value="${esc(j.brutto === '' ? '' : deNum(j.brutto))}" placeholder="0,00" oninput="jobUpdate()"></label>
+    <label class="row"><span>Seit</span><input id="jsince" type="date" value="${esc(j.since || '')}"></label>
+    <label class="row"><span>Sachbezug steuerfrei (€)</span><input id="jsach" class="short" inputmode="decimal" value="${esc(j.sach ? deNum(j.sach) : '')}" placeholder="0"></label>
   </div>
   <div class="group">
     <label class="row"><span>Unbezahlte Tage kürzen das Gehalt</span><input id="jcut" type="checkbox" ${j.cut ? 'checked' : ''}></label>

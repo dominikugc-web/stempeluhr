@@ -14,6 +14,8 @@ import { remindClean, remindAll, monthAll, localNow, dmyS } from './remind.mjs';
 import { LIMITS, baseType, kindOf, threadOk, mayAccess } from './files.mjs';
 
 const PROJECT = 'stempeluhr-6faae';
+const WEB_KEY = 'AIzaSyA5AA5FJ5yfkWnR8hPR4V_jnD5NEMoWutE';   // öffentlicher Firebase-Web-Schlüssel (steht auch in firebase-config.js), nur für accounts:lookup
+const PRO_OLD = Date.parse('2026-11-19T00:00:00+01:00');   // Konten davor behalten Pro (wie in der App)
 const ADMIN_UIDS = ['Pb3LEKsVdveCrDdWyhuqOkoNcc63'];
 const VAPID_PUBLIC = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbWQDlZwtvh7dVrhBWNT2oOpY5yI';
 const ORIGINS = ['https://dayliner.de', 'https://www.dayliner.de', 'https://dominikugc-web.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765'];
@@ -42,6 +44,32 @@ async function verifyToken(tok, env) {
   const now = Date.now() / 1000;
   if (pay.aud !== PROJECT || pay.iss !== 'https://securetoken.google.com/' + PROJECT || pay.exp < now || !pay.sub) throw new Error('Token ungültig');
   return pay;
+}
+
+// ---------- Firestore lesen als der anfragende Nutzer (dessen Regeln gelten) ----------
+// Lokal: FS_URL / AUTH_URL zeigen auf die Emulatoren. Liefert das Dokument oder null (fehlt / kein Zugriff).
+async function fsGet(env, raw, path) {
+  const r = await fetch(`${env.FS_URL || 'https://firestore.googleapis.com/v1'}/projects/${PROJECT}/databases/(default)/documents/${path}`, { headers: { Authorization: 'Bearer ' + raw } }).catch(() => null);
+  return r?.ok ? r.json() : null;
+}
+const fsStr = (d, k) => d?.fields?.[k]?.stringValue;
+// Hat der Nutzer Pro? Auf dem Server geprüft: Entwickler, altes Konto, Gratis-Platz, Firmen-Mitglied oder Abo bei Stripe.
+async function proServer(env, uid, raw) {
+  if (ADMIN_UIDS.includes(uid)) return true;
+  const look = await fetch(`${env.AUTH_URL || 'https://identitytoolkit.googleapis.com/v1'}/accounts:lookup?key=${WEB_KEY}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: raw }) }).then(r => r.ok ? r.json() : null).catch(() => null);
+  if (+look?.users?.[0]?.createdAt && +look.users[0].createdAt < PRO_OLD) return true;
+  if (await fsGet(env, raw, 'betaSlots/' + uid)) return true;
+  const cid = fsStr(await fsGet(env, raw, 'data/' + uid), 'cid');
+  if (cid && /^[\w-]{1,40}$/.test(cid) && fsStr(await fsGet(env, raw, `companies/${cid}/members/${uid}`), 'status') === 'active') return true;
+  return env.STRIPE_KEY ? !!(await aboStatus(env, uid).catch(() => ({}))).aktiv : false;
+}
+// Einfache Bremse: höchstens max Vorgänge je Schlüssel und Zeitfenster (KV, läuft von selbst ab)
+async function bremse(env, key, max, sek) {
+  const n = +(await env.SUBS.get('limit:' + key) || 0);
+  if (n >= max) return false;
+  await env.SUBS.put('limit:' + key, String(n + 1), { expirationTtl: Math.max(60, sek) });
+  return true;
 }
 
 // ---------- Web Push (RFC 8291 Verschlüsselung, RFC 8292 VAPID) ----------
@@ -105,6 +133,9 @@ async function aboStatus(env, uid) {
   const cus = await env.SUBS.get('kunde:' + uid);
   const s = cus && (await liveSubs(env, cus))[0];
   if (!s) return { aktiv: false };
+  const start = (s.items.data[0].current_period_start ?? s.current_period_start) * 1000;
+  const last = (await stripe(env, 'charges', { customer: cus, limit: '1' }, 'GET')).data?.[0];
+  if (last?.refunded && last.created * 1000 >= start - 864e5) return { aktiv: false, erstattet: true };
   return { aktiv: true, plan: s.items.data[0].price.recurring?.interval === 'year' ? 'jahr' : 'monat', bis: periodEnd(s), endet: !!(s.cancel_at_period_end || s.cancel_at) };
 }
 // E-Mail über Resend (Geheimnis RESEND_KEY, Domain dayliner.de dort bestätigt). Kopie an service@dayliner.de.
@@ -171,9 +202,12 @@ async function monatSenden(b, uid, tok, env) {
 }
 // Kündigung ohne Anmeldung (Pflicht nach § 312k BGB): Abos zur E-Mail finden und zum Ende der Laufzeit beenden.
 // Jeder Eingang wird in KV festgehalten, der Entwickler bekommt eine Push-Nachricht und schickt die Bestätigung per E-Mail.
-async function kuendigen(b, env) {
-  const mail = String(b.email || '').trim().toLowerCase().slice(0, 120), name = String(b.name || '').trim().slice(0, 120);
+async function kuendigen(b, env, ip = '') {
+  const mail = String(b.email || '').trim().toLowerCase().slice(0, 120), name = String(b.name || '').replace(/[^\p{L} '-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 60);   // ohne Punkte: keine Web-Adressen in der Mail
   if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return [{ error: 'Bitte Name und E-Mail-Adresse angeben.' }, 400];
+  const stunde = new Date().toISOString().slice(0, 13);
+  if (!await bremse(env, `kuend:ip:${ip}:${stunde}`, 5, 3600) || !await bremse(env, `kuend:mail:${mail}:${stunde.slice(0, 10)}`, 2, 86400))
+    return [{ error: 'Zu viele Kündigungen in kurzer Zeit. Bitte später noch einmal oder per E-Mail an service@dayliner.de.' }, 429];
   const at = new Date().toISOString(), ende = [];
   for (const c of (await stripe(env, 'customers', { email: mail, limit: '10' }, 'GET')).data)
     for (const s of await liveSubs(env, c.id)) ende.push(periodEnd(await stripe(env, 'subscriptions/' + s.id, { cancel_at_period_end: 'true' })));
@@ -183,7 +217,7 @@ async function kuendigen(b, env) {
   const tz = { timeZone: 'Europe/Berlin' }, tag = t => new Date(t).toLocaleDateString('de-DE', tz);
   const zeit = new Date(at).toLocaleString('de-DE', { ...tz, dateStyle: 'long', timeStyle: 'short' });
   const text = [`Hallo ${name},`, '', 'wir bestätigen den Eingang deiner Kündigung.', '',
-    `Vertrag: ${e.vertrag}`, `Art der Kündigung: ${art}`, ...(e.grund ? [`Grund: ${e.grund}`] : []), `Eingegangen am: ${zeit} Uhr`,
+    `Vertrag: ${e.vertrag}`, `Art der Kündigung: ${art}`, ...(e.grund ? ['Grund: wie angegeben (liegt uns vor)'] : []), `Eingegangen am: ${zeit} Uhr`,
     ende.length ? `Beendet zum: ${ende.map(tag).join(' und ')} (Ende der laufenden Abrechnungszeit)` : 'Zu dieser E-Mail-Adresse haben wir kein laufendes Abo gefunden. Wir prüfen deine Kündigung von Hand und melden uns bei dir.',
     '', ...(ende.length ? ['Bis dahin kannst du Dayliner Pro weiter nutzen, danach wird nichts mehr abgebucht.', ''] : []),
     'Deine Zeiten und die kostenlose Basis von Dayliner bleiben dir erhalten.', '', 'Viele Grüße', 'Dein Dayliner-Team', '',
@@ -224,11 +258,12 @@ export default {
     if (req.method !== 'POST') return out({ ok: true, vapid: VAPID_PUBLIC });
     const path = new URL(req.url).pathname;
     if (path === '/kuendigen') {   // ohne Anmeldung, von dayliner.de/web/kuendigen.html
-      try { return out(...await kuendigen(await req.json().catch(() => ({})), env)); }
+      try { return out(...await kuendigen(await req.json().catch(() => ({})), env, req.headers.get('CF-Connecting-IP') || '')); }
       catch (e) { return out({ error: 'Das hat nicht geklappt. Bitte schreib an service@dayliner.de.' }, 500); }
     }
     let uid, tok;
-    try { tok = await verifyToken((req.headers.get('Authorization') || '').replace('Bearer ', ''), env); uid = tok.sub; } catch (e) { return out({ error: e.message }, 401); }
+    const raw = (req.headers.get('Authorization') || '').replace('Bearer ', '');
+    try { tok = await verifyToken(raw, env); uid = tok.sub; } catch (e) { return out({ error: e.message }, 401); }
     const admin = ADMIN_UIDS.includes(uid);
 
     if (path === '/upload') {   // vor req.json(): der Inhalt ist die Datei selbst
@@ -302,6 +337,9 @@ export default {
       return out({ ok: true });
     }
 
+    if ((path === '/monat-an' && (b.list || []).length) || path === '/monat-senden') {
+      if (!await proServer(env, uid, raw)) return out({ error: 'Der Monatsnachweis per E-Mail gehört zu Dayliner Pro.' }, 403);
+    }
     if (path === '/monat-an') {   // komplette Liste der Arbeitsplätze mit Adresse: [{ k, day, done }]
       const key = 'monat:' + uid, old = (await env.SUBS.getWithMetadata(key)).metadata || {}, e = {};
       for (const x of (Array.isArray(b.list) ? b.list : []).slice(0, 6)) {
@@ -336,7 +374,10 @@ export default {
     // Neue Lohnabrechnung: jeder Angemeldete darf, aber nur mit festem Text (kein Spam mit eigenem Inhalt möglich)
     // Beitrittsanfrage: an Gründer/Geschäftsführer laut Einladungscode, fester Text
     if (path === '/notify' && b.kind === 'join') {
-      const to = (Array.isArray(b.to) ? b.to : []).filter(u => typeof u === 'string' && /^\w{10,40}$/.test(u)).slice(0, 5);
+      const code = /^[A-Z0-9]{6}$/.test(b.code || '') ? b.code : '', inv = code && await fsGet(env, raw, 'invites/' + code), firmId = fsStr(inv, 'cid');
+      if (!firmId || fsStr(await fsGet(env, raw, `companies/${firmId}/members/${uid}`), 'status') !== 'pending') return out({ error: 'Keine offene Anfrage' }, 403);
+      if (!await bremse(env, `join:${uid}:${new Date().toISOString().slice(0, 10)}`, 5, 86400)) return out({ error: 'Zu viele Anfragen' }, 429);
+      const to = (inv.fields?.notify?.arrayValue?.values || []).map(v => v.stringValue).filter(u => /^\w{10,40}$/.test(u || '')).slice(0, 5);
       const clean = v => String(v || '').replace(/[^\p{L}\p{N} .,&'-]/gu, '').trim().slice(0, 40);
       const name = clean(b.body) || 'Jemand', firm = clean(b.firm);
       const data = { title: '👋 Neue Beitrittsanfrage', body: `${name} möchte ${firm || 'deiner Firma'} beitreten. Tippe zum Freigeben.`, url: './?team=1', tag: 'join' };
@@ -347,6 +388,7 @@ export default {
 
     if (path === '/notify' && b.kind === 'payslip') {
       if (typeof b.to !== 'string' || !/^\w{10,40}$/.test(b.to)) return out({ error: 'Empfänger fehlt' }, 400);
+      if (b.to !== uid && !admin && !await fsGet(env, raw, 'data/' + b.to)) return out({ error: 'Kein Zugriff' }, 403);
       const period = /^[A-Za-zÄÖÜäöü]+ \d{4}$/.test(b.body || '') ? b.body : '';
       const data = { title: '📄 Neue Lohnabrechnung', body: period ? `Deine Abrechnung für ${period} ist da.` : 'Deine Lohnabrechnung ist da.', url: './?slips=1', tag: 'slip' };
       const list = JSON.parse(await env.SUBS.get(b.to) || '[]');

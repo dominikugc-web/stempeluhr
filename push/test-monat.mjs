@@ -15,6 +15,7 @@ const SUBS = {
 const mails = [];
 globalThis.fetch = async (url, init) => {
   if (String(url) === 'https://api.resend.com/emails') { mails.push(JSON.parse(init.body)); return new Response('{}', { status: 200 }); }
+  if (String(url).includes('accounts:lookup')) return Response.json({ users: [{ createdAt: String(Date.parse('2026-01-01')) }] });   // altes Konto = Pro
   throw new Error('unerwartet: ' + url);
 };
 const env = { DEV: '1', SUBS, RESEND_KEY: 'test' };

@@ -4,10 +4,15 @@ import assert from 'node:assert';
 
 const P = 'stempeluhr-6faae', DB = `projects/${P}/databases/(default)/documents`;
 const FS = `http://127.0.0.1:8080/v1/${DB}`;
-const user = async i => (await (await fetch('http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=x', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: `t${i}@test.de`, password: 'geheim123', returnSecureToken: true }),
-})).json());
+const AUTH = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
+const post = (url, body, owner) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(owner ? { Authorization: 'Bearer owner' } : {}) }, body: JSON.stringify(body) }).then(r => r.json());
+// Konto anlegen; verified: E-Mail als bestätigt markieren und neu anmelden, damit das Token email_verified trägt
+const user = async (i, verified = true) => {
+  const u = await post(`${AUTH}/accounts:signUp?key=x`, { email: `t${i}@test.de`, password: 'geheim123', returnSecureToken: true });
+  if (!verified) return u;
+  await post(`${AUTH}/projects/${P}/accounts:update`, { localId: u.localId, emailVerified: true }, true);
+  return { ...u, idToken: (await post(`${AUTH}/accounts:signInWithPassword?key=x`, { email: `t${i}@test.de`, password: 'geheim123', returnSecureToken: true })).idToken };
+};
 const commit = (tok, writes) => fetch(`${FS}:commit`, {
   method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ writes }),
 }).then(r => r.ok);
@@ -19,6 +24,8 @@ const get = (path, tok) => fetch(`${FS}/${path}`, { headers: tok ? { Authorizati
 const us = [];
 for (let i = 1; i <= 32; i++) us.push(await user(i));
 const [a, b] = us;
+const unbest = await user(99, false);
+assert.equal(await commit(unbest.idToken, [counter(1), slot(unbest.localId, 1)]), false, 'Platz ohne bestätigte E-Mail');
 
 assert.equal(await commit(a.idToken, [slot(a.localId, 1)]), false, 'Platz ohne Zähler');
 assert.equal(await commit(a.idToken, [counter(1)]), false, 'Zähler ohne Platz');

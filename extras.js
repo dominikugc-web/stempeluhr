@@ -33,7 +33,7 @@ function openTheme() {
   ${swatchesHtml(t.bg)}
   <div class="label">Farben</div>
   <div class="scale"><div style="background:linear-gradient(90deg,var(--minus) 0 60%,var(--near) 66% 84%,var(--ok) 88% 92%,var(--over) 96%)"></div><span>0 %</span><span>80 %</span><span>100 %</span><span>110 %</span></div>
-  <div class="group">${Object.entries(COLOR_LABEL).map(([k, l]) => `<label class="row"><span>${l}</span><input type="color" value="${t[k] || COLOR_DEF[k]}" oninput="setTheme('${k}', this.value)"></label>`).join('')}</div>
+  <div class="group">${Object.entries(COLOR_LABEL).map(([k, l]) => `<label class="row"><span>${l}</span><input type="color" value="${esc(t[k] || COLOR_DEF[k])}" oninput="setTheme('${k}', this.value)"></label>`).join('')}</div>
   <button class="pill wide" onclick="setTheme(); openTheme()">Standard wiederherstellen</button>`);
 }
 function swatchesHtml(cur, fn = 'setTheme') {
@@ -118,17 +118,17 @@ function onboard(step) {
       <p class="hint">Das kannst du später unter Setup → Konto & Firma ändern.</p>`,
     () => `<h2>Wo arbeitest du?</h2>
       <div class="group">
-        <label class="row"><span>Bundesland</span><select id="ob-state"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${k}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="row"><span>Pause pro Tag (Min.)</span><input id="ob-pause" type="number" inputmode="numeric" min="0" value="${st.pause}"></label>
+        <label class="row"><span>Bundesland</span><select id="ob-state"><option value="">Nur bundesweite Feiertage</option>${Object.entries(STATES).map(([k, v]) => `<option value="${esc(k)}" ${st.state === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="row"><span>Pause pro Tag (Min.)</span><input id="ob-pause" type="number" inputmode="numeric" min="0" value="${esc(st.pause)}"></label>
       </div><p class="hint">Das Bundesland bestimmt die Feiertage und Schulferien. Die Pause wird an jedem Arbeitstag pauschal abgezogen.</p>${next()}`,
     () => `<h2>${onboardRole === 'boss' ? 'Deine eigene Sollzeit' : 'Deine Sollzeit'}</h2>
       <p class="muted">An welchen Tagen arbeitest du und wie lange?</p>
-      <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" class="ob-soll" data-i="${i}" inputmode="decimal" step="0.25" min="0" max="24" value="${st.soll[i]}"></label>`).join('')}</div>
+      <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label class="row"><span>${WD[i]}</span><input type="number" class="ob-soll" data-i="${i}" inputmode="decimal" step="0.25" min="0" max="24" value="${esc(st.soll[i])}"></label>`).join('')}</div>
       <p class="hint">Stunden pro Tag, 0 = frei. Wechselnde Zeiten (z. B. Teilzeit ab einem Datum) stellst du später unter Setup → Arbeitszeit ein.${onboardRole === 'boss' ? ' Die Sollzeiten deiner Mitarbeiter stellen diese selbst ein, oder du über Setup → Team → Mitarbeiter → Setup.' : ''}</p>${next()}`,
     () => `<h2>Überstundenkonto</h2>
       <div class="group">
-        <label class="row"><span>Aufzeichnung seit</span><input id="ob-since" type="date" value="${st.since}"></label>
-        <label class="row"><span>Startsaldo</span><input id="ob-bal" value="${hm(st.startBalance * MIN, true)}" placeholder="00:00"></label>
+        <label class="row"><span>Aufzeichnung seit</span><input id="ob-since" type="date" value="${esc(st.since)}"></label>
+        <label class="row"><span>Startsaldo</span><input id="ob-bal" value="${esc(hm(st.startBalance * MIN, true))}" placeholder="00:00"></label>
       </div><p class="hint">Ab diesem Datum zählen die Sollstunden. Hast du schon Überstunden (z. B. aus einer alten App), trag sie als Startsaldo ein, etwa 12:30 oder -3:15.</p>${next()}`,
     () => `<h2>Fertig! 🎉</h2>
       ${isOwner() ? `<p>Deine Firma <b>${esc(company?.name || '')}</b> ist angelegt. Im Tab <b>Team</b> findest du den Einladungscode für deine Mitarbeiter.</p>`
@@ -219,11 +219,11 @@ function planForm(i) {
   <h2>${i == null ? 'Arbeitsplan anlegen' : 'Arbeitsplan bearbeiten'}</h2>
   <div class="group">
     <label class="row"><span>Name</span><input id="pname" value="${esc(p.name)}" placeholder="z. B. Teilzeit"></label>
-    <label class="row"><span>Gilt ab</span><input id="pfrom" type="date" value="${p.from}"></label>
-    <label class="row"><span>Gilt bis</span><input id="pto" type="date" value="${p.to || ''}"></label>
+    <label class="row"><span>Gilt ab</span><input id="pfrom" type="date" value="${esc(p.from)}"></label>
+    <label class="row"><span>Gilt bis</span><input id="pto" type="date" value="${esc(p.to || '')}"></label>
   </div><p class="hint">„Gilt bis“ leer lassen = unbegrenzt. Überschneiden sich Pläne, gilt der mit dem späteren Startdatum.</p>
   <div class="label">Sollstunden pro Tag</div>
-  <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(d => `<label class="row"><span>${WD[d]}</span><input type="number" class="psoll" data-i="${d}" inputmode="decimal" step="0.25" min="0" max="24" value="${p.soll[d]}"></label>`).join('')}</div>
+  <div class="group">${[1, 2, 3, 4, 5, 6, 0].map(d => `<label class="row"><span>${WD[d]}</span><input type="number" class="psoll" data-i="${d}" inputmode="decimal" step="0.25" min="0" max="24" value="${esc(p.soll[d])}"></label>`).join('')}</div>
   ${i == null ? '' : `<button class="pill wide red" onclick="delPlan(${i})">Arbeitsplan löschen</button>`}`);
 }
 function savePlan(i) {
@@ -247,8 +247,8 @@ function setupExtrasHtml() {
   <p class="hint">Für andere Sollzeiten ab einem Datum oder in einem Zeitraum, z. B. Teilzeit, Elternzeit oder Saisonarbeit. Ohne Plan gelten die Sollstunden oben.</p>
   <div class="label">Runden</div>
   <div class="group">
-    <label class="row"><span>Runden auf</span><select onchange="setRound('step', this.value)">${[[0, 'Nicht runden'], [5, '5 Min.'], [10, '10 Min.'], [15, '15 Min.'], [30, '30 Min.']].map(([v, l]) => `<option value="${v}" ${+r.step === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    ${+r.step ? `<label class="row"><span>Regel</span><select onchange="setRound('mode', this.value)">${[['nearest', 'Kaufmännisch'], ['employee', 'Zugunsten Mitarbeiter'], ['employer', 'Zugunsten Arbeitgeber']].map(([v, l]) => `<option value="${v}" ${r.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
+    <label class="row"><span>Runden auf</span><select onchange="setRound('step', this.value)">${[[0, 'Nicht runden'], [5, '5 Min.'], [10, '10 Min.'], [15, '15 Min.'], [30, '30 Min.']].map(([v, l]) => `<option value="${esc(v)}" ${+r.step === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    ${+r.step ? `<label class="row"><span>Regel</span><select onchange="setRound('mode', this.value)">${[['nearest', 'Kaufmännisch'], ['employee', 'Zugunsten Mitarbeiter'], ['employer', 'Zugunsten Arbeitgeber']].map(([v, l]) => `<option value="${esc(v)}" ${r.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
   </div>
   <p class="hint">Gerundet wird nur in der Rechnung, deine echten Stempelzeiten bleiben. Zugunsten Mitarbeiter: Start wird ab-, Ende aufgerundet. Zugunsten Arbeitgeber: umgekehrt.</p>`;
 }
@@ -276,8 +276,8 @@ function openRange() {
   <div class="group" style="margin-top:12px">${opt('year', 'Dieses Jahr')}${Object.entries(STAT_PRESETS).map(([p, l]) => opt(p, l)).join('')}</div>
   <div class="label">Eigener Zeitraum</div>
   <div class="group">
-    <label class="row"><span>Von</span><input type="date" id="rfrom" value="${f}"></label>
-    <label class="row"><span>Bis</span><input type="date" id="rto" value="${t}"></label>
+    <label class="row"><span>Von</span><input type="date" id="rfrom" value="${esc(f)}"></label>
+    <label class="row"><span>Bis</span><input type="date" id="rto" value="${esc(t)}"></label>
   </div>
   <button class="big" onclick="applyRange()">Übernehmen</button>`);
 }
@@ -314,7 +314,7 @@ function renderStats() {
     <label class="row"><span>Ansicht</span><select onchange="setWho(this.value)">
       <option value="me" ${statWho === 'me' ? 'selected' : ''}>Ich</option>
       <option value="team" ${statWho === 'team' ? 'selected' : ''}>Ganze Firma (${teamPeople().length} ${teamPeople().length === 1 ? 'Person' : 'Personen'})</option>
-      ${people.length ? `<optgroup label="Mitarbeiter">${people.map(p => `<option value="${p.uid}" ${statWho === p.uid ? 'selected' : ''}>${esc(p.name)}${p.boss ? ' (GF)' : ''}</option>`).join('')}</optgroup>` : ''}
+      ${people.length ? `<optgroup label="Mitarbeiter">${people.map(p => `<option value="${esc(p.uid)}" ${statWho === p.uid ? 'selected' : ''}>${esc(p.name)}${p.boss ? ' (GF)' : ''}</option>`).join('')}</optgroup>` : ''}
     </select></label></div>` : ''}
   <div class="statbar"><button class="pill sm ${year ? 'sel' : ''}" onclick="setStat('year')">Dieses Jahr</button><button class="pill sm ${year ? '' : 'sel'}" onclick="openRange()">📅 ${year ? 'Zeitraum' : statLabel()} ▾</button></div>
   <p class="center muted small">${dmy(from)} – ${dmy(to)}</p>`;
@@ -418,7 +418,7 @@ function statsHtml(d, who) {  // who: null = eigene Daten, sonst { uid, name } e
 
   <div class="label">Mehr</div>
   <div class="group">${who ? `
-    <button class="row" onclick="viewMember('${who.uid}')"><span>Kalender von ${esc(who.name)} öffnen (Zeiten ansehen und korrigieren)</span><span class="muted">›</span></button>` : `
+    <button class="row" onclick="viewMember(${jsArg(who.uid)})"><span>Kalender von ${esc(who.name)} öffnen (Zeiten ansehen und korrigieren)</span><span class="muted">›</span></button>` : `
     <button class="row" onclick="openBalance()"><span>Überstunden Tag für Tag</span><span class="muted">›</span></button>
     <button class="row" onclick="openExport('${from}', '${to}')"><span>Zeitraum exportieren (Excel, CSV, Kalender)</span><span class="muted">›</span></button>`}
   </div>`;
@@ -455,13 +455,13 @@ function openBalance() {
     <div class="muted small" style="margin:0 6px 8px">Veränderung im Monat: ${hm(m.change, true)}${po[m.k] ? ` · ausgezahlt: ${hm(po[m.k])} Std.` : ''}</div>
     ${m.rows.slice().reverse().map(x => `<div class="brow">${box(x)}<div class="btext">${text(x)}</div><span class="badge2 ${cls(c.balance(x.d))}">${hm(c.balance(x.d), true)}</span></div>`).join('') || '<p class="muted small center">Keine Veränderung</p>'}
   </details>`).join('')}
-  ${(data.adjustments || []).length ? `<div class="label">Korrekturen</div><div class="group">${data.adjustments.slice().sort((a, b) => b.d.localeCompare(a.d)).map(a => `<div class="row"><span>${dmy(a.d)} · <span class="${cls(a.min)}">${hm(a.min * MIN, true)}</span><div class="muted small">${esc(a.note || '')}</div></span><button class="del" onclick="delAdj('${a.id}')">Löschen</button></div>`).join('')}</div>` : ''}`);
+  ${(data.adjustments || []).length ? `<div class="label">Korrekturen</div><div class="group">${data.adjustments.slice().sort((a, b) => b.d.localeCompare(a.d)).map(a => `<div class="row"><span>${dmy(a.d)} · <span class="${cls(a.min)}">${hm(a.min * MIN, true)}</span><div class="muted small">${esc(a.note || '')}</div></span><button class="del" onclick="delAdj(${jsArg(a.id)})">Löschen</button></div>`).join('')}</div>` : ''}`);
 }
 function adjForm() {
   sheet(`<div class="sheet-head"><button class="pill sm red" onclick="openBalance()">Abbrechen</button><button class="pill sm green" onclick="saveAdj()">Speichern</button></div>
   <h2>Korrektur buchen</h2>
   <div class="group">
-    <label class="row"><span>Datum</span><input id="adate" type="date" value="${today()}"></label>
+    <label class="row"><span>Datum</span><input id="adate" type="date" value="${esc(today())}"></label>
     <label class="row"><span>Art</span><select id="asign"><option value="1">Gutschrift (+)</option><option value="-1">Abzug (−)</option></select></label>
     <label class="row"><span>Stunden</span><input id="amin" class="short" placeholder="2:30" inputmode="numeric"></label>
     <label class="row"><span>Notiz</span><input id="anote" placeholder="z. B. Überstunden abgefeiert"></label>
@@ -501,12 +501,12 @@ function openExport(from, to) {
   sheet(`<div class="sheet-head"><h2>Exportieren</h2><button class="pill sm" onclick="closeSheet()">Abbrechen</button></div>
   <div class="group">
     <label class="row"><span>Format</span><select id="xfmt" onchange="$('#xcols').hidden = this.value === 'ics'"><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV</option><option value="ics">Kalender (.ics)</option></select></label>
-    <label class="row"><span>Von</span><input id="xfrom" type="date" value="${from || mf}"></label>
-    <label class="row"><span>Bis</span><input id="xto" type="date" value="${to || mt}"></label>
+    <label class="row"><span>Von</span><input id="xfrom" type="date" value="${esc(from || mf)}"></label>
+    <label class="row"><span>Bis</span><input id="xto" type="date" value="${esc(to || mt)}"></label>
   </div>
   <div id="xcols">
     <div class="label">Spalten</div>
-    <div class="group">${Object.entries(COLS).map(([k, l]) => `<label class="row"><span>${l}</span><input type="checkbox" class="xcol" value="${k}" ${p.cols.includes(k) ? 'checked' : ''}></label>`).join('')}</div>
+    <div class="group">${Object.entries(COLS).map(([k, l]) => `<label class="row"><span>${l}</span><input type="checkbox" class="xcol" value="${esc(k)}" ${p.cols.includes(k) ? 'checked' : ''}></label>`).join('')}</div>
     <div class="group"><label class="row"><span>Zeiten als Dezimalstunden (8,5 statt 08:30)</span><input type="checkbox" id="xdec" ${p.dec ? 'checked' : ''}></label></div>
   </div>
   <p class="hint">Die Kalenderdatei enthält deine Arbeitszeiten und Abwesenheiten. Öffne sie auf dem iPhone, dann fragt der Kalender, ob er sie übernehmen soll.</p>
@@ -627,18 +627,18 @@ function openPayroll(month) {
   <h2>Lohn-Export</h2>
   <div class="label">Zeitraum</div>
   <div class="group">
-    <label class="row"><span>Monat</span><input type="month" id="pmonth" value="${k}" onchange="$('#pfrom').value=''; $('#pto').value=''"></label>
+    <label class="row"><span>Monat</span><input type="month" id="pmonth" value="${esc(k)}" onchange="$('#pfrom').value=''; $('#pto').value=''"></label>
     <label class="row"><span>oder von</span><input type="date" id="pfrom"></label>
     <label class="row"><span>bis</span><input type="date" id="pto"></label>
   </div>
   <div class="label">Mitarbeiter</div>
   <div class="group">
     <label class="row"><span><b>Alle Mitarbeiter</b></span><input type="checkbox" switch id="pall" checked onchange="document.querySelectorAll('.pmem').forEach(c => c.checked = this.checked)"></label>
-    ${act.map(m => `<label class="row"><span>${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${cfg.pnr[m.uid] ? 'Personalnr. ' + esc(cfg.pnr[m.uid]) : '<span class="red">Keine Personalnummer</span>'}</div></span><input type="checkbox" class="pmem" value="${m.uid}" checked onchange="$('#pall').checked = [...document.querySelectorAll('.pmem')].every(c => c.checked)"></label>`).join('')}
+    ${act.map(m => `<label class="row"><span>${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${cfg.pnr[m.uid] ? 'Personalnr. ' + esc(cfg.pnr[m.uid]) : '<span class="red">Keine Personalnummer</span>'}</div></span><input type="checkbox" class="pmem" value="${esc(m.uid)}" checked onchange="$('#pall').checked = [...document.querySelectorAll('.pmem')].every(c => c.checked)"></label>`).join('')}
   </div>
   <div class="label">Format</div>
   <div class="group">
-    <label class="row"><span>Für</span><select id="psoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${v}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}<option value="xlsx">Excel (Übersicht und alle Tage)</option></select></label>
+    <label class="row"><span>Für</span><select id="psoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${esc(v)}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}<option value="xlsx">Excel (Übersicht und alle Tage)</option></select></label>
     <label class="row"><span>Inhalt</span><select id="pcontent"><option value="sum" ${cfg.content === 'sum' ? 'selected' : ''}>Monatssummen je Lohnart</option><option value="days" ${cfg.content === 'days' ? 'selected' : ''}>Jeden Arbeitstag einzeln</option></select></label>
   </div>
   <p class="hint">${PAY_SOFT[cfg.soft]?.hint || ''}</p>
@@ -650,8 +650,8 @@ function openPaySettings() {
   sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="openPayroll()">‹</button><button class="pill sm green" onclick="savePaySettings()">Speichern</button></div>
   <h2>Schnittstelle</h2>
   <div class="group">
-    <label class="row"><span>Lohnsoftware</span><select id="ssoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${v}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>
-    <label class="row"><span>Export fällig</span><select id="sday"><option value="last" ${cfg.day === 'last' ? 'selected' : ''}>Am letzten Tag des Monats</option>${Array.from({ length: 28 }, (_, i) => i + 1).map(d => `<option value="${d}" ${+cfg.day === d ? 'selected' : ''}>Am ${d}. des Folgemonats</option>`).join('')}</select></label>
+    <label class="row"><span>Lohnsoftware</span><select id="ssoft">${Object.entries(PAY_SOFT).map(([v, x]) => `<option value="${esc(v)}" ${cfg.soft === v ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>
+    <label class="row"><span>Export fällig</span><select id="sday"><option value="last" ${cfg.day === 'last' ? 'selected' : ''}>Am letzten Tag des Monats</option>${Array.from({ length: 28 }, (_, i) => i + 1).map(d => `<option value="${esc(d)}" ${+cfg.day === d ? 'selected' : ''}>Am ${d}. des Folgemonats</option>`).join('')}</select></label>
     <label class="row"><span>Inhalt</span><select id="scontent"><option value="sum" ${cfg.content === 'sum' ? 'selected' : ''}>Monatssummen je Lohnart</option><option value="days" ${cfg.content === 'days' ? 'selected' : ''}>Jeden Arbeitstag einzeln</option></select></label>
   </div>
   <p class="hint">Am Stichtag erinnert dich die App im Team-Bereich und beim Öffnen. Später kann die Datei auch automatisch per E-Mail kommen.</p>
@@ -659,7 +659,7 @@ function openPaySettings() {
   <div class="group">${PAY_LA.map(([k, n, u, ex]) => `<label class="row"><span>${n} <span class="muted small">(${u})</span></span><input class="short" id="sla_${k}" inputmode="numeric" placeholder="z. B. ${ex}" value="${esc(cfg.la[k] || '')}"></label>`).join('')}</div>
   <p class="hint">Die Nummern stehen in deiner Lohnsoftware bei den Lohnarten. Leer = diese Zeile wird nicht exportiert.</p>
   <div class="label">Personalnummern</div>
-  ${act.length ? `<div class="group">${act.map(m => `<label class="row"><span>${esc(m.name)}</span><input class="short spnr" data-uid="${m.uid}" inputmode="numeric" placeholder="Nr." value="${esc(cfg.pnr[m.uid] || '')}"></label>`).join('')}</div>` : '<p class="muted center">Noch keine Mitarbeiter.</p>'}
+  ${act.length ? `<div class="group">${act.map(m => `<label class="row"><span>${esc(m.name)}</span><input class="short spnr" data-uid="${esc(m.uid)}" inputmode="numeric" placeholder="Nr." value="${esc(cfg.pnr[m.uid] || '')}"></label>`).join('')}</div>` : '<p class="muted center">Noch keine Mitarbeiter.</p>'}
   <p class="hint">So findet die Lohnsoftware den richtigen Mitarbeiter. Die Nummer steht in der Lohnsoftware beim Mitarbeiter.</p>`);
   currentTopic = 'payroll';
 }
@@ -816,14 +816,14 @@ function locForm(i, keep) {
   if (!keep) l._i = i ?? -1;
   i = l._i < 0 ? null : l._i;
   const sw = (id, on) => `<input id="${id}" type="checkbox" switch ${on ? 'checked' : ''}>`;
-  const act = (k, opts) => `<select id="l${k}act">${Object.entries(opts).map(([v, t]) => `<option value="${v}" ${l[k].act === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const act = (k, opts) => `<select id="l${k}act">${Object.entries(opts).map(([v, t]) => `<option value="${esc(v)}" ${l[k].act === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
   sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="backToTopic()">‹</button><button class="pill sm green" onclick="locSave()">Speichern</button></div>
   <h2>${i == null ? 'Neuer Ort' : 'Ort bearbeiten'}</h2>
   <div class="label">Name des Ortes</div>
   <div class="group"><label class="row"><input id="lname" style="max-width:none;flex:1" value="${esc(l.name)}" placeholder="z. B. Büro"></label></div>
   <div class="label">Ort</div>
   <div class="group"><button class="row" onclick="locPick()"><span id="lpos" class="${l.lat == null ? 'muted' : ''}" style="text-align:left">${l.lat == null ? 'Wähle einen Ort' : locPosText(l) + `<div class="muted small">Umkreis ${l.r} m</div>`}</span><span class="muted">›</span></button></div>
-  ${typeof hasSlots === 'function' && hasSlots() ? `<div class="group"><label class="row"><span>Arbeitsplatz</span><select id="lslot">${['main', ...slotList().map(x => x.id)].map(id => `<option value="${id}" ${(l.slot || 'main') === id ? 'selected' : ''}>${esc(slotName(id))}</option>`).join('')}</select></label></div>` : ''}
+  ${typeof hasSlots === 'function' && hasSlots() ? `<div class="group"><label class="row"><span>Arbeitsplatz</span><select id="lslot">${['main', ...slotList().map(x => x.id)].map(id => `<option value="${esc(id)}" ${(l.slot || 'main') === id ? 'selected' : ''}>${esc(slotName(id))}</option>`).join('')}</select></label></div>` : ''}
   <div class="group"><label class="row"><span>Farbe</span><input id="lcolor" type="color" value="${esc(l.color)}" class="colorpick"></label></div>
   <div class="label">Standardort</div>
   <div class="group"><label class="row"><span>Als Standardort verwenden</span>${sw('ldef', l.def)}</label></div>
@@ -831,26 +831,26 @@ function locForm(i, keep) {
   <div class="label">Archiviert</div>
   <div class="group"><label class="row"><span>Ist archiviert</span>${sw('larch', l.arch)}</label></div>
   <div class="label">Minimale Timerlänge</div>
-  <div class="group"><label class="row"><span>Timerlänge in Minuten</span><input id="lmin" class="short" type="number" inputmode="numeric" min="0" placeholder="0" value="${l.minLen || ''}"></label></div>
+  <div class="group"><label class="row"><span>Timerlänge in Minuten</span><input id="lmin" class="short" type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(l.minLen || '')}"></label></div>
   <p class="hint">Bei z. B. 5 werden automatische Zeiteinträge, die kürzer als 5 Minuten sind, gelöscht.</p>
   <div class="label">Aktion beim Ankommen</div>
   <div class="group">
     <label class="row"><span>Aktion</span>${act('enter', { start: 'Zeiteintrag starten', none: 'Nichts tun' })}</label>
     <label class="row"><span>Auch an arbeitsfreien Tagen</span>${sw('lenteroff', l.enter.off)}</label>
-    <label class="row"><span>Zeitversatz in Minuten</span><input id="lentershift" class="short" inputmode="numeric" placeholder="0" value="${l.enter.shift || ''}"></label>
+    <label class="row"><span>Zeitversatz in Minuten</span><input id="lentershift" class="short" inputmode="numeric" placeholder="0" value="${esc(l.enter.shift || '')}"></label>
   </div>
   <p class="hint">Bei 5 wird die Zeit um fünf Minuten nach vorne gesetzt, bei -5 um fünf Minuten zurück. Praktisch, wenn du die App erst etwas später öffnest.</p>
   <div class="label">Aktion beim Verlassen</div>
   <div class="group">
     <label class="row"><span>Aktion</span>${act('leave', { stop: 'Zeiteintrag stoppen', none: 'Nichts tun' })}</label>
     <label class="row"><span>Auch an arbeitsfreien Tagen</span>${sw('lleaveoff', l.leave.off)}</label>
-    <label class="row"><span>Zeitversatz in Minuten</span><input id="lleaveshift" class="short" inputmode="numeric" placeholder="0" value="${l.leave.shift || ''}"></label>
+    <label class="row"><span>Zeitversatz in Minuten</span><input id="lleaveshift" class="short" inputmode="numeric" placeholder="0" value="${esc(l.leave.shift || '')}"></label>
   </div>
   <p class="hint">Bei -10 wird als Ende zehn Minuten vor dem Moment eingetragen, in dem die App merkt, dass du weg bist.</p>
   <div class="label">Erlaubter Zeitraum</div>
   <div class="group">
-    <label class="row"><span>Prüft ab Uhrzeit</span><input id="lfrom" type="time" value="${l.from}"></label>
-    <label class="row"><span>Prüft bis Uhrzeit</span><input id="lto" type="time" value="${l.to}"></label>
+    <label class="row"><span>Prüft ab Uhrzeit</span><input id="lfrom" type="time" value="${esc(l.from)}"></label>
+    <label class="row"><span>Prüft bis Uhrzeit</span><input id="lto" type="time" value="${esc(l.to)}"></label>
   </div>
   <p class="hint">Beide Aktionen werden nur ausgeführt, wenn die Zeit in diesem Zeitraum liegt.</p>
   ${i == null ? '' : `<button class="big redbtn" onclick="locDel(${i})">Löschen</button>`}`);
@@ -927,7 +927,7 @@ function locPickView(results) {
     <div class="locsearch"><input id="lq" placeholder="Suche einen Ort" enterkeyhint="search" onkeydown="event.key === 'Enter' && locFind()"><button class="pill sm sel" onclick="locFind()">Suche</button></div>
     <div id="lres">${(results || []).map((h, i) => `<button class="row card locres" onclick="locChoose(${i})"><span class="locpin">📍</span><span class="tt"><b>${esc(h.title)}</b><span class="muted small">${esc(h.sub)}</span></span></button>`).join('')}</div>
     ${has ? `<div class="mapwrap"><div id="lmap"></div><div class="mappin"></div></div>
-      <div class="radrow"><input type="range" id="lrad" min="50" max="1000" step="25" value="${l.r}" oninput="locRadius(+this.value)"><span id="lradt">Radius ${l.r} m</span>
+      <div class="radrow"><input type="range" id="lrad" min="50" max="1000" step="25" value="${esc(l.r)}" oninput="locRadius(+this.value)"><span id="lradt">Radius ${l.r} m</span>
       <button class="pill sm" onclick="locLayer()" aria-label="Kartenart">🗺</button></div>
       <p class="hint">Verschiebe die Karte, bis der Punkt auf deinem Arbeitsort liegt. Der Kreis zeigt, ab wann du als „angekommen“ giltst.</p>`
     : `<button class="big locnow" onclick="locHere(c => { locDraft.lat = c.latitude; locDraft.lng = c.longitude; locDraft.addr = ''; locPickView(); })">Aktueller Standort</button>`}`);
@@ -1471,7 +1471,7 @@ async function loadFeedbackAdmin() {
 function feedbackAdminHtml() {
   if (!fbAdmin) return '<p class="muted center">Lädt …</p>';
   if (!fbAdmin.length) return '<p class="muted center">Noch kein Feedback.</p>';
-  return `<div class="group">${fbAdmin.map(t => `<button class="row" onclick="openFeedback('${t.uid}')">
+  return `<div class="group">${fbAdmin.map(t => `<button class="row" onclick="openFeedback(${jsArg(t.uid)})">
     <span style="text-align:left;min-width:0">${t.unreadAdmin ? '<span class="dotnew"></span>' : ''}<b>${esc(t.name || t.email || 'Nutzer')}</b>${t.company ? ` <span class="muted small">· ${esc(t.company)}</span>` : ''}
       <div class="muted small fbprev">${t.lastType && FB_TYPES[t.lastType] ? FB_TYPES[t.lastType][0] + ' ' : ''}${esc(t.lastText || '')}</div></span>
     <span class="muted small">${t.last?.toDate ? t.last.toDate().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : ''} ›</span></button>`).join('')}</div>`;
@@ -1552,8 +1552,8 @@ function remindHtml() {
   return `<div class="label">Erinnerung ans Stempeln</div>
   <div class="group">
     <label class="row"><span>Erinnern</span><input type="checkbox" ${r.on ? 'checked' : ''} onchange="setRemind('on', this.checked, this)"></label>
-    <label class="row"><span>Noch nicht eingestempelt um</span><input type="time" value="${r.start}" onchange="setRemind('start', this.value)"></label>
-    <label class="row"><span>Noch eingestempelt um</span><input type="time" value="${r.end}" onchange="setRemind('end', this.value)"></label>
+    <label class="row"><span>Noch nicht eingestempelt um</span><input type="time" value="${esc(r.start)}" onchange="setRemind('start', this.value)"></label>
+    <label class="row"><span>Noch eingestempelt um</span><input type="time" value="${esc(r.end)}" onchange="setRemind('end', this.value)"></label>
   </div>
   <p class="hint">Du bekommst eine Mitteilung, wenn du an einem Arbeitstag bis zur ersten Uhrzeit nicht eingestempelt hast oder zur zweiten Uhrzeit noch eingestempelt bist. An freien Tagen, Feiertagen und im Urlaub kommt keine. Leeres Feld = diese Erinnerung aus. Gilt für alle Jobs.</p>`;
 }
@@ -1667,8 +1667,8 @@ function renderSlipQueue() {
   <p class="hint">Die App hat jede Abrechnung über Personalnummer oder Namen einem Mitarbeiter zugeordnet. Bitte kurz prüfen. Jeder Mitarbeiter sieht nur seine eigene und bekommt eine Benachrichtigung.</p>
   ${slipQueue.map((q, i) => `<div class="group">
     <div class="row"><span>📄 ${esc(q.file.name)}<div class="muted small">${q.f.employee ? esc(q.f.employee) : 'Name nicht erkannt'}${q.f.pnr ? ' · Personalnr. ' + esc(q.f.pnr) : ''}</div>${q.err ? `<div class="red small">${esc(q.err)}</div>` : ''}</span></div>
-    ${q.err ? '' : `<label class="row"><span>Mitarbeiter</span><select onchange="slipQueue[${i}].uid = this.value; renderSlipQueue()"><option value="">– wählen –</option>${ppl.map(p => `<option value="${p.uid}" ${p.uid === q.uid ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-    <label class="row"><span>Monat</span><input type="month" value="${q.ym}" onchange="slipQueue[${i}].ym = this.value; renderSlipQueue()"></label>`}
+    ${q.err ? '' : `<label class="row"><span>Mitarbeiter</span><select onchange="slipQueue[${i}].uid = this.value; renderSlipQueue()"><option value="">– wählen –</option>${ppl.map(p => `<option value="${esc(p.uid)}" ${p.uid === q.uid ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="row"><span>Monat</span><input type="month" value="${esc(q.ym)}" onchange="slipQueue[${i}].ym = this.value; renderSlipQueue()"></label>`}
   </div>`).join('')}
   <p class="hint">Tipp: In Lexware jede Abrechnung einzeln als PDF speichern. Eine Sammel-PDF mit allen Mitarbeitern kann die App noch nicht aufteilen.</p>`);
 }
@@ -1693,7 +1693,7 @@ async function openSlips() {
   sheet(`<div class="sheet-head"><button class="pill sm back" aria-label="Zurück" onclick="${currentTopic ? 'backToTopic()' : 'closeSheet()'}">‹</button><h2 class="pick-title">Lohnabrechnungen</h2><span style="width:60px"></span></div><div id="slips"><p class="muted center">Lädt …</p></div>`);
   try {
     slipList = (await fb.db.collection(`payslips/${uid}/docs`).orderBy('ym', 'desc').get()).docs.map(d => ({ id: d.id, ...d.data() }));
-    $('#slips').innerHTML = slipList.length ? `<div class="group">${slipList.map(d => `<button class="row" onclick="openSlip('${d.id}')"><span style="text-align:left">${d.read ? '' : '<span class="dotnew"></span>'}<b>${esc(d.period)}</b><div class="muted small">${esc(d.firm || '')} · ${Math.round(d.size / 1024)} KB</div></span><span class="muted">Öffnen ›</span></button>`).join('')}</div>
+    $('#slips').innerHTML = slipList.length ? `<div class="group">${slipList.map(d => `<button class="row" onclick="openSlip(${jsArg(d.id)})"><span style="text-align:left">${d.read ? '' : '<span class="dotnew"></span>'}<b>${esc(d.period)}</b><div class="muted small">${esc(d.firm || '')} · ${Math.round(d.size / 1024)} KB</div></span><span class="muted">Öffnen ›</span></button>`).join('')}</div>
       <p class="hint">Dein Arbeitgeber stellt die Abrechnungen hier bereit. Nur du siehst sie. Mit „Teilen“ kannst du sie in Dateien sichern oder weiterschicken.</p>`
       : '<p class="muted center">Noch keine Lohnabrechnungen. Sobald dein Arbeitgeber eine hochlädt, bekommst du eine Benachrichtigung.</p>';
   } catch (e) { $('#slips').innerHTML = `<p class="red center">Konnte nicht geladen werden: ${esc(e.message)}</p>`; }
@@ -1718,7 +1718,7 @@ let proSlot, proCount = null;   // proSlot: undefined = lädt noch, null = kein 
 let proAbo = null;              // { aktiv, plan, bis, endet } vom Abo-Dienst, auf dem Gerät zwischengespeichert
 const aboTest = new URLSearchParams(location.search).has('abotest');   // dayliner.de/?abotest zeigt die Abo-Knöpfe auch bei freien Plätzen (Kauf testen)
 const aboOn = () => !!proAbo?.aktiv && proAbo.bis > Date.now() - 3 * 864e5;   // ohne Netz noch 3 Tage Kulanz
-const proFirm = () => !!(myCompanies.length || (cid && (membership?.status === 'active' || company?.owner === me?.uid)));
+const proFirm = () => !!(cid && membership?.status === 'active');   // nur freigegebene Mitglieder; Gründer brauchen eigenes Pro
 const isPro = () => !!me && (isAdmin() || Date.parse(me.metadata.creationTime) < PRO_OLD || !!proSlot || proFirm() || aboOn());
 const proFree = () => Math.max(0, PRO_PLACES - (proCount ?? 0));
 // Pro-Funktion ohne Pro: stattdessen den Pro-Bildschirm zeigen (Platz sichern bzw. Hinweis aufs Abo)
@@ -1726,6 +1726,7 @@ const needPro = () => { if (isPro()) return false; openTopic('pro'); return true
 // Offenes Pro-Fenster nur im Inhalt auffrischen (sonst gleitet es bei jedem neuen Zählerstand neu herein)
 function proChanged() { if (!own.ready) return; const v = currentTopic === 'pro' && $('#sheet #proview'); if (v) v.outerHTML = proHtml(); else refresh(); }
 async function claimPro(auto) {   // auto: von der App vergeben, ohne Fehlermeldung
+  if (!me.emailVerified) { if (!auto) openTopic('pro'); return false; }
   const info = ref('beta/info');
   let n;
   try {
@@ -1781,6 +1782,7 @@ const cancelBtn = () => `<a class="pill wide" href="${WEB}kuendigen.html" target
 function maybeProOffer() {
   if (ADMIN_APP || viewing || !me || !own.ready || cid || own.shared?.cid || joinCode || proSlot === undefined || proCount == null
     || isPro() || !proFree() || data.settings.onboarded === false || !$('#sheet').hidden || maybeProOffer.busy) return;
+  if (!me.emailVerified) { verifyRecheck(); return; }
   maybeProOffer.busy = true;
   claimPro(true).then(ok => {
     if (!ok) return;
@@ -1790,6 +1792,23 @@ function maybeProOffer() {
   });
 }
 const proBadge = () => isPro() ? '<span class="badge-pro">PRO</span>' : '';
+// E-Mail-Bestätigung (Pflicht für Gratis-Plätze und neue Firmen, gegen massenhaft angelegte Konten)
+async function sendVerify() {
+  try { await me.sendEmailVerification(); toast('📧 Bestätigungs-Mail ist unterwegs. Danach „Ich habe bestätigt“ tippen.'); }
+  catch (e) { alert(e.code === 'auth/too-many-requests' ? 'Die letzte Mail ist gerade erst rausgegangen. Bitte warte ein paar Minuten.' : 'Das hat nicht geklappt: ' + e.message); }
+}
+async function checkVerify() {
+  await me.reload().catch(() => {});
+  if (!me.emailVerified) return alert('Noch nicht bestätigt. Tippe in der Mail auf den Link und versuch es dann noch einmal.');
+  await me.getIdToken(true);   // neues Token mit email_verified, sonst lehnen die Regeln ab
+  if (await claimPro()) openTopic('pro'); else render();
+}
+// Kommt man aus dem Mail-Programm zurück, höchstens einmal pro Minute nachsehen, ob bestätigt wurde
+function verifyRecheck() {
+  if (verifyRecheck.at > Date.now() - 60000) return;
+  verifyRecheck.at = Date.now();
+  me.reload().then(async () => { if (me.emailVerified) { await me.getIdToken(true); refresh(); } }).catch(() => {});
+}
 
 // ---------- Monatsnachweis per E-Mail (Pro) ----------
 // Persönliche Einstellung settings.monthMail = { [Arbeitsplatz]: { to, day, start, sent } } (privat). day = Versandtag 1 bis 28:
@@ -1815,7 +1834,7 @@ function monthMailHtml() {
   const all = data.settings.monthMail || {}, head = `<div class="label">Monatsnachweis per E-Mail ${proBadge()}</div>`;
   if (!isPro()) return head + `<p class="hint">Mit Dayliner Pro geht dein PDF-Nachweis jeden Monat automatisch per E-Mail an deinen Chef, dein Lohnbüro oder deinen Steuerberater.</p>
     <button class="pill wide" onclick="openTopic('pro')">Dayliner Pro ansehen ›</button>`;
-  const days = sel => Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${sel === i + 1 ? 'selected' : ''}>am ${i + 1}.</option>`).join('');
+  const days = sel => Array.from({ length: 28 }, (_, i) => `<option value="${esc(i + 1)}" ${sel === i + 1 ? 'selected' : ''}>am ${i + 1}.</option>`).join('');
   return head + mmPlaces().map(k => {
     const e = all[k] || {}, n = e.to && mmNext(e);
     return `<div class="group">${hasSlots() ? `<div class="row"><b>${esc(slotName(k))}</b></div>` : ''}
@@ -1882,6 +1901,10 @@ function proHtml() {
   const top = isPro() ? `<p class="green" style="margin:0 0 8px"><b>✓ Aktiv</b></p><p class="muted small" style="margin:0">${why}. Du nutzt alle Funktionen.</p>
       ${aboOn() ? '<button class="pill wide" style="margin-top:12px" onclick="manageAbo()">Abo verwalten (Zahlungsart, Rechnungen)</button>' : ''}`
     : proCount == null ? '<p class="muted small" style="margin:0">Lädt …</p>'
+    : proFree() && !aboTest && !me.emailVerified ? `<p style="margin:0 0 4px"><b>Noch ${proFree()} von ${PRO_PLACES} Plätzen frei</b></p>
+      <p class="muted small" style="margin:0 0 12px">Bestätige zuerst deine E-Mail-Adresse ${esc(me.email || '')}, dann bekommst du deinen Gratis-Platz. Den Link findest du in der Bestätigungs-Mail.</p>
+      <button class="big" onclick="checkVerify()">Ich habe bestätigt</button>
+      <button class="pill wide" style="margin-top:8px" onclick="sendVerify()">Bestätigungs-Mail neu senden</button>`
     : proFree() && !aboTest ? `<p style="margin:0 0 4px"><b>Noch ${proFree()} von ${PRO_PLACES} Plätzen frei</b></p>
       <p class="muted small" style="margin:0 0 12px">Dayliner ist noch in der Testphase. Die ersten ${PRO_PLACES} nutzen Pro kostenlos, bis Dayliner im App Store ist.</p>
       <button class="big" onclick="claimPro()">Platz sichern</button>`
@@ -1984,7 +2007,7 @@ function prjPickList() {
   const list = prjActive().filter(p => !ql || `${p.name} ${p.kunde || ''} ${p.nr || ''} ${p.adr || ''}`.toLowerCase().includes(ql))
     .sort((a, b) => (used[b.id] || 0) - (used[a.id] || 0));
   const exact = prjActive().some(p => p.name.toLowerCase() === ql);
-  $('#prjpl').innerHTML = `<div class="group">${list.map(p => `<button class="row" onclick="prjPick('${p.id}')"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span>${p.id === cur ? '<span class="green">✓</span>' : ''}</button>`).join('')}
+  $('#prjpl').innerHTML = `<div class="group">${list.map(p => `<button class="row" onclick="prjPick(${jsArg(p.id)})"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span>${p.id === cur ? '<span class="green">✓</span>' : ''}</button>`).join('')}
     ${q && !exact ? `<button class="row" onclick="prjForm(null, 'pick')"><span>➕ Neu anlegen: <b>${esc(q)}</b>${list.length ? `<div class="muted small">Oben stehen ähnliche Projekte, vielleicht gibt es es schon.</div>` : ''}</span></button>` : ''}
     <button class="row" onclick="prjPick(null)"><span class="muted">Ohne Projekt</span>${!cur ? '<span class="green">✓</span>' : ''}</button></div>`;
 }
@@ -1994,10 +2017,10 @@ const prjBoss = () => !prjCid() || (prjCid() === cid && isOwner());
 function prjForm(id, back = 'topic') {
   const p = id ? prjById(id) || {} : { name: ($('#prjq')?.value || '').trim() }, f = (k, l, ph) => `<label class="row"><span>${l}</span><input id="pf_${k}" value="${esc(p[k] || '')}" placeholder="${ph}" autocomplete="off"></label>`;
   const others = prjActive().filter(x => x.id !== id);
-  sheet(`<div class="sheet-head"><button class="pill sm" onclick="${back === 'pick' ? 'openPrjPicker()' : "openTopic('projects')"}">‹</button><h2>${id ? 'Projekt bearbeiten' : 'Neues Projekt'}</h2><button class="pill sm green" onclick="prjSave(${id ? `'${id}'` : 'null'}, '${back}')">Sichern</button></div>
+  sheet(`<div class="sheet-head"><button class="pill sm" onclick="${back === 'pick' ? 'openPrjPicker()' : "openTopic('projects')"}">‹</button><h2>${id ? 'Projekt bearbeiten' : 'Neues Projekt'}</h2><button class="pill sm green" onclick="prjSave(${id ? jsArg(id) : 'null'}, ${jsArg(back)})">Sichern</button></div>
   <div class="group">${f('name', 'Name', 'z. B. Müller Bad')}${f('kunde', 'Kunde', 'freiwillig')}${f('nr', 'Kommission / Nr.', 'freiwillig')}${f('adr', 'Adresse', 'freiwillig')}</div>
   ${id && prjBoss() ? `<div class="group"><label class="row"><span>Abgeschlossen<div class="muted small">Steht dann nicht mehr in der Auswahl, die Zeiten bleiben.</div></span><input type="checkbox" id="pf_done" ${p.done ? 'checked' : ''}></label>
-    ${others.length ? `<label class="row"><span>Zusammenlegen mit</span><select id="pf_to"><option value="">nicht zusammenlegen</option>${others.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}</div>
+    ${others.length ? `<label class="row"><span>Zusammenlegen mit</span><select id="pf_to"><option value="">nicht zusammenlegen</option>${others.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}</div>
     <p class="hint">Zusammenlegen: Alle Zeiten dieses Projekts zählen ab sofort zum gewählten Projekt, auch die schon gestempelten. Gut für doppelt angelegte Projekte.</p>` : ''}
   ${prjCid() ? '<p class="hint">Alle in der Firma sehen und benutzen dieselben Projekte.</p>' : ''}`);
   $('#pf_name').focus();
@@ -2029,7 +2052,7 @@ async function prjSave(id, back) {
 function prjTopicHtml() {
   const all = prjList().filter(p => !p.to).sort((a, b) => a.name.localeCompare(b.name, 'de')), act = all.filter(p => !p.done), done = all.filter(p => p.done);
   const sums = Object.fromEntries(prjSums([data], '2000-01-01', '2999-12-31').map(x => [x.id, x.work + x.fahrt]));
-  const row = p => `<button class="row" onclick="prjForm('${p.id}')"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span><span class="muted">${sums[p.id] ? hm(sums[p.id]) + ' Std. ' : ''}›</span></button>`;
+  const row = p => `<button class="row" onclick="prjForm(${jsArg(p.id)})"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span><span class="muted">${sums[p.id] ? hm(sums[p.id]) + ' Std. ' : ''}›</span></button>`;
   return `<p class="hint" style="margin-top:0">Ordne deine Zeiten Baustellen, Kunden oder Kommissionen zu. Auf der Startseite wählst du das Projekt, wechselst ohne Pause und stempelst Fahrten. Fahrzeit zählt als Arbeitszeit und wird getrennt ausgewiesen.${prjCid() ? ' In deiner Firma nutzen alle dieselbe Liste.' : ''}</p>
   <button class="pill wide" onclick="prjForm(null)">➕ Neues Projekt</button>
   ${act.length ? `<div class="label">Aktiv</div><div class="group">${act.map(row).join('')}</div>` : '<p class="hint center">Noch keine Projekte.</p>'}
@@ -2070,5 +2093,5 @@ const prjEditOn = () => prjOn();
 function prjRowEdit(r) {
   const act = prjActive(), extra = r.prj && !act.some(p => p.id === r.prj) ? [{ id: r.prj, name: prjName(r.prj) }] : [];
   return `<div class="row erow2"><select class="et"><option value="">Arbeit</option><option value="f" ${r.t === 'f' ? 'selected' : ''}>🚗 Fahrt</option></select>
-    <select class="ep"><option value="">Ohne Projekt</option>${[...extra, ...act].map(p => `<option value="${p.id}" ${p.id === r.prj ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>`;
+    <select class="ep"><option value="">Ohne Projekt</option>${[...extra, ...act].map(p => `<option value="${esc(p.id)}" ${p.id === r.prj ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>`;
 }

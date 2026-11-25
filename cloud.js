@@ -207,7 +207,7 @@ function switchFirm(id, quiet) {
 function firmSwitchHtml() {
   const firms = myFirms();
   if (!company || firms.length < 2) return '';
-  return `<label class="row"><span>Firma</span><select onchange="switchFirm(this.value)">${firms.map(c => `<option value="${c.id}" ${c.id === company.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Weitere Firma anlegen</option></select></label>`;
+  return `<label class="row"><span>Firma</span><select onchange="switchFirm(this.value)">${firms.map(c => `<option value="${esc(c.id)}" ${c.id === company.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Weitere Firma anlegen</option></select></label>`;
 }
 
 // Beim ersten Login: Zeiten, die bisher nur auf diesem Gerät lagen, in die Cloud übernehmen.
@@ -364,7 +364,7 @@ async function leaveSlot(id) {
 // Auswahl oben auf Start, Kalender und Statistik
 function slotBar(compact) {
   if (!hasSlots()) return '';
-  const pill = id => `<button class="pill sm ${curSlot === id ? 'sel' : ''}" onclick="useSlot('${id}')">${esc(slotName(id))}${id !== 'main' && slots[id].cid && slots[id].status === 'pending' ? ' ⏳' : ''}</button>`;
+  const pill = id => `<button class="pill sm ${curSlot === id ? 'sel' : ''}" onclick="useSlot(${jsArg(id)})">${esc(slotName(id))}${id !== 'main' && slots[id].cid && slots[id].status === 'pending' ? ' ⏳' : ''}</button>`;
   return `<div class="slotbar${compact ? ' compact' : ''}">${['main', ...slotList().map(x => x.id)].map(pill).join('')}</div>`;
 }
 function slotsHtml() {
@@ -373,7 +373,7 @@ function slotsHtml() {
   return `<p class="hint" style="margin-top:0">Hast du mehrere Jobs, erfasst du die Zeiten hier getrennt. Jede Firma sieht nur die Zeiten ihres Arbeitsplatzes. Oben auf der Startseite wählst du, wofür du gerade stempelst.</p>
   <div class="group">
     ${row('main', company ? 'Hauptarbeitsplatz · ' + esc(company.name) + ' sieht diese Zeiten' : 'Hauptarbeitsplatz', `<button class="pill sm" onclick="useSlot('main', true); openTopic('work')">Soll</button>`)}
-    ${slotList().map(sl => row(sl.id, st(sl), `<button class="pill sm" onclick="useSlot('${sl.id}', true); openTopic('work')">Soll</button>${sl.cid ? '' : `<button class="pill sm" onclick="renameSlot('${sl.id}')">✎</button>`}<button class="pill sm red" onclick="leaveSlot('${sl.id}')">${sl.cid && sl.status !== 'gone' ? 'Verlassen' : '✕'}</button>`)).join('')}
+    ${slotList().map(sl => row(sl.id, st(sl), `<button class="pill sm" onclick="useSlot(${jsArg(sl.id)}, true); openTopic('work')">Soll</button>${sl.cid ? '' : `<button class="pill sm" onclick="renameSlot(${jsArg(sl.id)})">✎</button>`}<button class="pill sm red" onclick="leaveSlot(${jsArg(sl.id)})">${sl.cid && sl.status !== 'gone' ? 'Verlassen' : '✕'}</button>`)).join('')}
   </div>
   <button class="pill wide" onclick="addSlot()">+ Weiterer Job ohne Firma</button>
   ${cid ? '<button class="pill wide" onclick="joinForm(\'\', true)">+ Zweite Firma beitreten (Code)</button>' : ''}
@@ -520,6 +520,7 @@ async function emailSignup() {
   const l = loginRead();
   try {
     const r = await fb.auth.createUserWithEmailAndPassword(l.mail, l.pass);
+    r.user.sendEmailVerification().catch(() => {});   // Bestätigung: Pflicht für Gratis-Platz und eigene Firma
     loginStore(l, name);
     await r.user.updateProfile({ displayName: name });
     if (data.settings && !data.settings.name) { data.settings.name = name; if (own.shared) save(); }
@@ -676,11 +677,11 @@ async function companySave() {
   } catch (e) { cloudError(e); }
 }
 function companyInfoHtml() {  // für Mitarbeiter: Firmendaten nur lesen
-  const i = company?.info || {}, row = (l, v, href) => v ? `<div class="row"><span>${l}</span><span>${href ? `<a href="${href}" class="link">${esc(v)}</a>` : esc(v)}</span></div>` : '';
+  const i = company?.info || {}, row = (l, v, href) => v ? `<div class="row"><span>${l}</span><span>${href ? `<a href="${esc(href)}" class="link" rel="noopener">${esc(v)}</a>` : esc(v)}</span></div>` : '';
   const addr = [i.street, [i.zip, i.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const rows = row('Adresse', addr) + row('Ansprechpartner', i.contact) + row('Telefon', i.phone, 'tel:' + (i.phone || '').replace(/[^\d+]/g, ''))
-    + row('Mobil', i.mobile, 'tel:' + (i.mobile || '').replace(/[^\d+]/g, '')) + row('E-Mail', i.email, 'mailto:' + i.email)
-    + row('Website', i.web, /^https?:/.test(i.web || '') ? i.web : 'https://' + i.web);
+    + row('Mobil', i.mobile, 'tel:' + (i.mobile || '').replace(/[^\d+]/g, '')) + row('E-Mail', i.email, /^[^@\s"'<>]+@[^@\s"'<>]+\.[a-z]{2,}$/i.test(i.email || '') ? 'mailto:' + i.email : '')
+    + row('Website', i.web, (() => { try { const u = new URL(/^https?:/i.test(i.web || '') ? i.web : 'https://' + i.web); return /^https?:$/.test(u.protocol) ? u.href : ''; } catch { return ''; } })());
   return rows ? `<div class="label">Kontakt der Firma</div><div class="group">${rows}</div>` : '';
 }
 
@@ -700,6 +701,8 @@ function companyForm(extra) {
 }
 async function createCompany(extra) {
   if (needPro()) return false;
+  if (!me.emailVerified) { await me.reload().catch(() => {}); if (me.emailVerified) await me.getIdToken(true); }
+  if (!me.emailVerified) { if (confirm(`Bitte bestätige zuerst deine E-Mail-Adresse ${me.email || ''}. Bestätigungs-Mail jetzt senden?`)) sendVerify(); return false; }
   const name = $('#cname').value.trim();
   if (!name) return alert('Bitte einen Namen eintragen.');
   try {
@@ -789,7 +792,7 @@ async function joinCompany() {
       await ref(`companies/${id}/members/${me.uid}`).set({ name, email: me.email || '', status: 'pending', code, companyName, slot: true, requested: firebase.firestore.FieldValue.serverTimestamp() });
       slots[id] = slots[id] || { id, cid: id, name: companyName, settings: { soll: [0, 0, 0, 0, 0, 0, 0], since: today() }, sessions: [], absences: [], adjustments: [] };
       slots[id].status = 'pending'; writeSlot(id);
-      if (notify.length) notifyPush({ kind: 'join', to: notify, body: name, firm: companyName });
+      if (notify.length) notifyPush({ kind: 'join', code, body: name, firm: companyName });
       closeSheet(); useSlot(id, true); render();
       alert(`Anfrage an ${companyName} gesendet. Das ist dein zweiter Arbeitsplatz: ${companyName} sieht nur die Zeiten, die du dort stempelst. Trag unter Setup → Arbeitsplätze noch die Sollstunden ein.`);
       return true;
@@ -797,7 +800,7 @@ async function joinCompany() {
     await ref(`companies/${id}/members/${me.uid}`).set({ name, email: me.email || '', status: 'pending', code, companyName, requested: firebase.firestore.FieldValue.serverTimestamp() });
     data.settings.name = name;
     await ref('data/' + me.uid).update({ cid: id, 'settings.name': name });
-    if (notify.length) notifyPush({ kind: 'join', to: notify, body: name, firm: companyName });
+    if (notify.length) notifyPush({ kind: 'join', code, body: name, firm: companyName });
     closeSheet();
     alert(`Anfrage an ${companyName} gesendet. Sobald dein Geschäftsführer dich freigibt, bist du drin.`);
     return true;
@@ -831,9 +834,9 @@ function teamHtml() {  // Inhalt des Fensters Setup → Team
   </div>
   <p class="hint">Mitarbeiter öffnen den Link oder geben den Code unter Setup → Konto & Firma ein. Ein neuer Code macht den alten ungültig. Ein zweiter Geschäftsführer tritt genauso bei, du machst ihn danach zum Geschäftsführer.</p>
   ${pending.length ? `<div class="label">Anfragen</div><div class="group">${pending.map(m => `<div class="row reqrow"><span>${esc(m.name)}<div class="muted small">${esc(m.email)}</div></span>
-    <span class="reqbtns"><button class="pill red" onclick="rejectMember('${m.uid}')">Ablehnen</button><button class="pill green" onclick="approveMember('${m.uid}')">Freigeben</button></span></div>`).join('')}</div>` : ''}
+    <span class="reqbtns"><button class="pill red" onclick="rejectMember(${jsArg(m.uid)})">Ablehnen</button><button class="pill green" onclick="approveMember(${jsArg(m.uid)})">Freigeben</button></span></div>`).join('')}</div>` : ''}
   <div class="label">Team</div>
-  <div class="group">${people.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember('${m.uid}')">
+  <div class="group">${people.map(m => { const s = teamStats[m.uid]; return `<button class="row" onclick="viewMember(${jsArg(m.uid)})">
     <span>${openLabel(s?.open)}${esc(m.name)}${m.self ? ' <span class="muted">(du)</span>' : ''}${m.boss ? ' <span class="badge-gf">GF</span>' : ''}<div class="muted small">${s ? (s.open ? openText(s.open) + ' · ' : '') + 'Diese Woche ' + dur(s.week) : esc(m.email || '')}</div></span>
     <span>${s ? `<span class="${cls(s.balance)}">${hm(s.balance, true)}</span>` : ''} ›</span></button>`; }).join('')}</div>
   <p class="hint">${active.length ? 'Grüner Punkt = gerade eingestempelt, gelber Punkt = in Pause, oranger Punkt = Eintrag seit über 16 Std. offen (vergessen auszustempeln). Rechts das Überstundenkonto. Tippen zeigt den Kalender, dort kannst du Zeiten korrigieren. GF = Geschäftsführer, die Rolle vergibst du im Setup des jeweiligen Mitarbeiters.' : 'Noch keine Mitarbeiter. Teil den Einladungscode.'}</p>
@@ -1001,7 +1004,7 @@ async function loadAdmin() {
       const first = dd.sessions.reduce((a, s) => Math.min(a, s.s || Infinity), Infinity);
       return { uid: x.id, name: dd.settings.name || mm?.name || v.email || 'Ohne Namen', email: v.email || mm?.email || '', cid: v.cid || null, status: mm?.status,
         open: openState(dd.sessions), last: dd.sessions.reduce((a, s) => Math.max(a, s.e || Date.now()), 0), balance: makeCalc(dd, Date.now()).balance(t),
-        created: v.created || (first < Infinity ? first : 0), guess: !v.created, firm: owners.includes(x.id) || mm?.status === 'active' };
+        created: v.created || (first < Infinity ? first : 0), guess: !v.created, firm: mm?.status === 'active' };
     });
     const slots = Object.fromEntries(sl.docs.map(x => [x.id, { n: x.data().n, at: x.data().at?.toMillis?.() || 0 }]));
     const companies = c.docs.map(x => {
@@ -1023,9 +1026,9 @@ function adminBar() {
   const seg = (r, l) => `<button class="pill sm ${role === r ? 'sel' : ''}" onclick="setRole('${r}')">${l}</button>`;
   let ctx = '';
   if (role === 'boss' && adminCache?.companies.length)
-    ctx = `<label class="row"><span>Firma</span><select onchange="setRole('boss', this.value)">${adminCache.companies.map(c => `<option value="${c.id}" ${company?.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
+    ctx = `<label class="row"><span>Firma</span><select onchange="setRole('boss', this.value)">${adminCache.companies.map(c => `<option value="${esc(c.id)}" ${company?.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
   if (role === 'as' && adminCache?.users.length)
-    ctx = `<label class="row"><span>Nutzer</span><select onchange="setRole('as', this.value)">${adminCache.users.map(u => `<option value="${u.uid}" ${asUser?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}${adminCache.companies.some(c => c.owner === u.uid) ? ' (GF)' : ''}</option>`).join('')}</select></label>`;
+    ctx = `<label class="row"><span>Nutzer</span><select onchange="setRole('as', this.value)">${adminCache.users.map(u => `<option value="${esc(u.uid)}" ${asUser?.uid === u.uid ? 'selected' : ''}>${esc(u.name)}${adminCache.companies.some(c => c.owner === u.uid) ? ' (GF)' : ''}</option>`).join('')}</select></label>`;
   const who = asUser ? (isOwner() ? `Geschäftsführer von ${esc(company?.name || '…')}` : company ? `Mitarbeiter bei ${esc(company.name)}` : 'ohne Firma') : '';
   return `<div class="adminbar"><div class="seg">${seg('dev', 'Entwickler')}${seg('boss', 'Firma')}${seg('as', 'Als Nutzer')}${seg('self', 'Ich')}</div>
     ${ctx ? `<div class="group">${ctx}</div>` : ''}${role === 'as' && asUser ? `<p class="hint">So sieht <b>${esc(asUser.name)}</b> die App (${who}). Stempeln ist gesperrt, Korrekturen an Zeiten werden gespeichert. Private Daten (Gehalt, Steuern, Standorte, Aussehen) siehst du nur zum Lesen.</p>` : ''}</div>`;
@@ -1084,7 +1087,7 @@ function openAdmin(k) {
 }
 // Neue Daten: offenes Fenster auffrischen, sonst die Seite
 function adminRedraw() { if (tab !== 'admin') return; if (adminCat && !$('#sheet').hidden && $('#adminsheet')) openAdmin(adminCat); else refresh(); }
-const goAdmin = (r, id) => `closeSheet(); adminCat = null; setRole('${r}', '${id}')`;
+const goAdmin = (r, id) => esc(`closeSheet(); adminCat = null; setRole(${JSON.stringify(String(r))}, ${JSON.stringify(String(id))})`);   // fertig fürs onclick-Attribut
 function adminFirms() {
   const a = adminCache;
   return a.companies.length ? `<div class="group">${a.companies.map(c => `<button class="row" onclick="${goAdmin('boss', c.id)}"><span><b>${esc(c.name)}</b>
