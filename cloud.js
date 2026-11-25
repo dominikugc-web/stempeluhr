@@ -458,6 +458,7 @@ function renderLogin(mode = 'login') {
   const signup = mode === 'signup';
   view.innerHTML = `<h1 class="center" style="margin-top:8vh">Dayliner</h1>
   <p class="center muted">${signup ? 'Neues Konto erstellen' : 'Melde dich an. Deine Zeiten werden gespeichert und sind auf allen Geräten gleich.'}</p>
+  <p class="hint center">🔒 Dein Arbeitgeber sieht deine Zeiten nur, wenn du seiner Firma in Dayliner beitrittst.</p>
   <button class="pill wide gbtn" onclick="googleLogin()">${G_ICON} Mit Google ${signup ? 'registrieren' : 'anmelden'}</button>
   <div class="label center">oder mit E-Mail</div>
   <form id="lform" method="post" action="./" onsubmit="event.preventDefault(); ${signup ? 'emailSignup()' : 'emailLogin()'}">

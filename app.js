@@ -616,7 +616,7 @@ function renderDay() {
   ${edit.d < data.settings.since ? `<p class="badge">Vor deinem Startdatum (${dmy(data.settings.since)}): keine Sollstunden. Änderbar unter Setup → Aufzeichnung seit.</p>` : ''}
   <div class="label">Arbeitszeiten (von – bis)</div>
   <div class="group">${edit.rows.map((r, i) => `<div class="row erow"><input type="time" class="es" value="${r.s}"><span class="muted">bis</span><input type="time" class="ee" value="${r.e}"><button class="del" onclick="delRow(${i})" aria-label="Zeile löschen">✕</button></div>`).join('')}</div>
-  <p class="hint">Endzeit leer lassen heißt: läuft noch (nur für heute).</p>
+  <p class="hint">Endzeit leer lassen heißt: läuft noch (nur für heute). Liegt die Endzeit vor der Startzeit, endet die Schicht am Folgetag.</p>
   <button class="pill wide" onclick="addRow()">+ Zeit hinzufügen</button>
   <div class="group">
     <div class="row"><span>Brutto</span><span>${dur(x.gross)}</span></div>
@@ -644,8 +644,11 @@ function saveDay() {
       if (edit.d !== today()) return alert('Bitte für jede Zeit eine Endzeit eintragen.');
       out.push({ s, e: null }); continue;
     }
-    const e = at(edit.d, r.e);
-    if (e <= s) return alert('Die Endzeit muss nach der Startzeit liegen.');
+    // Endzeit vor der Startzeit = Nachtschicht, endet am Folgetag (zählt wie beim Stempeln zum Starttag)
+    let e = at(edit.d, r.e);
+    if (e === s) return alert('Start- und Endzeit sind gleich.');
+    if (e < s) e = at(addDays(edit.d, 1), r.e);
+    if (e - s > 16 * HOUR) return alert(`${r.s} bis ${r.e} am Folgetag wären über 16 Stunden. Bitte die Zeiten prüfen.`);
     out.push({ s, e });
   }
   const others = data.sessions.filter(x => ymd(new Date(x.s)) !== edit.d);
