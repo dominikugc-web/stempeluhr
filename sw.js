@@ -17,7 +17,7 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let d = {}; try { d = e.data.json(); } catch { d = { title: 'Dayliner', body: e.data?.text() || '' }; }
   e.waitUntil(self.registration.showNotification(d.title || 'Dayliner', {
-    body: d.body || '', tag: d.tag, renotify: true, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' },
+    body: d.body || '', tag: d.tag, renotify: true, icon: 'icon-192.png?v=2', badge: 'icon-192.png?v=2', data: { url: d.url || './' },
   }));
 });
 self.addEventListener('notificationclick', e => {

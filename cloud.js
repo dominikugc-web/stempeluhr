@@ -93,7 +93,7 @@ function renderInstall() {
     ${step(2, `Wähle <b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b>.`)}
     ${step(3, `Öffne <b>Dayliner</b> auf deinem Startbildschirm und melde dich dort an.`)}`;
   view.innerHTML = `<div class="install">
-    <img src="icon-192.png" alt="" class="appicon">
+    <img src="icon-192.png?v=2" alt="" class="appicon">
     <h1 class="center">Dayliner als App</h1>
     <p class="center muted">Dayliner läuft auf dem Handy als App. So legst du sie in wenigen Sekunden auf deinen ${IS_IOS ? 'Home-Bildschirm' : 'Startbildschirm'}:</p>
     <div class="card isteps">${steps}</div>
