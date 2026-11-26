@@ -7,4 +7,5 @@ window.FIREBASE_CONFIG = {
   storageBucket: 'stempeluhr-6faae.firebasestorage.app',
   messagingSenderId: '790276628892',
   appId: '1:790276628892:web:2b1eacf575daf1f4a26859',
+  appCheckKey: '',   // Websiteschlüssel von reCAPTCHA v3 für App Check (öffentlich). Leer = App Check aus.
 };

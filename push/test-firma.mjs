@@ -11,7 +11,7 @@ const SUBS = { get: async k => store.get(k) ?? null, getWithMetadata: async k =>
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const SA = { client_email: 'dayliner-worker@test.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
 const env = { DEV: '1', SUBS, STRIPE_KEY: 'sk_test_x', RESEND_KEY: 'test', FB_SA: JSON.stringify(SA) };
-const tokenCalls = [], writes = [];
+const tokenCalls = [], writes = [], acSeen = [];
 const call = async (path, body, uid) => { const r = await worker.fetch(new Request('https://x' + path, { method: 'POST', headers: { Authorization: 'Bearer ' + tok(uid) }, body: JSON.stringify(body) }), env); return [r.status, await r.json()]; };
 
 // Firestore: „uid:pfad“ -> Dokument, was fehlt, ist für diesen Nutzer gesperrt
@@ -24,15 +24,15 @@ const docs = {
   'chefb:companies/f3': firma('chefb'), 'chefc:companies/f4': firma('chefc', '2030-01-01T00:00:00Z'),
 };
 // Stripe: nur was der Dienst braucht
-const S = { prices: [], customers: {}, subs: [], sessions: [] };
+const S = { prices: [], customers: {}, subs: [], sessions: [], pro: [] };
 let n = 0;
 const id = p => p + '_' + ++n;
 function stripe(method, path, q) {
   const seg = path.split('/');
   if (path === 'prices' && method === 'GET') return { data: S.prices.filter(p => p.lookup_key === q.get('lookup_keys[]')) };
   if (path === 'prices') {
-    assert.ok(q.get('currency') === 'eur' && q.get('recurring[interval]') === 'month' && +q.get('unit_amount') > 0 && q.get('product_data[name]') && q.get('lookup_key'));
-    const p = { id: id('price'), lookup_key: q.get('lookup_key'), unit_amount: +q.get('unit_amount'), recurring: { interval: 'month' } };
+    assert.ok(q.get('currency') === 'eur' && ['month', 'year'].includes(q.get('recurring[interval]')) && +q.get('unit_amount') > 0 && q.get('product_data[name]') && q.get('lookup_key'));
+    const p = { id: id('price'), lookup_key: q.get('lookup_key'), unit_amount: +q.get('unit_amount'), recurring: { interval: q.get('recurring[interval]') } };
     S.prices.push(p); return p;
   }
   if (path === 'customers') { const c = { id: id('cus'), email: q.get('email'), name: q.get('name'), metadata: { cid: q.get('metadata[cid]') } }; S.customers[c.id] = c; return c; }
@@ -47,6 +47,7 @@ function stripe(method, path, q) {
   }
   if (path === 'billing_portal/sessions') return { url: 'https://billing.stripe.com/p/' + id('bps') };
   if (seg[0] === 'subscription_items') {
+    S.pro.push(q.get('proration_behavior'));
     if (seg[1]) {
       const s = S.subs.find(x => x.items.data.some(i => i.id === seg[1])), i = s.items.data.find(i => i.id === seg[1]);
       if (method === 'DELETE') { s.items.data = s.items.data.filter(x => x !== i); return { deleted: true }; }
@@ -76,6 +77,7 @@ globalThis.fetch = async (url, init = {}) => {
     return Response.json({});
   }
   if (u.host === 'firestore.googleapis.com') {
+    acSeen.push(init.headers['X-Firebase-AppCheck']);
     const d = docs[subOf(init.headers.Authorization) + ':' + decodeURIComponent(u.pathname.split('/documents/')[1])];
     return d ? Response.json(typeof d === 'function' ? d() : d) : new Response('{}', { status: 403 });
   }
@@ -159,4 +161,29 @@ assert.ok(nah(bis('f1'), sub.items.data[0].current_period_end * 1000 + 10 * tag)
 const n0 = writes.length; await call('/firma', { cid: 'f1' }, 'ma1'); await call('/firma', { cid: 'f1' }, 'chef');
 assert.equal(writes.length, n0, 'unverändert: nicht neu geschrieben');
 assert.equal(tokenCalls.length, 1, 'Token wird wiederverwendet');
+// Jahresabo: eigene Jahrespreise; neue oder entfernte Mitarbeiter sofort anteilig abgerechnet (sonst erst nach einem Jahr)
+assert.ok(S.pro.length && S.pro.every(p => p === null), 'Monatsabo: Stripe-Standard, Verrechnung mit der nächsten Abrechnung');
+docs['chefc:companies/f4/members'] = liste; aktive = 2;
+[s, j] = await call('/firma-kaufen', { cid: 'f4', plan: 'jahr' }, 'chefc');
+assert.equal(s, 200, JSON.stringify(j));
+q = S.sessions.at(-1);
+assert.deepEqual([preisVon(0), q.get('line_items[0][quantity]'), preisVon(1), q.get('line_items[1][quantity]')], ['firma_grund_jahr', '1', 'firma_ma_jahr', '2']);
+assert.match(q.get('custom_text[submit][message]'), /99,99 € im Jahr/);
+assert.deepEqual(['firma_grund_jahr', 'firma_ma_jahr'].map(k => [pr(k).unit_amount, pr(k).recurring.interval]), [[9999, 'year'], [3499, 'year']]);
+const subJ = { id: 'sub_2', customer: store.get('firmkunde:f4'), status: 'active', metadata: { cid: 'f4' }, created: 1, items: { data: [{ id: 'si_gj', price: pr('firma_grund_jahr'), quantity: 1, current_period_start: Date.now() / 1000 - 9, current_period_end: Date.now() / 1000 + 365 * 86400 }] } };
+S.subs.push(subJ);
+const mj = () => subJ.items.data.find(i => i.price.lookup_key === 'firma_ma_jahr')?.quantity ?? 0;
+for (const [anz, soll] of [[3, 3], [1, 1], [0, 0]]) {
+  aktive = anz; await call('/firma', { cid: 'f4' }, 'chefc');
+  assert.equal(mj(), soll); assert.equal(S.pro.at(-1), 'always_invoice', 'Jahresabo: sofort abrechnen');
+}
+assert.equal((await call('/firma', { cid: 'f4' }, 'chefc'))[1].plan, 'jahr');
+// App Check: der Nachweis der App geht mit an Firestore, ohne Nachweis wird keiner erfunden
+acSeen.length = 0;
+await worker.fetch(new Request('https://x/firma', { method: 'POST', headers: { Authorization: 'Bearer ' + tok('ma1'), 'X-Firebase-AppCheck': 'ac-token' }, body: JSON.stringify({ cid: 'f1' }) }), env);
+assert.ok(acSeen.length && acSeen.every(h => h === 'ac-token'), 'App-Check-Nachweis weitergereicht');
+acSeen.length = 0; await call('/firma', { cid: 'f1' }, 'ma1');
+assert.ok(acSeen.length && acSeen.every(h => h === undefined), 'ohne Nachweis kein Kopf');
+const opt = await worker.fetch(new Request('https://x/firma', { method: 'OPTIONS', headers: { Origin: 'https://dayliner.de' } }), env);
+assert.match(opt.headers.get('Access-Control-Allow-Headers'), /X-Firebase-AppCheck/);
 console.log('Firmen-Abo: alles richtig');

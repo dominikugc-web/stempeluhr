@@ -1486,7 +1486,8 @@ const PUSH_KEY = 'BNpcEyUe7Er6neuGciiYsHfjoiTWUQwn1XN_kqsU_h2TTKTYjCe07CHvNBBRbW
 const pushOk = () => 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 const pushOn = () => pushOk() && Notification.permission === 'granted';
 async function pushCall(path, body, keepalive = true) {   // keepalive erlaubt nur 64 KB, für PDFs false
-  const r = await fetch(PUSH_URL + path, { method: 'POST', keepalive, headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const ac = appCheckOn ? (await firebase.appCheck().getToken().catch(() => null))?.token : '';   // reicht der Push-Dienst an Firestore weiter
+  const r = await fetch(PUSH_URL + path, { method: 'POST', keepalive, headers: { Authorization: 'Bearer ' + await me.getIdToken(), 'Content-Type': 'application/json', ...(ac ? { 'X-Firebase-AppCheck': ac } : {}) }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Push-Dienst antwortet nicht');
   return r.json();
 }
@@ -1777,13 +1778,14 @@ async function manageAbo() {
 }
 // ---------- Firmen-Abo (Dominik, 25.11.2026) ----------
 // 9,99 € im Monat inklusive Geschäftsführer plus 3,49 € je freigegebenem Mitarbeiter, die ersten 14 Tage kostenlos.
+// Jährlich (Dominik, 26.11.2026): 99,99 € plus 34,99 € je Mitarbeiter.
 // Der Push-Dienst (/firma) prüft Testzeit und Abo und gleicht dabei die Zahl der Mitarbeiter mit Stripe ab.
 // Nach der Testzeit ohne Abo: kein Pro über die Firma, Geschäftsführer sehen nur noch sich selbst (teamPeople in cloud.js).
-const FIRMA_PRICE = { grund: 9.99, ma: 3.49 };   // muss zu Stripe passen (firma_grund, firma_ma im Push-Dienst)
-const firmAbos = {};   // cid -> { aktiv, ok, test, bis, endet, ma, chef } vom Push-Dienst, auf dem Gerät zwischengespeichert
+const FIRMA_PRICE = { monat: { grund: 9.99, ma: 3.49 }, jahr: { grund: 99.99, ma: 34.99 } };   // muss zu FIRMA_PREISE im Push-Dienst passen
+const firmAbos = {};   // cid -> { aktiv, ok, test, bis, endet, plan, ma, chef } vom Push-Dienst, auf dem Gerät zwischengespeichert
 const firmOk = id => { const a = firmAbos[id]; return !a || (a.aktiv && (!a.bis || a.bis > Date.now() - 3 * 864e5)) || a.test > Date.now(); };   // unbekannt = ja
 const firmMa = () => members.filter(m => m.status === 'active').length;
-const firmSum = n => eur(FIRMA_PRICE.grund + n * FIRMA_PRICE.ma);
+const firmBetrag = (n, p) => FIRMA_PRICE[p].grund + n * FIRMA_PRICE[p].ma, firmSum = (n, p = 'monat') => eur(firmBetrag(n, p));
 // Beim Laden der Firma und bei jeder Änderung der Mitarbeiterzahl (Freigeben, Entfernen, Austreten) neu fragen
 async function loadFirm(id = company?.id) {
   if (!id || ADMIN_APP || !me) return;
@@ -1807,8 +1809,8 @@ function watchFirm(id) {   // nach dem Bezahlen fragen, bis Stripe das Abo melde
     if (firmAbos[id]?.aktiv) toast('Danke! Das Firmen-Abo läuft.');
   }, 4000);
 }
-async function buyFirm() {
-  try { const { url } = await pushCall('/firma-kaufen', { cid: company.id }); watchFirm(company.id); location.href = url; }
+async function buyFirm(plan) {
+  try { const { url } = await pushCall('/firma-kaufen', { cid: company.id, plan }); watchFirm(company.id); location.href = url; }
   catch (e) { alert('Die Bezahlseite lässt sich gerade nicht öffnen: ' + e.message); }
 }
 async function manageFirm() {
@@ -1818,14 +1820,16 @@ function firmAboHtml() {   // Setup → Team, nur Geschäftsführer
   const a = firmAbos[company.id], n = firmMa();
   if (!a) return '';
   if (a.aktiv) return `<div class="label">Firmen-Abo</div><div class="group">
-    <div class="row"><span><b class="green">✓ Aktiv</b><div class="muted small">${n} Mitarbeiter · ${firmSum(n)} im Monat${a.endet ? ' · endet am ' + dmy(ymd(new Date(a.bis))) : ''}</div></span></div>
+    <div class="row"><span><b class="green">✓ Aktiv</b><div class="muted small">${n} Mitarbeiter · ${a.plan === 'jahr' ? firmSum(n, 'jahr') + ' im Jahr' : firmSum(n) + ' im Monat'}${a.endet ? ' · endet am ' + dmy(ymd(new Date(a.bis))) : ''}</div></span></div>
     <button class="row" onclick="manageFirm()"><span>Abo verwalten<div class="muted small">Rechnungen, Zahlungsart, Rechnungsadresse, kündigen</div></span><span class="muted">›</span></button></div>`;
-  const tage = Math.ceil((a.test - Date.now()) / 864e5);
+  const tage = Math.ceil((a.test - Date.now()) / 864e5), m = FIRMA_PRICE.monat, j = FIRMA_PRICE.jahr;
+  const spar = Math.round((1 - firmBetrag(n, 'jahr') / (12 * firmBetrag(n, 'monat'))) * 100);
   return `<div class="label">Firmen-Abo</div><div class="card">
     <p style="margin:0 0 8px">${tage > 0 ? `<b>Testzeit: noch ${tage} Tag${tage === 1 ? '' : 'e'} kostenlos.</b>${tage > 2 ? ' Schließt du schon jetzt ab, bleibt der Rest der Testzeit kostenlos.' : ''}`
       : '<b class="red">Die Testzeit ist abgelaufen.</b> Schließ das Firmen-Abo ab, damit du die Zeiten deiner Mitarbeiter wieder siehst und alle Pro behalten.'}</p>
-    <p class="muted small" style="margin:0 0 12px">${eur(FIRMA_PRICE.grund)} im Monat inklusive dir als Geschäftsführer, dazu ${eur(FIRMA_PRICE.ma)} je Mitarbeiter. Bei ${n} Mitarbeiter${n === 1 ? '' : 'n'} sind das <b>${firmSum(n)} im Monat</b>. Deine Mitarbeiter haben damit Pro. Monatlich kündbar, Rechnung auf deine Firma, auf Wunsch mit USt-IdNr.</p>
-    <button class="big" onclick="buyFirm()">Firmen-Abo abschließen</button></div>`;
+    <p class="muted small" style="margin:0 0 12px">${eur(m.grund)} im Monat oder ${eur(j.grund)} im Jahr inklusive dir als Geschäftsführer, dazu ${eur(m.ma)} bzw. ${eur(j.ma)} je Mitarbeiter. Bei ${n} Mitarbeiter${n === 1 ? '' : 'n'} sind das <b>${firmSum(n)} im Monat</b> oder <b>${firmSum(n, 'jahr')} im Jahr</b>. Deine Mitarbeiter haben damit Pro. Rechnung auf deine Firma, auf Wunsch mit USt-IdNr.</p>
+    <button class="big" onclick="buyFirm('monat')">Monatlich · ${firmSum(n)}</button>
+    <button class="pill wide" style="margin-top:8px" onclick="buyFirm('jahr')">Jährlich · ${firmSum(n, 'jahr')} <span class="green">· ${spar} % gespart</span></button></div>`;
 }
 const cancelBtn = () => `<a class="pill wide" href="${WEB}kuendigen.html" target="_blank" rel="noopener">Verträge hier kündigen</a>`;
 

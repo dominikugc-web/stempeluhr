@@ -602,3 +602,4 @@ label.row:has(>input:not([type=checkbox]):not([type=color]):not(.full)),label.ro
 .erow:has(+ .erow2){border-bottom:0;padding-bottom:6px}
 .erow2{gap:8px;padding-top:0;min-height:0}
 .erow2 select{flex:1;min-width:0}
+.grecaptcha-badge{visibility:hidden}   /* reCAPTCHA-Hinweis steht stattdessen auf der Anmeldeseite (App Check) */

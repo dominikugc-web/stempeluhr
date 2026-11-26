@@ -10,6 +10,7 @@ let fb = null, me = null;
 let own = {};               // letzte Snapshots der eigenen Dokumente: { shared, priv, sharedSeen, privSeen }
 let cid = undefined;        // Firma laut eigenem Datendokument
 let company, membership, members = [], teamStats = {}; // undefined = lädt noch, null = gibt es nicht / kein Zugriff
+let appCheckOn = false;     // App Check aktiv (reCAPTCHA-Schlüssel in firebase-config.js)
 let companyAdmin = {};      // companies/{cid}/admin/settings: gemeinsame Einstellungen der Geschäftsführer
 // Mehrere Firmen: myCompanies = alle Firmen, die ich gegründet habe. Meine eigenen Zeiten gehören zu cid (eigene Firma),
 // angezeigt wird die gewählte Firma (company). Andere Firmen werden wie beim Entwickler „acting“ beobachtet.
@@ -126,6 +127,9 @@ function startCloud() {
     return;
   }
   firebase.initializeApp(c);
+  // App Check (Dominik, 26.11.2026): reCAPTCHA v3 prüft unsichtbar, ob Anfragen aus der echten App kommen.
+  // Erzwungen wird es erst in der Firebase-Konsole (App Check → Cloud Firestore), vorher nur gemessen.
+  if (!emu && c.appCheckKey && firebase.appCheck) { firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(c.appCheckKey), true); appCheckOn = true; }
   fb = { auth: firebase.auth(), db: firebase.firestore() };
   if (emu) { fb.auth.useEmulator('http://127.0.0.1:9099'); fb.db.useEmulator('127.0.0.1', 8080); }
   fb.db.settings({ ignoreUndefinedProperties: true, merge: true });
@@ -474,7 +478,8 @@ function renderLogin(mode = 'login') {
   <button class="pill sm mid" onclick="renderLogin('${signup ? 'login' : 'signup'}')">${signup ? 'Ich habe schon ein Konto' : 'Neues Konto erstellen'}</button>
   ${signup ? '' : '<p class="center"><button class="muted small" onclick="resetPassword()">Passwort vergessen?</button></p>'}
   ${joinCode ? `<p class="hint center">Nach der Anmeldung trittst du der Firma mit dem Code ${esc(joinCode)} bei.</p>` : ''}
-  <p class="hint center">${signup ? 'Mit dem Erstellen des Kontos gilt unsere ' : ''}<a class="link" href="${WEB}datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> · <a class="link" href="${WEB}impressum.html" target="_blank" rel="noopener">Impressum</a></p>`;
+  <p class="hint center">${signup ? 'Mit dem Erstellen des Kontos gilt unsere ' : ''}<a class="link" href="${WEB}datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> · <a class="link" href="${WEB}impressum.html" target="_blank" rel="noopener">Impressum</a></p>
+  ${appCheckOn ? '<p class="hint center small">Geschützt durch reCAPTCHA. Es gelten die <a class="link" href="https://policies.google.com/privacy" target="_blank" rel="noopener">Datenschutzerklärung</a> und <a class="link" href="https://policies.google.com/terms" target="_blank" rel="noopener">Nutzungsbedingungen</a> von Google.</p>' : ''}`;
 }
 // Anmeldedaten im Passwort-Speicher des Geräts ablegen (nie in der App selbst). iPhone fragt beim Absenden des Formulars selbst,
 // Chrome/Android über PasswordCredential. Die Wahl des Häkchens merkt sich das Gerät.
@@ -697,7 +702,7 @@ function companyForm(extra) {
   <div class="group"><label class="row"><span>Name der Firma</span><input id="cname" placeholder="z. B. Muster GmbH"></label></div>
   <p class="hint">${extra ? 'Die neue Firma bekommt einen eigenen Einladungscode, eigene Mitarbeiter, eigene Firmendaten und einen eigenen Lohn-Export. Zwischen deinen Firmen wechselst du oben im Team-Bereich. Deine eigenen Zeiten bleiben bei deiner bisherigen Firma.'
     : 'Du bekommst einen Einladungscode. Mitarbeiter geben ihn in ihrer App ein, du gibst sie dann frei und siehst ihre Zeiten.'}</p>
-  <p class="hint">${extra ? 'Jede Firma hat ihr eigenes Firmen-Abo. Die 14 Tage Testzeit zählen ab deiner ersten Firma.' : 'Die ersten 14 Tage sind kostenlos.'} Danach kostet das Firmen-Abo ${eur(FIRMA_PRICE.grund)} im Monat inklusive dir, dazu ${eur(FIRMA_PRICE.ma)} je Mitarbeiter. Deine Mitarbeiter haben damit Pro.</p>`);
+  <p class="hint">${extra ? 'Jede Firma hat ihr eigenes Firmen-Abo. Die 14 Tage Testzeit zählen ab deiner ersten Firma.' : 'Die ersten 14 Tage sind kostenlos.'} Danach kostet das Firmen-Abo ${eur(FIRMA_PRICE.monat.grund)} im Monat inklusive dir, dazu ${eur(FIRMA_PRICE.monat.ma)} je Mitarbeiter, jährlich ${eur(FIRMA_PRICE.jahr.grund)} plus ${eur(FIRMA_PRICE.jahr.ma)}. Deine Mitarbeiter haben damit Pro.</p>`);
 }
 async function createCompany(extra) {
   if (!me.emailVerified) { await me.reload().catch(() => {}); if (me.emailVerified) await me.getIdToken(true); }

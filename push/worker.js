@@ -49,7 +49,7 @@ async function verifyToken(tok, env) {
 // ---------- Firestore lesen als der anfragende Nutzer (dessen Regeln gelten) ----------
 // Lokal: FS_URL / AUTH_URL zeigen auf die Emulatoren. Liefert das Dokument oder null (fehlt / kein Zugriff).
 async function fsGet(env, raw, path) {
-  const r = await fetch(`${env.FS_URL || 'https://firestore.googleapis.com/v1'}/projects/${PROJECT}/databases/(default)/documents/${path}`, { headers: { Authorization: 'Bearer ' + raw } }).catch(() => null);
+  const r = await fetch(`${env.FS_URL || 'https://firestore.googleapis.com/v1'}/projects/${PROJECT}/databases/(default)/documents/${path}`, { headers: { Authorization: 'Bearer ' + raw, ...(env.AC ? { 'X-Firebase-AppCheck': env.AC } : {}) } }).catch(() => null);
   return r?.ok ? r.json() : null;
 }
 const fsStr = (d, k) => d?.fields?.[k]?.stringValue;
@@ -74,7 +74,7 @@ async function saToken(env) {
 async function proServer(env, uid, raw) {
   if (ADMIN_UIDS.includes(uid)) return true;
   const look = await fetch(`${env.AUTH_URL || 'https://identitytoolkit.googleapis.com/v1'}/accounts:lookup?key=${WEB_KEY}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Referer: 'https://dayliner.de/' }, body: JSON.stringify({ idToken: raw }) }).then(r => r.ok ? r.json() : null).catch(() => null);
+    method: 'POST', headers: { 'Content-Type': 'application/json', Referer: 'https://dayliner.de/', ...(env.AC ? { 'X-Firebase-AppCheck': env.AC } : {}) }, body: JSON.stringify({ idToken: raw }) }).then(r => r.ok ? r.json() : null).catch(() => null);
   if (+look?.users?.[0]?.createdAt && +look.users[0].createdAt < PRO_OLD) return true;
   if (await fsGet(env, raw, 'betaSlots/' + uid)) return true;
   const cid = fsStr(await fsGet(env, raw, 'data/' + uid), 'cid');
@@ -162,14 +162,18 @@ async function aboStatus(env, uid, key = 'kunde:' + uid) {
 // ---------- Firmen-Abo (Dominik, 25.11.2026) ----------
 // 9,99 € im Monat inklusive Geschäftsführer, dazu 3,49 € je freigegebenem Mitarbeiter. 14 Tage Testzeit ab der ersten
 // Firma des Gründers (KV „firmtest:<uid>“, Firmen von vor dem Start ab FIRMA_START). Stripe-Kunde je Firma in KV
-// „firmkunde:<cid>“. Die Preise legt der Dienst bei Bedarf selbst an (lookup_key firma_grund / firma_ma).
+// „firmkunde:<cid>“. Die Preise legt der Dienst bei Bedarf selbst an (lookup_key firma_grund / firma_ma, jährlich mit _jahr:
+// 99,99 € plus 34,99 € je Mitarbeiter, Dominik 26.11.2026).
 const FIRMA_START = Date.parse('2026-11-25T00:00:00+01:00'), FIRMA_TEST = 14 * 864e5;
-const FIRMA_PREISE = { firma_grund: [999, 'Dayliner Firma (Grundpreis inklusive Geschäftsführer)'], firma_ma: [349, 'Dayliner Firma je Mitarbeiter'] };
+const FIRMA_PREISE = {
+  firma_grund: [999, 'Dayliner Firma (Grundpreis inklusive Geschäftsführer)', 'month'], firma_ma: [349, 'Dayliner Firma je Mitarbeiter', 'month'],
+  firma_grund_jahr: [9999, 'Dayliner Firma jährlich (Grundpreis inklusive Geschäftsführer)', 'year'], firma_ma_jahr: [3499, 'Dayliner Firma jährlich je Mitarbeiter', 'year'],
+};
 async function preis(env, key) {
   const p = (await stripe(env, 'prices', { 'lookup_keys[]': key, active: 'true' }, 'GET')).data[0];
   if (p) return p;
-  const [cent, name] = FIRMA_PREISE[key];
-  return stripe(env, 'prices', { currency: 'eur', unit_amount: String(cent), 'recurring[interval]': 'month', lookup_key: key, 'product_data[name]': name });
+  const [cent, name, interval] = FIRMA_PREISE[key];
+  return stripe(env, 'prices', { currency: 'eur', unit_amount: String(cent), 'recurring[interval]': interval, lookup_key: key, 'product_data[name]': name });
 }
 // Freigegebene Mitarbeiter zählen. Die Liste lesen dürfen nur Geschäftsführer, sonst null.
 async function maZahl(env, raw, cid) {
@@ -205,11 +209,12 @@ async function firmaBezahlt(env, cid, c, st) {
 async function firmaSync(env, cid, ma) {
   const cus = await env.SUBS.get('firmkunde:' + cid), s = cus && (await liveSubs(env, cus))[0];
   if (!s) return;
-  const it = s.items.data.find(i => i.price.lookup_key === 'firma_ma');
+  const it = s.items.data.find(i => i.price.lookup_key?.startsWith('firma_ma'));
   if (it ? it.quantity === ma : !ma) return;
-  if (it && !ma) await stripe(env, 'subscription_items/' + it.id, null, 'DELETE');
-  else if (it) await stripe(env, 'subscription_items/' + it.id, { quantity: String(ma) });
-  else await stripe(env, 'subscription_items', { subscription: s.id, price: (await preis(env, 'firma_ma')).id, quantity: String(ma) });
+  const jahr = s.items.data[0].price.recurring?.interval === 'year', pro = jahr ? { proration_behavior: 'always_invoice' } : {};
+  if (it && !ma) await stripe(env, 'subscription_items/' + it.id + (jahr ? '?proration_behavior=always_invoice' : ''), null, 'DELETE');
+  else if (it) await stripe(env, 'subscription_items/' + it.id, { quantity: String(ma), ...pro });
+  else await stripe(env, 'subscription_items', { subscription: s.id, price: (await preis(env, jahr ? 'firma_ma_jahr' : 'firma_ma')).id, quantity: String(ma), ...pro });
 }
 // E-Mail über Resend (Geheimnis RESEND_KEY, Domain dayliner.de dort bestätigt). Kopie an service@dayliner.de.
 // Entwickler-Übersicht: laufende Abos (mit uid aus den Metadaten) und Einnahmen netto nach Erstattungen.
@@ -326,11 +331,12 @@ export default {
   },
   async fetch(req, env) {
     const origin = req.headers.get('Origin') || '';
-    const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Name', 'Access-Control-Allow-Methods': 'POST' };
+    const cors = { 'Access-Control-Allow-Origin': ORIGINS.includes(origin) ? origin : ORIGINS[0], 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Name, X-Firebase-AppCheck', 'Access-Control-Allow-Methods': 'POST' };
     const out = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
     if (req.method !== 'POST') return out({ ok: true, vapid: VAPID_PUBLIC });
     const path = new URL(req.url).pathname;
+    env = { ...env, AC: req.headers.get('X-Firebase-AppCheck') || '' };   // App-Check-Nachweis der App, geht mit an Firestore und die Anmeldung
     if (path === '/kuendigen') {   // ohne Anmeldung, von dayliner.de/web/kuendigen.html
       try { return out(...await kuendigen(await req.json().catch(() => ({})), env, req.headers.get('CF-Connecting-IP') || '')); }
       catch (e) { return out({ error: 'Das hat nicht geklappt. Bitte schreib an service@dayliner.de.' }, 500); }
@@ -393,7 +399,7 @@ export default {
         if (path === '/firma') {
           if (ma != null && st.aktiv) await firmaSync(env, cid, ma).catch(() => {});
           await firmaBezahlt(env, cid, c, st).catch(e => console.log(e.message));
-          return out({ aktiv: !!st.aktiv, ok: st.ok, test: st.test, bis: st.bis || 0, endet: !!st.endet, ma, chef: ma != null });
+          return out({ aktiv: !!st.aktiv, ok: st.ok, test: st.test, bis: st.bis || 0, endet: !!st.endet, plan: st.plan || '', ma, chef: ma != null });
         }
         if (ma == null) return out({ error: 'Nur für Geschäftsführer.' }, 403);
         let cus = await env.SUBS.get('firmkunde:' + cid);
@@ -403,7 +409,7 @@ export default {
         }
         if (st.aktiv) return out({ error: 'Die Firma hat schon ein Abo.' }, 400);
         if (!cus) { cus = (await stripe(env, 'customers', { email: tok.email || '', name: (fsStr(c, 'name') || '').slice(0, 200), 'metadata[cid]': cid, 'metadata[uid]': uid })).id; await env.SUBS.put('firmkunde:' + cid, cus); }
-        const [grund, je] = await Promise.all([preis(env, 'firma_grund'), preis(env, 'firma_ma')]);
+        const jahr = b.plan === 'jahr', [grund, je] = await Promise.all([preis(env, jahr ? 'firma_grund_jahr' : 'firma_grund'), preis(env, jahr ? 'firma_ma_jahr' : 'firma_ma')]);
         const s = await stripe(env, 'checkout/sessions', {
           mode: 'subscription', customer: cus, client_reference_id: uid, locale: 'de',
           'line_items[0][price]': grund.id, 'line_items[0][quantity]': '1',
@@ -411,7 +417,9 @@ export default {
           'subscription_data[metadata][cid]': cid, 'subscription_data[metadata][uid]': uid,
           ...(st.test - Date.now() > 2 * 864e5 ? { 'subscription_data[trial_end]': String(Math.floor(st.test / 1000)) } : {}),   // Rest der Testzeit (Stripe: mindestens 48 Std.)
           billing_address_collection: 'required', 'tax_id_collection[enabled]': 'true', 'customer_update[name]': 'auto', 'customer_update[address]': 'auto',
-          'custom_text[submit][message]': 'Mit „Abonnieren“ bestellst du das Dayliner Firmen-Abo zahlungspflichtig: 9,99 € im Monat inklusive Geschäftsführer, dazu 3,49 € je freigegebenem Mitarbeiter. Gibst du Mitarbeiter frei oder entfernst sie, passt sich der Betrag anteilig an. Es gelten die AGB (dayliner.de/web/agb.html). Das Abo verlängert sich monatlich und ist jederzeit zum Monatsende kündbar. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+          'custom_text[submit][message]': jahr
+            ? 'Mit „Abonnieren“ bestellst du das Dayliner Firmen-Abo jährlich zahlungspflichtig: 99,99 € im Jahr inklusive Geschäftsführer, dazu 34,99 € je freigegebenem Mitarbeiter. Neue Mitarbeiter werden anteilig für den Rest des Jahres sofort abgerechnet, entfernte als Guthaben verrechnet. Es gelten die AGB (dayliner.de/web/agb.html). Das Abo verlängert sich um ein Jahr und ist zum Ende der Laufzeit kündbar. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.'
+            : 'Mit „Abonnieren“ bestellst du das Dayliner Firmen-Abo zahlungspflichtig: 9,99 € im Monat inklusive Geschäftsführer, dazu 3,49 € je freigegebenem Mitarbeiter. Gibst du Mitarbeiter frei oder entfernst sie, passt sich der Betrag anteilig an. Es gelten die AGB (dayliner.de/web/agb.html). Das Abo verlängert sich monatlich und ist jederzeit zum Monatsende kündbar. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
           success_url: back + '?s=ok', cancel_url: back + '?s=abbruch',
         });
         return out({ url: s.url });
