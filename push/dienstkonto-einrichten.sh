@@ -1,13 +1,25 @@
 #!/bin/bash
 # Dienstkonto für den Push-Dienst einrichten: prüft die heruntergeladene JSON-Schlüsseldatei, testet sie bei Google,
 # speichert sie als Cloudflare-Geheimnis FB_SA und löscht danach auf Wunsch die Datei. Der Schlüssel wird nirgends angezeigt.
-# Start: bash push/dienstkonto-einrichten.sh   (Datei dann ins Terminal-Fenster ziehen, Enter)
+# Start: bash push/dienstkonto-einrichten.sh   (nimmt die neueste stempeluhr-6faae-*.json aus Downloads, sonst Datei ins Fenster ziehen)
 set -e
 cd "$(dirname "$0")"
 echo
-echo "Zieh die heruntergeladene JSON-Datei des Dienstkontos in dieses Fenster und drück Enter."
-read -r -p "Datei: " F
-F="${F%\"}"; F="${F#\"}"; F="${F%\'}"; F="${F#\'}"; F="${F%% }"; F="${F//\\ / }"
+# Neueste Schlüsseldatei im Download-Ordner nehmen (Google nennt sie stempeluhr-6faae-<id>.json), sonst nach dem Pfad fragen
+F="$(ls -t ~/Downloads/stempeluhr-6faae-*.json 2>/dev/null | head -1)"
+if [ -n "$F" ]; then
+  read -r -p "Gefunden: $(basename "$F"). Diese Datei nehmen? (j/n) " J
+  [ "$J" = "j" ] || F=""
+fi
+if [ -z "$F" ]; then
+  echo "Zieh die JSON-Datei (das Symbol, nicht den Inhalt) in dieses Fenster und drück Enter."
+  read -r -p "Datei: " F
+  if [ "${F:0:1}" = "{" ]; then   # Inhalt statt Pfad eingefügt: Rest schlucken, damit die Shell ihn nicht ausführt
+    while read -r -t 1 _; do :; done
+    echo "Das war der Inhalt der Datei, nicht der Pfad. Bitte die Datei im Finder anfassen und ins Fenster ziehen. Nichts geändert."; exit 1
+  fi
+  F="${F%\"}"; F="${F#\"}"; F="${F%\'}"; F="${F#\'}"; F="${F%% }"; F="${F//\\ / }"
+fi
 [ -f "$F" ] || { echo "Die Datei gibt es nicht: $F. Nichts geändert."; exit 1; }
 # Prüfen: richtiges Projekt, Dienstkonto-Schlüssel, Token bei Google holen, eine Firma lesen (nur Statuscode)
 node --input-type=module - "$F" <<'EOF'
