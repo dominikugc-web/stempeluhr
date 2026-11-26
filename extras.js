@@ -2016,12 +2016,15 @@ const lastPrj = () => { const l = data.sessions.filter(x => x.prj).sort((a, b) =
 const curPrj = () => { const run = data.sessions.find(x => x.e == null); return run ? run.prj || null : prjNext !== undefined ? prjNext : lastPrj(); };
 function prjStart() { if (!prjOn()) return {}; const p = curPrj(); prjNext = undefined; return p ? { prj: p } : {}; }
 
-// Startseite: Projekt wählen bzw. wechseln, Fahrt starten
+// Startseite: Projekt wählen bzw. wechseln, Fahrt starten. Nur wenn es aktive Projekte gibt und der Nutzer die Zeile
+// nicht unter Setup → Projekte ausgeschaltet hat (Dominik, 26.11.2026). Ein laufender Projekt- oder Fahrtblock bleibt sichtbar.
+const prjHome = () => data.settings.prjHome !== false;
+function prjHomeSet(on) { data.settings.prjHome = on; save(); updateStart(); toast(on ? 'Projekte stehen auf der Startseite' : 'Projekte von der Startseite ausgeblendet'); }
 function prjRowUpdate(state) {
   const row = $('#prjrow'); if (!row) return;
-  const on = prjOn() && (!viewing || asSelf());
-  row.hidden = !on; if (!on) return;
   const run = data.sessions.find(x => x.e == null), fahrt = run?.t === 'f', p = curPrj();
+  const on = prjOn() && (!viewing || asSelf()) && (fahrt || !!run?.prj || (prjHome() && prjActive().length > 0));
+  row.hidden = !on; if (!on) return;
   const key = [state, p, fahrt, prjList().length].join('|');
   if (row.dataset.k === key) return;
   row.dataset.k = key;
@@ -2111,6 +2114,7 @@ function prjTopicHtml() {
   const sums = Object.fromEntries(prjSums([data], '2000-01-01', '2999-12-31').map(x => [x.id, x.work + x.fahrt]));
   const row = p => `<button class="row" onclick="prjForm(${jsArg(p.id)})"><span>${esc(p.name)}${prjInfo(p) ? `<div class="muted small">${esc(prjInfo(p))}</div>` : ''}</span><span class="muted">${sums[p.id] ? hm(sums[p.id]) + ' Std. ' : ''}›</span></button>`;
   return `<p class="hint" style="margin-top:0">Ordne deine Zeiten Baustellen, Kunden oder Kommissionen zu. Auf der Startseite wählst du das Projekt, wechselst ohne Pause und stempelst Fahrten. Fahrzeit zählt als Arbeitszeit und wird getrennt ausgewiesen.${prjCid() ? ' In deiner Firma nutzen alle dieselbe Liste.' : ''}</p>
+  <div class="group"><label class="row"><span>Auf der Startseite zeigen<div class="muted small">Projektwahl und Fahrt unter der Uhr, sobald es ein aktives Projekt gibt</div></span><input type="checkbox" ${prjHome() ? 'checked' : ''} onchange="prjHomeSet(this.checked)"></label></div>
   <button class="pill wide" onclick="prjForm(null)">➕ Neues Projekt</button>
   ${act.length ? `<div class="label">Aktiv</div><div class="group">${act.map(row).join('')}</div>` : '<p class="hint center">Noch keine Projekte.</p>'}
   ${done.length ? `<details class="month"><summary><span>Abgeschlossen (${done.length})</span></summary><div class="group">${done.map(row).join('')}</div></details>` : ''}
